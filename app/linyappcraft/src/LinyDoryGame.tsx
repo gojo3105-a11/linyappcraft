@@ -427,6 +427,7 @@ export default function LinyDoryGame() {
   const [popKind, setPopKind]     = useState<'combo'|'special'>('combo');
   const [shakeCells, setShakeCells] = useState<string[]>([]);
   const [flames, setFlames]       = useState<{id:number;r:number;c:number}[]>([]);
+  const [blocksPopped, setBlocksPopped] = useState(0);
   const [screenShake, setScreenShake] = useState(false);
   const [confetti, setConfetti]   = useState<{id:number;left:number;delay:number;color:string;e:string}[]>([]);
   const [coinsEarned, setCoinsEarned] = useState(0);
@@ -669,7 +670,7 @@ export default function LinyDoryGame() {
     sessionBlocksRef.current=0; sessionSpecialsRef.current=0;
     continuesUsedRef.current=0; pausedRef.current=false;
     setFlames([]); setScreenShake(false); setConfetti([]); setCoinsEarned(0);
-    setContinuesUsed(0); setContinueOffer(false);
+    setContinuesUsed(0); setContinueOffer(false); setBlocksPopped(0);
     primeAudio();
     const mv = (lvl as {moves?:number}).moves ?? 0; movesRef.current=mv;
     setLvlIdx(idx); setGrid(g); setScore(0); setTime((lvl as {sec?:number}).sec ?? 0);
@@ -709,6 +710,7 @@ export default function LinyDoryGame() {
           // 퀘스트 집계: 터트린 블럭 수 / 만든 특수 블럭 수
           sessionBlocksRef.current   += res.hits.size;
           sessionSpecialsRef.current += res.newSpec.size;
+          setBlocksPopped(n => n + res.hits.size);
           // 폭탄이 터지면 불길 효과 + 화면 흔들림
           const bombHit = [...res.hits].some(k => { const [r,c]=k.split(',').map(Number); return g[r][c]?.kind==='bomb'; });
           if (bombHit) { spawnFlames(res.hits); kickScreen(); sfx.explode(); }
@@ -784,6 +786,7 @@ export default function LinyDoryGame() {
       hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell=sw[rr][cc]; if(cell) cell.hit=true; });
       inc(hits.size*120);
       sessionBlocksRef.current += hits.size;
+      setBlocksPopped(n => n + hits.size);
       spawnFlames(hits); kickScreen(); sfx.explode(); buzz(25);
       pop((srcSpec ? sw[r][c]?.kind : sw[sr][sc]?.kind) === 'bomb' ? '💣 BOOM!' : '⚡ ZAP!', 'special');
     }
@@ -814,6 +817,7 @@ export default function LinyDoryGame() {
     hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell2=sw[rr][cc]; if(cell2) cell2.hit=true; });
     inc(hits.size*80);
     sessionBlocksRef.current += hits.size;
+    setBlocksPopped(n => n + hits.size);
     spawnFlames(hits); kickScreen(); sfx.explode(); buzz(25); // 아이템 사용 시 불길 효과
     pop(kind==='bomb' ? '💣 폭탄 발동!' : '🔨 망치 발동!', 'special');
     dirtyRef.current = true;
@@ -1483,6 +1487,26 @@ export default function LinyDoryGame() {
         </div>
       </div>
 
+      {/* 목표 점수 · 터트린 블럭 수 표시 */}
+      {(() => {
+        const nextGoal = score < lvl.goal[0] ? lvl.goal[0] : score < lvl.goal[1] ? lvl.goal[1] : lvl.goal[2];
+        const goalDone = score >= lvl.goal[2];
+        return (
+          <div style={{ flexShrink:0, position:'relative', zIndex:10, display:'flex', justifyContent:'center', gap:8, margin:'6px 10px 0' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(255,255,255,0.88)', borderRadius:999, padding:'4px 12px', boxShadow:'0 2px 6px rgba(0,0,0,0.18)' }}>
+              <span style={{ fontSize:12 }}>🎯</span>
+              <span style={{ fontSize:11, fontWeight:800, color:'#888' }}>목표</span>
+              <span style={{ fontSize:13, fontWeight:900, color: goalDone ? '#2E9E4F' : '#FF6F00' }}>{goalDone ? '달성! ⭐⭐⭐' : nextGoal.toLocaleString()}</span>
+            </div>
+            <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(255,255,255,0.88)', borderRadius:999, padding:'4px 12px', boxShadow:'0 2px 6px rgba(0,0,0,0.18)' }}>
+              <span style={{ fontSize:12 }}>🧱</span>
+              <span style={{ fontSize:11, fontWeight:800, color:'#888' }}>터트린 블럭</span>
+              <span style={{ fontSize:13, fontWeight:900, color:'#1565C0' }}>{blocksPopped.toLocaleString()}</span>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Hint button */}
       {phase==='play' && (
         <div style={{ position:'absolute', top:'calc(var(--sat) + 8px)', right:10, zIndex:15, pointerEvents:'none' }}>
@@ -1702,8 +1726,9 @@ export default function LinyDoryGame() {
           </div>
           <div style={{ textAlign:'center' }}>
             <div style={{ fontSize:'clamp(10px,2.8vw,12px)', color:'white', opacity:0.5, marginBottom:4 }}>{isTime?`⏱ ${(lvl as {sec?:number}).sec}초 도전`:`🎯 ${(lvl as {moves?:number}).moves}수 도전`}</div>
-            <div style={{ fontSize:'clamp(12px,3.5vw,14px)', color:'white', opacity:0.6 }}>최종 점수</div>
+            <div style={{ fontSize:'clamp(12px,3.5vw,14px)', color:'white', opacity:0.6 }}>최종 점수 · 목표 {lvl.goal[0].toLocaleString()}</div>
             <div style={{ fontSize:'clamp(32px,10vw,48px)', fontWeight:900, color:'white', marginTop:4 }}>{score.toLocaleString()}</div>
+            <div style={{ fontSize:'clamp(10px,2.8vw,12px)', color:'white', opacity:0.55, marginTop:2 }}>🧱 터트린 블럭 {blocksPopped.toLocaleString()}개</div>
             <div style={{ fontSize:'clamp(11px,3vw,12px)', color:'white', opacity:0.5, marginTop:8, lineHeight:1.6 }}>
               {nearMiss ? `목표까지 ${(lvl.goal[0]-score).toLocaleString()}점 남았어요!` : endStars===0?'아쉬워요… 다시 도전!':endStars===1?'좋아요! 더 잘할 수 있어요':endStars===2?'훌륭해요! 조금만 더!':'완벽해요! 대단해요! 🎉'}
             </div>
