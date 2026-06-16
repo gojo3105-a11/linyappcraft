@@ -1251,7 +1251,8 @@ export default function LinyDoryGame() {
 
   // ── Main ──────────────────────────────────────────────────────────────────────
   if (phase === 'main') {
-    const nextLvl    = progress.findIndex(s => s === 0);
+    // 다음 스테이지는 별 3개를 모두 얻어야 잠금 해제 — 아직 3별이 아닌 첫 스테이지가 현재 도전 대상
+    const nextLvl    = progress.findIndex(s => s < 3);
     const stageIdx   = nextLvl === -1 ? LEVELS.length - 1 : nextLvl;
     const totalStars = progress.reduce((a, b) => a + b, 0);
     const lvlCfg     = LEVELS[stageIdx];
@@ -1382,7 +1383,7 @@ export default function LinyDoryGame() {
 
   // ── Map ───────────────────────────────────────────────────────────────────────
   if (phase === 'map') {
-    const isUnlocked = (i:number) => i===0 || progress[i-1]>=1;
+    const isUnlocked = (i:number) => i===0 || progress[i-1]>=3;
     const totalStars = progress.reduce((a,b)=>a+b,0);
     return (
       <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100vh', userSelect:'none', background:'linear-gradient(180deg,#1565C0 0%,#0D47A1 60%,#0A2E6E 100%)', overflow:'hidden' }}>
@@ -1487,21 +1488,23 @@ export default function LinyDoryGame() {
         </div>
       </div>
 
-      {/* 목표 점수 · 터트린 블럭 수 표시 */}
+      {/* 목표 점수(별 3개) · 남은 터트릴 블럭 수 표시 */}
       {(() => {
-        const nextGoal = score < lvl.goal[0] ? lvl.goal[0] : score < lvl.goal[1] ? lvl.goal[1] : lvl.goal[2];
-        const goalDone = score >= lvl.goal[2];
+        const goal3 = lvl.goal[2];                 // 별 3개 목표 점수
+        const goalDone = score >= goal3;
+        // 남은 점수를 블럭 개수로 환산(블럭당 기본 100점) — 목표까지 대략 더 터트릴 블럭 수
+        const blocksLeft = Math.max(0, Math.ceil((goal3 - score) / 100));
         return (
           <div style={{ flexShrink:0, position:'relative', zIndex:10, display:'flex', justifyContent:'center', gap:8, margin:'6px 10px 0' }}>
             <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(255,255,255,0.88)', borderRadius:999, padding:'4px 12px', boxShadow:'0 2px 6px rgba(0,0,0,0.18)' }}>
               <span style={{ fontSize:12 }}>🎯</span>
-              <span style={{ fontSize:11, fontWeight:800, color:'#888' }}>목표</span>
-              <span style={{ fontSize:13, fontWeight:900, color: goalDone ? '#2E9E4F' : '#FF6F00' }}>{goalDone ? '달성! ⭐⭐⭐' : nextGoal.toLocaleString()}</span>
+              <span style={{ fontSize:11, fontWeight:800, color:'#888' }}>목표 ⭐⭐⭐</span>
+              <span style={{ fontSize:13, fontWeight:900, color: goalDone ? '#2E9E4F' : '#FF6F00' }}>{goalDone ? '달성!' : goal3.toLocaleString()}</span>
             </div>
             <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(255,255,255,0.88)', borderRadius:999, padding:'4px 12px', boxShadow:'0 2px 6px rgba(0,0,0,0.18)' }}>
               <span style={{ fontSize:12 }}>🧱</span>
-              <span style={{ fontSize:11, fontWeight:800, color:'#888' }}>터트린 블럭</span>
-              <span style={{ fontSize:13, fontWeight:900, color:'#1565C0' }}>{blocksPopped.toLocaleString()}</span>
+              <span style={{ fontSize:11, fontWeight:800, color:'#888' }}>남은 블럭</span>
+              <span style={{ fontSize:13, fontWeight:900, color: blocksLeft===0 ? '#2E9E4F' : '#1565C0' }}>{blocksLeft===0 ? '완료!' : `~${blocksLeft.toLocaleString()}`}</span>
             </div>
           </div>
         );
@@ -1747,15 +1750,17 @@ export default function LinyDoryGame() {
                 </div>
               ))}
             </div>
-            {endStars>0&&lvlIdx<LEVELS.length-1&&<div style={{ fontSize:'clamp(11px,3vw,12px)', color:'#FDE68A', marginTop:4, opacity:0.9 }}>다음 레벨 해제됨! 🔓</div>}
+            {endStars===3 && lvlIdx<LEVELS.length-1
+              ? <div style={{ fontSize:'clamp(11px,3vw,12px)', color:'#FDE68A', marginTop:4, opacity:0.9 }}>다음 스테이지 해제됨! 🔓</div>
+              : endStars<3 && <div style={{ fontSize:'clamp(11px,3vw,12px)', color:'#FFD7A0', marginTop:4, opacity:0.9 }}>⭐⭐⭐ 별 3개를 모아야 다음 스테이지로!</div>}
           </div>
           <div style={{ display:'flex', gap:'clamp(8px,2.5vw,12px)' }}>
-            <button onClick={()=>startLevel(lvlIdx)} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background: nearMiss ? 'linear-gradient(135deg,#FF6F00,#FFD700)' : 'linear-gradient(135deg,#1565C0,#42A5F5)', boxShadow: nearMiss ? '0 4px 0 #B84800' : '0 4px 0 #0D3B80', border:'none', cursor:'pointer' }}>
-              {nearMiss ? '한 판 더! 🔥' : '다시하기 🔄'}
+            <button onClick={()=>startLevel(lvlIdx)} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background: endStars<3 ? 'linear-gradient(135deg,#FF6F00,#FFD700)' : 'linear-gradient(135deg,#1565C0,#42A5F5)', boxShadow: endStars<3 ? '0 4px 0 #B84800' : '0 4px 0 #0D3B80', border:'none', cursor:'pointer' }}>
+              {endStars<3 ? '다시 도전! 🔥' : '다시하기 🔄'}
             </button>
-            {endStars>0 && lvlIdx<LEVELS.length-1
+            {endStars===3 && lvlIdx<LEVELS.length-1
               ? <button onClick={()=>startLevel(lvlIdx+1)} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background:'linear-gradient(135deg,#FF6F00,#FFB300)', boxShadow:'0 4px 0 #B84800', border:'none', cursor:'pointer' }}>다음 스테이지 ▶</button>
-              : !nearMiss && <button onClick={()=>setPhase('map')} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background:'linear-gradient(135deg,#FF6F00,#FFB300)', boxShadow:'0 4px 0 #B84800', border:'none', cursor:'pointer' }}>맵으로 🗺️</button>
+              : <button onClick={()=>setPhase('map')} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background:'linear-gradient(135deg,#607D8B,#455A64)', boxShadow:'0 4px 0 #2C3940', border:'none', cursor:'pointer' }}>맵으로 🗺️</button>
             }
           </div>
           <button onClick={() => { setRanking(getLeaderboard(loadWeeklyBest())); setShowRanking(true); }} style={{ marginTop:4, background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.7)', fontSize:'clamp(11px,3vw,13px)', fontWeight:800, textDecoration:'underline' }}>🏆 주간 랭킹 보기</button>
