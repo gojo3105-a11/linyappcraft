@@ -17,14 +17,22 @@ async function init() {
     return;
   }
 
-  const { TDSMobileAITProvider } = await import("@toss/tds-mobile-ait");
-  root.render(
-    <StrictMode>
-      <TDSMobileAITProvider brandPrimaryColor={config.brand.primaryColor}>
+  try {
+    const { TDSMobileAITProvider } = await import("@toss/tds-mobile-ait");
+    root.render(
+      <StrictMode>
+        <TDSMobileAITProvider brandPrimaryColor={config.brand.primaryColor}>
+          <App />
+        </TDSMobileAITProvider>
+      </StrictMode>,
+    );
+  } catch {
+    root.render(
+      <StrictMode>
         <App />
-      </TDSMobileAITProvider>
-    </StrictMode>,
-  );
+      </StrictMode>,
+    );
+  }
 }
 
 init();
