@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { questAddGameCleared, questUpdateMaxCombo, questClaim, loadQuests, type QuestSave } from './quest';
+import { questAddGameCleared, questUpdateMaxCombo, questClaim, loadQuests, loadCoins, type QuestSave } from './quest';
 
 const ROWS = 7;
 const COLS = 7;
@@ -286,7 +286,7 @@ const GAME_CSS = `
   }
 `;
 
-export default function AniPangGame({ onSwitchGame = () => {} }: { onSwitchGame?: () => void } = {}) {
+export default function AniPangGame() {
   const [phase, setPhase]         = useState<Phase>(import.meta.env.DEV ? 'main' : 'splash');
   const [loadPct, setLoadPct]     = useState(0);
   const [lvlIdx, setLvlIdx]       = useState(0);
@@ -305,6 +305,7 @@ export default function AniPangGame({ onSwitchGame = () => {} }: { onSwitchGame?
   const [nearMiss, setNearMiss]   = useState(false);
   const [quests,   setQuests]     = useState<QuestSave>(loadQuests);
   const [showQuests, setShowQuests] = useState(false);
+  const [coins,    setCoins]      = useState(loadCoins);
 
   const gRef     = useRef<Grid>(grid);
   const busyRef  = useRef(false);
@@ -343,6 +344,12 @@ export default function AniPangGame({ onSwitchGame = () => {} }: { onSwitchGame?
     if (popT.current) clearTimeout(popT.current);
     setPopup(msg); setPopKind(kind);
     popT.current = setTimeout(() => setPopup(null), 1400);
+  }, []);
+
+  useEffect(() => {
+    const refresh = () => setCoins(loadCoins());
+    window.addEventListener('coins-updated', refresh);
+    return () => window.removeEventListener('coins-updated', refresh);
   }, []);
 
   useEffect(() => {
@@ -565,7 +572,7 @@ export default function AniPangGame({ onSwitchGame = () => {} }: { onSwitchGame?
           </div>
           <div style={{ flex:1 }}/>
           <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(0,0,0,0.55)', borderRadius:999, padding:'5px 10px', border:'1.5px solid rgba(255,180,0,0.35)' }}>
-            <span style={{ fontSize:14 }}>💰</span><span style={{ fontSize:13, fontWeight:900, color:'#FFE566' }}>{totalStars * 10}</span>
+            <span style={{ fontSize:14 }}>🪙</span><span style={{ fontSize:13, fontWeight:900, color:'#FFE566' }}>{coins.toLocaleString()}</span>
           </div>
           <button onClick={() => setShowQuests(true)} style={{ position:'relative', width:34, height:34, borderRadius:'50%', background:'rgba(0,0,0,0.55)', border:'1.5px solid rgba(255,180,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, cursor:'pointer' }}>
             📋
@@ -583,8 +590,8 @@ export default function AniPangGame({ onSwitchGame = () => {} }: { onSwitchGame?
               </div>
               <div style={{ padding:12, display:'flex', flexDirection:'column', gap:8 }}>
                 {[
-                  { key:'game' as const, icon:'🎮', label:'게임 3판 클리어', target:3, current:quests.gamesCleared, reward:'🌰 +50', claimed:quests.claimed.game },
-                  { key:'combo' as const, icon:'⚡', label:'5x 콤보 달성', target:5, current:quests.maxCombo, reward:'💎 +100', claimed:quests.claimed.combo },
+                  { key:'game' as const, icon:'🎮', label:'게임 3판 클리어', target:3, current:quests.gamesCleared, reward:'🪙 +300', claimed:quests.claimed.game },
+                  { key:'combo' as const, icon:'⚡', label:'5x 콤보 달성', target:5, current:quests.maxCombo, reward:'🪙 +500', claimed:quests.claimed.combo },
                 ].map(q => {
                   const done = q.current >= q.target;
                   return (
@@ -609,7 +616,7 @@ export default function AniPangGame({ onSwitchGame = () => {} }: { onSwitchGame?
                   );
                 })}
                 <div style={{ padding:'8px 12px', borderRadius:10, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)', fontSize:10, color:'rgba(255,255,255,0.35)', textAlign:'center' }}>
-                  ⚔️ 적 30마리 처치 → 💰 +1000 (고슴도치 게임에서 달성)
+                  🪙 모은 코인: <span style={{ color:'#FFE566', fontWeight:800 }}>{coins.toLocaleString()}</span>
                 </div>
               </div>
             </div>
@@ -647,7 +654,7 @@ export default function AniPangGame({ onSwitchGame = () => {} }: { onSwitchGame?
             {icon:'🗺️',label:'맵',     fn:()=>setPhase('map'), active:false},
             {icon:'⚔️',label:'배틀',   fn:()=>{},              active:false},
             {icon:'🏠',label:'홈',     fn:()=>{},              active:true },
-            {icon:'🦔',label:'캐릭터', fn:()=>{},              active:false},
+            {icon:'🐰',label:'캐릭터', fn:()=>{},              active:false},
             {icon:'🏆',label:'랭킹',   fn:()=>{},              active:false},
           ].map((item,i)=>(
             <button key={i} onClick={item.fn} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:2, background:'none', border:'none', cursor:'pointer', padding:'6px 14px' }}>

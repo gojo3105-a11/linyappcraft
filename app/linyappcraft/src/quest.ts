@@ -1,12 +1,11 @@
 const QUEST_KEY = 'daily_quests_v1';
-const HH_KEY = 'hedgehog_v2';
+const COINS_KEY = 'anipang_coins_v1';
 
 export interface QuestSave {
   date: string;
   gamesCleared: number;
   maxCombo: number;
-  kills: number;
-  claimed: { game: boolean; combo: boolean; kill: boolean };
+  claimed: { game: boolean; combo: boolean };
 }
 
 function todayStr(): string {
@@ -18,13 +17,27 @@ export function loadQuests(): QuestSave {
     const d = JSON.parse(localStorage.getItem(QUEST_KEY) ?? 'null') as QuestSave | null;
     if (d?.date === todayStr()) return d;
   } catch {}
-  return { date: todayStr(), gamesCleared: 0, maxCombo: 0, kills: 0, claimed: { game: false, combo: false, kill: false } };
+  return { date: todayStr(), gamesCleared: 0, maxCombo: 0, claimed: { game: false, combo: false } };
 }
 
 function saveQuests(d: QuestSave) {
   localStorage.setItem(QUEST_KEY, JSON.stringify(d));
 }
 
+// ── 코인 지갑 ─────────────────────────────────────────
+export function loadCoins(): number {
+  try { return JSON.parse(localStorage.getItem(COINS_KEY) ?? '0') || 0; }
+  catch { return 0; }
+}
+
+export function addCoins(n: number): number {
+  const next = loadCoins() + n;
+  localStorage.setItem(COINS_KEY, JSON.stringify(next));
+  window.dispatchEvent(new Event('coins-updated'));
+  return next;
+}
+
+// ── 퀘스트 진행 ───────────────────────────────────────
 export function questAddGameCleared(): QuestSave {
   const d = loadQuests();
   d.gamesCleared++;
@@ -38,27 +51,15 @@ export function questUpdateMaxCombo(combo: number): QuestSave {
   return d;
 }
 
-export function questAddKill(): QuestSave {
-  const d = loadQuests();
-  d.kills++;
-  saveQuests(d);
-  return d;
-}
+const QUEST_REWARD = { game: 300, combo: 500 } as const;
 
-export function questClaim(type: 'game' | 'combo' | 'kill'): { success: boolean; reward: string } {
+export function questClaim(type: 'game' | 'combo'): { success: boolean; reward: string } {
   const d = loadQuests();
   if (d.claimed[type]) return { success: false, reward: '' };
-  const met = type === 'game' ? d.gamesCleared >= 3 : type === 'combo' ? d.maxCombo >= 5 : d.kills >= 30;
+  const met = type === 'game' ? d.gamesCleared >= 3 : d.maxCombo >= 5;
   if (!met) return { success: false, reward: '' };
   d.claimed[type] = true;
-  try {
-    const hh = JSON.parse(localStorage.getItem(HH_KEY) ?? '{}');
-    if (type === 'game')  { hh.lamp    = (hh.lamp    ?? 80)   + 50;   }
-    if (type === 'combo') { hh.diamond = (hh.diamond ?? 500)  + 100;  }
-    if (type === 'kill')  { hh.gold    = (hh.gold    ?? 2000) + 1000; }
-    localStorage.setItem(HH_KEY, JSON.stringify(hh));
-  } catch {}
   saveQuests(d);
-  const label = type === 'game' ? '🌰 +50' : type === 'combo' ? '💎 +100' : '💰 +1000';
-  return { success: true, reward: label };
+  addCoins(QUEST_REWARD[type]);
+  return { success: true, reward: `🪙 +${QUEST_REWARD[type]}` };
 }

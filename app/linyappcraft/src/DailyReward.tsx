@@ -1,19 +1,12 @@
 import { useState } from 'react';
+import { addCoins } from './quest';
 
 const DR_KEY = 'daily_reward_v1';
-const HH_KEY = 'hedgehog_v2';
 
 interface DRSave { lastDate: string; streak: number; }
 
-const REWARDS = [
-  { diamonds: 50,  lamps: 0,   label: '💎 ×50'            },
-  { diamonds: 80,  lamps: 5,   label: '💎 ×80 🌰 ×5'      },
-  { diamonds: 100, lamps: 10,  label: '💎 ×100 🌰 ×10'    },
-  { diamonds: 0,   lamps: 30,  label: '🌰 ×30'             },
-  { diamonds: 200, lamps: 20,  label: '💎 ×200 🌰 ×20'    },
-  { diamonds: 300, lamps: 0,   label: '💎 ×300'            },
-  { diamonds: 500, lamps: 100, label: '💎 ×500 🌰 ×100 🎁' },
-] as const;
+// 일자별 코인 보상 (7일차 보너스)
+const REWARDS = [100, 150, 200, 300, 400, 500, 1000] as const;
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 
@@ -22,7 +15,7 @@ function getYesterdayStr() {
   return d.toISOString().slice(0, 10);
 }
 
-function calc(): { show: boolean; streak: number; reward: typeof REWARDS[0] } {
+function calc(): { show: boolean; streak: number; reward: number } {
   let save: DRSave = { lastDate: '', streak: 0 };
   try { save = JSON.parse(localStorage.getItem(DR_KEY) ?? 'null') ?? save; } catch {}
   const t = todayStr();
@@ -31,14 +24,9 @@ function calc(): { show: boolean; streak: number; reward: typeof REWARDS[0] } {
   return { show: true, streak, reward: REWARDS[(streak - 1) % 7] };
 }
 
-function claimReward(streak: number, reward: typeof REWARDS[0]) {
+function claimReward(streak: number, reward: number) {
   localStorage.setItem(DR_KEY, JSON.stringify({ lastDate: todayStr(), streak }));
-  try {
-    const hh = JSON.parse(localStorage.getItem(HH_KEY) ?? '{}');
-    if (reward.diamonds > 0) hh.diamond = (hh.diamond ?? 500) + reward.diamonds;
-    if (reward.lamps > 0)    hh.lamp    = (hh.lamp    ?? 80)  + reward.lamps;
-    localStorage.setItem(HH_KEY, JSON.stringify(hh));
-  } catch {}
+  addCoins(reward);
 }
 
 const CSS = `
@@ -101,7 +89,7 @@ export default function DailyReward() {
         {/* 7-day grid */}
         <div style={{ padding: '16px 16px 12px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
-            {REWARDS.map((r, i) => {
+            {REWARDS.map((_, i) => {
               const isPast = i < daySlot;
               const isToday = i === daySlot;
               return (
@@ -148,7 +136,7 @@ export default function DailyReward() {
             textShadow: '0 0 20px rgba(255,200,0,0.8)',
             animation: 'drBounce 1.5s ease infinite',
           }}>
-            {reward.label}
+            🪙 ×{reward.toLocaleString()}
           </div>
         </div>
 
