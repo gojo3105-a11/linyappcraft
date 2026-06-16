@@ -1,0 +1,797 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+
+const ROWS = 7;
+const COLS = 7;
+
+const CHAR = (n: string) => `/characters/KakaoTalk_20260610_202544565${n}.png`;
+const TILES = [
+  { img: CHAR(''),     bg: 'linear-gradient(145deg,#FFD54F,#FF8F00)', glow: '#FFB300' },
+  { img: CHAR('_01'), bg: 'linear-gradient(145deg,#64B5F6,#1565C0)', glow: '#42A5F5' },
+  { img: CHAR('_02'), bg: 'linear-gradient(145deg,#AED581,#33691E)', glow: '#7CB342' },
+  { img: CHAR('_03'), bg: 'linear-gradient(145deg,#F48FB1,#880E4F)', glow: '#E91E63' },
+  { img: CHAR('_04'), bg: 'linear-gradient(145deg,#CE93D8,#6A1B9A)', glow: '#AB47BC' },
+  { img: CHAR('_05'), bg: 'linear-gradient(145deg,#80CBC4,#004D40)', glow: '#26A69A' },
+] as const;
+
+type TileKind = 'normal' | 'lightning' | 'bomb';
+
+function makeMap(heights: readonly number[]): (0|1)[][] {
+  return Array.from({ length: ROWS }, (_, r) =>
+    [...heights].map(h => (r >= ROWS - h ? 1 : 0) as 0|1)
+  );
+}
+
+const MAPS = [
+  makeMap([7,7,7,7,7,7,7]),
+  makeMap([4,5,6,7,6,5,4]),
+  makeMap([7,6,5,4,5,6,7]),
+  makeMap([2,3,4,5,6,7,7]),
+  makeMap([7,7,2,2,2,7,7]),
+  makeMap([3,7,3,7,3,7,3]),
+  makeMap([7,5,3,1,3,5,7]),
+  makeMap([4,5,7,7,7,5,4]),
+  makeMap([7,7,4,2,4,7,7]),
+  makeMap([5,3,6,7,6,3,5]),
+] as const;
+
+const LEVELS = [
+  { mode: 'time'  as const, sec: 60,   types: 4, goal: [500,  1500,  3000] as const },
+  { mode: 'time'  as const, sec: 55,   types: 4, goal: [700,  2000,  4000] as const },
+  { mode: 'moves' as const, moves: 30, types: 4, goal: [900,  2500,  5000] as const },
+  { mode: 'time'  as const, sec: 50,   types: 5, goal: [1100, 3000,  6000] as const },
+  { mode: 'moves' as const, moves: 28, types: 5, goal: [1400, 3500,  7000] as const },
+  { mode: 'time'  as const, sec: 48,   types: 5, goal: [1700, 4000,  8000] as const },
+  { mode: 'moves' as const, moves: 25, types: 6, goal: [2000, 5000, 10000] as const },
+  { mode: 'time'  as const, sec: 45,   types: 6, goal: [2500, 6000, 12000] as const },
+  { mode: 'moves' as const, moves: 22, types: 6, goal: [3000, 7000, 15000] as const },
+  { mode: 'time'  as const, sec: 35,   types: 6, goal: [4000, 9000, 20000] as const },
+];
+
+const MAP_POS = [[0,0],[1,0],[2,0],[2,1],[1,1],[0,1],[0,2],[1,2],[2,2],[1,3]];
+const COL_X = [18, 50, 82];
+const ROW_Y = [84, 62, 40, 18];
+
+const LS_KEY = 'anipang_v3';
+const loadProg = (): number[] => {
+  try { return JSON.parse(localStorage.getItem(LS_KEY) ?? 'null') ?? Array(LEVELS.length).fill(0); }
+  catch { return Array(LEVELS.length).fill(0); }
+};
+const saveProg = (p: number[]) => localStorage.setItem(LS_KEY, JSON.stringify(p));
+
+interface Cell { id: number; t: number; kind: TileKind; hit: boolean; }
+type GridCell = Cell | null;
+type Grid = GridCell[][];
+type Phase = 'splash' | 'main' | 'map' | 'play' | 'end';
+
+let _uid = 0;
+let _fid = 0;
+const mk = (t: number, kind: TileKind = 'normal'): Cell => ({ id: _uid++, t, kind, hit: false });
+const rnd = (n: number) => Math.floor(Math.random() * n);
+const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+const calcStars = (score: number, goal: readonly [number,number,number]) =>
+  score >= goal[2] ? 3 : score >= goal[1] ? 2 : score >= goal[0] ? 1 : 0;
+
+function mkGrid(types: number, map: readonly (0|1)[][]): Grid {
+  const g: Grid = Array.from({ length: ROWS }, (_, r) =>
+    Array.from({ length: COLS }, (_, c) => (map[r]?.[c] ? mk(rnd(types)) : null))
+  );
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (!map[r]?.[c]) continue;
+      let attempts = 0;
+      while (attempts++ < 100) {
+        const cell = g[r][c]; if (!cell) break;
+        const t = cell.t;
+        const hMatch = c >= 2 && g[r][c-1]?.t === t && g[r][c-2]?.t === t;
+        const vMatch = r >= 2 && g[r-1]?.[c]?.t === t && g[r-2]?.[c]?.t === t;
+        if (!hMatch && !vMatch) break;
+        g[r][c] = mk(rnd(types));
+      }
+    }
+  }
+  return g;
+}
+
+function hasMoves(g: Grid): boolean {
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (!g[r]?.[c]) continue;
+      if (c+1 < COLS && g[r]?.[c+1]) {
+        const sw: Grid = g.map(row => [...row]);
+        [sw[r][c], sw[r][c+1]] = [sw[r][c+1], sw[r][c]];
+        if (findGroups(sw).length > 0) return true;
+      }
+      if (r+1 < ROWS && g[r+1]?.[c]) {
+        const sw: Grid = g.map(row => [...row]);
+        [sw[r][c], sw[r+1][c]] = [sw[r+1][c], sw[r][c]];
+        if (findGroups(sw).length > 0) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function findHint(g: Grid): [[number,number],[number,number]] | null {
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (!g[r]?.[c]) continue;
+      if (c+1 < COLS && g[r]?.[c+1]) {
+        const sw: Grid = g.map(row => [...row]);
+        [sw[r][c], sw[r][c+1]] = [sw[r][c+1], sw[r][c]];
+        if (findGroups(sw).length > 0) return [[r,c],[r,c+1]];
+      }
+      if (r+1 < ROWS && g[r+1]?.[c]) {
+        const sw: Grid = g.map(row => [...row]);
+        [sw[r][c], sw[r+1][c]] = [sw[r+1][c], sw[r][c]];
+        if (findGroups(sw).length > 0) return [[r,c],[r+1,c]];
+      }
+    }
+  }
+  return null;
+}
+
+interface Group { cells: [number,number][]; dir: 'h'|'v'; }
+
+function findGroups(g: Grid): Group[] {
+  const out: Group[] = [];
+  for (let r = 0; r < ROWS; r++) {
+    let c = 0;
+    while (c < COLS) {
+      if (!g[r][c] || g[r][c]!.kind !== 'normal') { c++; continue; }
+      const t = g[r][c]!.t; let e = c;
+      while (e+1 < COLS && g[r][e+1]?.t === t && g[r][e+1]?.kind === 'normal') e++;
+      if (e-c >= 2) { out.push({ cells: Array.from({length:e-c+1},(_,i)=>[r,c+i] as [number,number]), dir:'h' }); c=e+1; }
+      else c++;
+    }
+  }
+  for (let c = 0; c < COLS; c++) {
+    let r = 0;
+    while (r < ROWS) {
+      if (!g[r][c] || g[r][c]!.kind !== 'normal') { r++; continue; }
+      const t = g[r][c]!.t; let e = r;
+      while (e+1 < ROWS && g[e+1]?.[c]?.t === t && g[e+1]?.[c]?.kind === 'normal') e++;
+      if (e-r >= 2) { out.push({ cells: Array.from({length:e-r+1},(_,i)=>[r+i,c] as [number,number]), dir:'v' }); r=e+1; }
+      else r++;
+    }
+  }
+  return out;
+}
+
+function expandSpecials(hits: Set<string>, g: Grid) {
+  let changed = true;
+  while (changed) {
+    changed = false;
+    [...hits].forEach(key => {
+      const [r, c] = key.split(',').map(Number);
+      const cell = g[r]?.[c];
+      if (!cell) return;
+      if (cell.kind === 'lightning') {
+        for (let x=0; x<COLS; x++) if (g[r]?.[x]) { const k=`${r},${x}`; if (!hits.has(k)) { hits.add(k); changed=true; } }
+        for (let x=0; x<ROWS; x++) if (g[x]?.[c]) { const k=`${x},${c}`; if (!hits.has(k)) { hits.add(k); changed=true; } }
+      } else if (cell.kind === 'bomb') {
+        for (let dr=-1; dr<=1; dr++) for (let dc=-1; dc<=1; dc++) {
+          const nr=r+dr, nc=c+dc;
+          if (nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&g[nr]?.[nc]) { const k=`${nr},${nc}`; if (!hits.has(k)) { hits.add(k); changed=true; } }
+        }
+      }
+    });
+  }
+}
+
+function buildCycle(g: Grid, mkSpecials: boolean, swapTo?: [number,number]): { hits: Set<string>; newSpec: Map<string,Cell>; nextG: Grid } | null {
+  const groups = findGroups(g);
+  if (!groups.length) return null;
+  const hits = new Set<string>();
+  const newSpec = new Map<string,Cell>();
+  groups.forEach(grp => {
+    const len = grp.cells.length;
+    grp.cells.forEach(([r,c]) => hits.add(`${r},${c}`));
+    if (!mkSpecials || len < 4) return;
+    let pos: [number,number];
+    if (swapTo) {
+      const found = grp.cells.find(([r,c]) => r===swapTo[0] && c===swapTo[1]);
+      pos = found ?? grp.cells[Math.floor(len/2)];
+    } else pos = grp.cells[Math.floor(len/2)];
+    const [tr,tc] = pos; const key = `${tr},${tc}`;
+    hits.delete(key);
+    const cell = g[tr][tc];
+    if (cell) newSpec.set(key, mk(cell.t, len>=5?'bomb':'lightning'));
+  });
+  expandSpecials(hits, g);
+  const nextG: Grid = g.map(row => row.map(c => c ? {...c} : null));
+  hits.forEach(key => {
+    const [r,c]=key.split(',').map(Number);
+    const cell=nextG[r][c];
+    if (cell && !newSpec.has(key)) cell.hit=true;
+  });
+  newSpec.forEach((cell,key) => { const [r,c]=key.split(',').map(Number); nextG[r][c]=cell; });
+  return { hits, newSpec, nextG };
+}
+
+function applyFall(g: Grid, types: number, map: readonly (0|1)[][]): Grid {
+  const n: Grid = g.map(row => row.map(cell => cell ? {...cell, hit:false} : null));
+  for (let c = 0; c < COLS; c++) {
+    const activeRows: number[] = [];
+    for (let r=ROWS-1; r>=0; r--) if (map[r]?.[c]) activeRows.push(r);
+    if (!activeRows.length) continue;
+    const keep: Cell[] = [];
+    for (const r of activeRows) {
+      const cell = g[r][c];
+      if (cell && !cell.hit) keep.push({...cell, hit:false});
+    }
+    for (let i=0; i<activeRows.length; i++) {
+      n[activeRows[i]][c] = i < keep.length ? keep[i] : mk(rnd(types));
+    }
+  }
+  return n;
+}
+
+const GAME_CSS = `
+  @keyframes floatUp {
+    0%   { opacity:1; transform:translateY(0) scale(1.1); }
+    70%  { opacity:0.9; transform:translateY(-44px) scale(1.05); }
+    100% { opacity:0; transform:translateY(-64px) scale(0.8); }
+  }
+  @keyframes comboIn {
+    0%   { opacity:0; transform:scale(0.3) rotate(-8deg); }
+    55%  { opacity:1; transform:scale(1.18) rotate(2deg); }
+    80%  { transform:scale(0.96) rotate(-1deg); }
+    100% { opacity:1; transform:scale(1) rotate(0deg); }
+  }
+  @keyframes pulseWarn {
+    0%,100% { opacity:1; box-shadow:0 4px 0 rgba(0,0,0,0.18); }
+    50%      { opacity:0.7; box-shadow:0 4px 0 rgba(0,0,0,0.18),0 0 24px rgba(255,50,50,0.85); }
+  }
+  @keyframes starPop {
+    0%   { opacity:0; transform:scale(0) rotate(-25deg); }
+    65%  { opacity:1; transform:scale(1.45) rotate(8deg); }
+    82%  { transform:scale(0.9) rotate(-3deg); }
+    100% { opacity:1; transform:scale(1) rotate(0deg); }
+  }
+  @keyframes hintGlow {
+    0%,100% { transform:scale(1.05); box-shadow:0 0 14px rgba(255,240,60,0.5),0 3px 8px rgba(0,0,0,0.35); }
+    50%      { transform:scale(1.18); box-shadow:0 0 28px rgba(255,240,60,0.95),0 0 10px rgba(255,200,0,0.8); }
+  }
+  @keyframes scoreBarFlash {
+    0%   { opacity:1; }
+    50%  { opacity:0.4; }
+    100% { opacity:1; }
+  }
+  @keyframes splashPulse {
+    0%,100% { opacity:0.85; }
+    50%      { opacity:1; }
+  }
+`;
+
+export default function AniPangGame({ onSwitchGame = () => {} }: { onSwitchGame?: () => void } = {}) {
+  const [phase, setPhase]         = useState<Phase>(import.meta.env.DEV ? 'main' : 'splash');
+  const [loadPct, setLoadPct]     = useState(0);
+  const [lvlIdx, setLvlIdx]       = useState(0);
+  const [progress, setProgress]   = useState<number[]>(loadProg);
+  const [grid, setGrid]           = useState<Grid>(() => mkGrid(LEVELS[0].types, MAPS[0]));
+  const [sel, setSel]             = useState<[number,number]|null>(null);
+  const [score, setScore]         = useState(0);
+  const [time, setTime]           = useState(60);
+  const [movesLeft, setMovesLeft] = useState(0);
+  const [popup, setPopup]         = useState<string|null>(null);
+  const [popKind, setPopKind]     = useState<'combo'|'special'>('combo');
+  const [busy, setBusy]           = useState(false);
+  const [floats, setFloats]       = useState<{id:number;text:string}[]>([]);
+  const [hintPair, setHintPair]   = useState<[[number,number],[number,number]]|null>(null);
+
+  const gRef     = useRef<Grid>(grid);
+  const busyRef  = useRef(false);
+  const scoreRef = useRef(0);
+  const lvlRef   = useRef(0);
+  const movesRef = useRef(0);
+  const mapRef   = useRef<readonly (0|1)[][]>(MAPS[0]);
+  const popT     = useRef<ReturnType<typeof setTimeout>|null>(null);
+  const hintTmr  = useRef<ReturnType<typeof setTimeout>|null>(null);
+
+  const scheduleHint = useCallback(() => {
+    if (hintTmr.current) clearTimeout(hintTmr.current);
+    hintTmr.current = setTimeout(() => setHintPair(findHint(gRef.current)), 2500);
+  }, []);
+
+  const clearHint = useCallback(() => {
+    if (hintTmr.current) clearTimeout(hintTmr.current);
+    setHintPair(null);
+  }, []);
+
+  const push = useCallback((g: Grid) => { gRef.current=g; setGrid(g); }, []);
+
+  const inc = useCallback((n: number) => {
+    scoreRef.current += n;
+    setScore(scoreRef.current);
+    const fid = ++_fid;
+    setFloats(p => [...p.slice(-5), { id: fid, text: n >= 1000 ? `+${(n/1000).toFixed(1)}K` : `+${n}` }]);
+    setTimeout(() => setFloats(p => p.filter(f => f.id !== fid)), 1100);
+  }, []);
+
+  const pop = useCallback((msg: string, kind: 'combo'|'special' = 'combo') => {
+    if (popT.current) clearTimeout(popT.current);
+    setPopup(msg); setPopKind(kind);
+    popT.current = setTimeout(() => setPopup(null), 1400);
+  }, []);
+
+  useEffect(() => {
+    if (phase !== 'splash') return;
+    let cur = 0;
+    const id = setInterval(() => {
+      cur += Math.random() * 7 + 3;
+      if (cur >= 100) { setLoadPct(100); clearInterval(id); setTimeout(() => setPhase('main'), 600); }
+      else setLoadPct(Math.floor(cur));
+    }, 80);
+    return () => clearInterval(id);
+  }, [phase]);
+
+  const endGame = useCallback(() => {
+    clearHint();
+    const li = lvlRef.current;
+    const s = calcStars(scoreRef.current, LEVELS[li].goal);
+    setProgress(prev => { const next=[...prev]; if (s>next[li]) next[li]=s; saveProg(next); return next; });
+    setPhase('end');
+  }, [clearHint]);
+
+  useEffect(() => {
+    if (phase !== 'play') return;
+    if (LEVELS[lvlRef.current].mode !== 'time') return;
+    const id = setInterval(() => setTime(t => { if (t<=1) { endGame(); return 0; } return t-1; }), 1000);
+    return () => clearInterval(id);
+  }, [phase, endGame]);
+
+  useEffect(() => {
+    if (phase !== 'play') { clearHint(); }
+  }, [phase, clearHint]);
+
+  const startLevel = useCallback((idx: number) => {
+    const lvl = LEVELS[idx];
+    const map = MAPS[idx];
+    mapRef.current = map;
+    _uid = 0;
+    const g = mkGrid(lvl.types, map);
+    gRef.current=g; busyRef.current=false; scoreRef.current=0; lvlRef.current=idx;
+    const mv = (lvl as {moves?:number}).moves ?? 0; movesRef.current=mv;
+    setLvlIdx(idx); setGrid(g); setScore(0); setTime((lvl as {sec?:number}).sec ?? 0);
+    setMovesLeft(mv); setSel(null); setBusy(false); setPopup(null); setFloats([]);
+    setPhase('play');
+    if (hintTmr.current) clearTimeout(hintTmr.current);
+    setHintPair(null);
+    hintTmr.current = setTimeout(() => setHintPair(findHint(gRef.current)), 2500);
+  }, []);
+
+  const chain = useCallback(async (g: Grid, swapTo: [number,number]) => {
+    const types = LEVELS[lvlRef.current].types;
+    const map = mapRef.current;
+    let combo=0, cur=g, first=true;
+    while (true) {
+      const res = buildCycle(cur, first, first ? swapTo : undefined);
+      if (!res) break;
+      combo++;
+      push(res.nextG);
+      const spHits = [...res.hits].filter(k => { const [r,c]=k.split(',').map(Number); return cur[r][c]?.kind!=='normal'; }).length;
+      const pts = res.hits.size*100*combo + spHits*200;
+      inc(pts);
+      if (res.newSpec.size > 0) {
+        const k = [...res.newSpec.values()][0].kind;
+        pop(k==='bomb' ? '💣 BOMB 생성!' : '⚡ LIGHTNING 생성!', 'special');
+      } else if (combo >= 2) pop(`${combo}x COMBO! +${pts.toLocaleString()}`, 'combo');
+      await wait(350);
+      cur = applyFall(res.nextG, types, map); push(cur); await wait(220);
+      first = false;
+    }
+    let reshuffles = 0;
+    while (!hasMoves(cur) && reshuffles++ < 3) {
+      pop('🔀 셔플!', 'special');
+      await wait(700);
+      cur = mkGrid(LEVELS[lvlRef.current].types, mapRef.current);
+      push(cur);
+    }
+    busyRef.current=false; setBusy(false);
+  }, [push, inc, pop]);
+
+  const tap = useCallback(async (r: number, c: number) => {
+    if (phase!=='play' || busyRef.current) return;
+    if (!gRef.current[r]?.[c]) return;
+    if (!sel) { setSel([r,c]); return; }
+    const [sr,sc] = sel; setSel(null);
+    if (sr===r && sc===c) return;
+    if (Math.abs(sr-r)+Math.abs(sc-c)!==1) { setSel([r,c]); return; }
+
+    busyRef.current=true; setBusy(true);
+    clearHint();
+
+    const g = gRef.current;
+    const sw: Grid = g.map(row => [...row]);
+    [sw[sr][sc], sw[r][c]] = [sw[r][c], sw[sr][sc]];
+    push(sw); await wait(120);
+
+    const hasMatch = findGroups(sw).length > 0;
+    const srcSpec = sw[r][c]?.kind !== 'normal';
+    const dstSpec = sw[sr][sc]?.kind !== 'normal';
+
+    if (!hasMatch && !srcSpec && !dstSpec) {
+      const rv: Grid = sw.map(row => [...row]);
+      [rv[sr][sc], rv[r][c]] = [rv[r][c], rv[sr][sc]];
+      push(rv); await wait(200); busyRef.current=false; setBusy(false);
+      scheduleHint();
+      return;
+    }
+
+    const lvl = LEVELS[lvlRef.current];
+    if (lvl.mode === 'moves') {
+      movesRef.current = Math.max(0, movesRef.current-1);
+      setMovesLeft(movesRef.current);
+    }
+
+    if (!hasMatch && (srcSpec || dstSpec)) {
+      const hits = new Set<string>();
+      if (srcSpec) hits.add(`${r},${c}`);
+      if (dstSpec) hits.add(`${sr},${sc}`);
+      expandSpecials(hits, sw);
+      const marked: Grid = sw.map(row => row.map(x => x ? {...x} : null));
+      hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell=marked[rr][cc]; if(cell) cell.hit=true; });
+      push(marked); inc(hits.size*120);
+      pop((srcSpec ? sw[r][c]?.kind : sw[sr][sc]?.kind) === 'bomb' ? '💣 BOOM!' : '⚡ ZAP!', 'special');
+      await wait(350);
+      const fallen = applyFall(marked, LEVELS[lvlRef.current].types, mapRef.current);
+      push(fallen); await wait(220);
+      await chain(fallen, [r,c]);
+    } else {
+      await chain(sw, [r,c]);
+    }
+
+    if (LEVELS[lvlRef.current].mode==='moves' && movesRef.current<=0) { endGame(); return; }
+    scheduleHint();
+  }, [phase, sel, push, chain, endGame, clearHint, scheduleHint, inc]);
+
+  const lvl      = LEVELS[lvlIdx];
+  const isTime   = lvl.mode === 'time';
+  const maxCond  = isTime ? (lvl as {sec?:number}).sec ?? 60 : (lvl as {moves?:number}).moves ?? 1;
+  const condLeft = isTime ? time : movesLeft;
+  const condPct  = (condLeft / maxCond) * 100;
+  const curStars = calcStars(score, lvl.goal);
+  const endStars = calcStars(scoreRef.current, lvl.goal);
+  const condLabel = isTime ? `${time}` : `${movesLeft}`;
+  const isWarning = condPct < 25;
+  const condBg = condPct > 50
+    ? 'linear-gradient(180deg,#66BB6A,#2E7D32)'
+    : condPct > 25
+    ? 'linear-gradient(180deg,#FFA726,#E65100)'
+    : 'linear-gradient(180deg,#EF5350,#B71C1C)';
+  const curMap = MAPS[lvlIdx];
+
+  // ── Splash ────────────────────────────────────────────────────────────────────
+  if (phase === 'splash') return (
+    <div style={{ position:'relative', width:'100%', height:'100vh', overflow:'hidden', userSelect:'none' }}>
+      <style>{GAME_CSS}</style>
+      <img src="/characters/MAIN.png" alt="ANi PAnG" style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'top center' }} />
+      <div style={{ position:'absolute', top:0, left:0, right:0, padding:'calc(var(--sat) + clamp(28px,6vh,48px)) clamp(16px,5vw,32px) clamp(40px,8vh,80px)', background:'linear-gradient(180deg,rgba(5,10,40,0.85) 0%,transparent 100%)', display:'flex', flexDirection:'column', alignItems:'center' }}>
+        <h1 style={{ margin:0, fontSize:'clamp(36px,10vw,52px)', fontWeight:900, letterSpacing:'clamp(3px,1.5vw,6px)', color:'#FFE566', WebkitTextStroke:'2px #FFA500', textShadow:'0 4px 0 rgba(0,0,0,0.5),0 0 30px rgba(255,200,0,0.8)', animation:'splashPulse 2s ease infinite' }}>ANi PAnG</h1>
+        <p style={{ margin:'6px 0 0', fontSize:'clamp(10px,2.8vw,13px)', fontWeight:700, letterSpacing:'clamp(2px,1vw,4px)', color:'white', opacity:0.7 }}>ANIMAL PUZZLE</p>
+      </div>
+      <div style={{ position:'absolute', bottom:0, left:0, right:0, padding:'clamp(36px,8vh,60px) clamp(20px,5vw,32px) calc(var(--sab) + clamp(24px,5vh,40px))', background:'linear-gradient(0deg,rgba(5,10,40,0.9) 0%,transparent 100%)', display:'flex', flexDirection:'column', alignItems:'center', gap:10 }}>
+        <div style={{ width:'100%', height:'clamp(16px,3.5vh,22px)', borderRadius:999, overflow:'hidden', background:'rgba(0,0,0,0.5)', border:'2px solid rgba(255,255,255,0.25)' }}>
+          <div style={{ height:'100%', width:`${loadPct}%`, borderRadius:999, background:'linear-gradient(90deg,#2E7D32,#43A047,#66BB6A)', transition:'width 0.08s linear' }}/>
+        </div>
+        <p style={{ margin:0, fontSize:'clamp(11px,3vw,13px)', fontWeight:700, color:'white', opacity:0.75 }}>{loadPct < 100 ? `로딩 중... ${loadPct}%` : '준비 완료! ✓'}</p>
+        <p style={{ margin:0, fontSize:'clamp(10px,2.5vw,12px)', color:'white', opacity:0.35, letterSpacing:2 }}>리니와 도리 크래프트</p>
+      </div>
+    </div>
+  );
+
+  // ── Main ──────────────────────────────────────────────────────────────────────
+  if (phase === 'main') {
+    const nextLvl    = progress.findIndex(s => s === 0);
+    const stageIdx   = nextLvl === -1 ? LEVELS.length - 1 : nextLvl;
+    const totalStars = progress.reduce((a, b) => a + b, 0);
+    const lvlCfg     = LEVELS[stageIdx];
+    const dotStart   = Math.max(0, Math.min(stageIdx - 2, LEVELS.length - 5));
+    const dots       = Array.from({ length: Math.min(5, LEVELS.length) }, (_, i) => dotStart + i);
+    return (
+      <div style={{ position:'relative', width:'100%', height:'100vh', overflow:'hidden', userSelect:'none', background:'#0d1a0d' }}>
+        <style>{GAME_CSS}</style>
+        <img src="/characters/MAIN.png" alt="" style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'top center' }} />
+        <div style={{ position:'absolute', top:0, left:0, right:0, height:120, background:'linear-gradient(180deg,rgba(5,15,5,0.85) 0%,transparent 100%)' }}/>
+        <div style={{ position:'absolute', bottom:0, left:0, right:0, height:'clamp(180px,40vh,260px)', background:'linear-gradient(0deg,rgba(5,15,5,0.97) 0%,rgba(5,15,5,0.65) 65%,transparent 100%)' }}/>
+        <div style={{ position:'absolute', top:0, left:0, right:0, padding:'calc(var(--sat) + clamp(10px,2.5vh,16px)) clamp(10px,3vw,16px) 0', display:'flex', alignItems:'center', gap:'clamp(5px,1.5vw,8px)' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:4, background:'rgba(0,0,0,0.55)', borderRadius:999, padding:'5px 10px', border:'1.5px solid rgba(255,80,80,0.4)' }}>
+            <span style={{ fontSize:14 }}>❤️</span>
+            <span style={{ fontSize:13, fontWeight:900, color:'white' }}>5</span>
+            <span style={{ fontSize:10, color:'rgba(255,255,255,0.45)', fontWeight:700 }}>/5</span>
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:3, background:'rgba(0,0,0,0.55)', borderRadius:999, padding:'5px 10px', border:'1.5px solid rgba(100,200,100,0.35)' }}>
+            <span style={{ fontSize:11, fontWeight:800, color:'#66BB6A' }}>⏰ 충전완료</span>
+          </div>
+          <div style={{ flex:1 }}/>
+          <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(0,0,0,0.55)', borderRadius:999, padding:'5px 10px', border:'1.5px solid rgba(255,180,0,0.35)' }}>
+            <span style={{ fontSize:14 }}>💰</span><span style={{ fontSize:13, fontWeight:900, color:'#FFE566' }}>{totalStars * 10}</span>
+          </div>
+          <div style={{ width:34, height:34, borderRadius:'50%', background:'rgba(0,0,0,0.55)', border:'1.5px solid rgba(255,255,255,0.18)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, cursor:'pointer' }}>⚙️</div>
+        </div>
+        <div style={{ position:'absolute', bottom:'calc(var(--sab) + clamp(60px,10vh,80px))', left:0, right:0, display:'flex', flexDirection:'column', alignItems:'center', gap:'clamp(10px,2.5vh,16px)', padding:'0 clamp(16px,5vw,32px)' }}>
+          <div style={{ display:'flex', alignItems:'flex-end', gap:10 }}>
+            {dots.map(li => {
+              const s = progress[li]; const isCur = li === stageIdx;
+              return (
+                <div key={li} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3 }}>
+                  <div style={{ width:isCur?44:32, height:isCur?44:32, borderRadius:'50%', background:isCur?'linear-gradient(135deg,#FFB300,#FF6F00)':s>0?'rgba(255,255,255,0.25)':'rgba(0,0,0,0.45)', border:`2.5px solid ${isCur?'white':s>0?'rgba(255,255,255,0.4)':'rgba(255,255,255,0.15)'}`, boxShadow:isCur?'0 4px 16px rgba(255,150,0,0.6)':'none', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                    <span style={{ fontSize:isCur?13:10, fontWeight:900, color:'white' }}>{li+1}</span>
+                  </div>
+                  <div style={{ display:'flex' }}>{[1,2,3].map(n=><span key={n} style={{ fontSize:7, opacity:n<=s?1:0.15 }}>⭐</span>)}</div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+            <span style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.6)', background:'rgba(0,0,0,0.4)', padding:'3px 10px', borderRadius:999, border:'1px solid rgba(255,255,255,0.15)' }}>
+              {lvlCfg.mode==='time'?`⏱ ${(lvlCfg as {sec?:number}).sec}초`:`🎯 ${(lvlCfg as {moves?:number}).moves}수`}
+            </span>
+            <span style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.6)', background:'rgba(0,0,0,0.4)', padding:'3px 10px', borderRadius:999, border:'1px solid rgba(255,255,255,0.15)' }}>⭐ {totalStars}/{LEVELS.length*3}</span>
+          </div>
+          <button onClick={() => startLevel(stageIdx)}
+            style={{ width:'100%', padding:'15px 0', borderRadius:999, background:'linear-gradient(180deg,#42A5F5 0%,#1565C0 100%)', border:'none', cursor:'pointer', boxShadow:'0 6px 0 #0D3B80,0 10px 28px rgba(0,80,200,0.55)', color:'white', fontWeight:900, fontSize:22, letterSpacing:3, display:'flex', alignItems:'center', justifyContent:'center', gap:10 }}
+            onTouchStart={e=>(e.currentTarget.style.transform='scale(0.97)')} onTouchEnd={e=>(e.currentTarget.style.transform='scale(1)')}>
+            <span style={{ fontSize:24 }}>🎮</span> STAGE {stageIdx+1} <span style={{ fontSize:20 }}>▶</span>
+          </button>
+        </div>
+        <div style={{ position:'absolute', bottom:0, left:0, right:0, paddingBottom:'var(--sab)', background:'rgba(5,15,5,0.92)', borderTop:'1.5px solid rgba(255,255,255,0.1)', display:'flex', alignItems:'center', justifyContent:'space-around', minHeight:'clamp(56px,8vh,72px)' }}>
+          {[
+            {icon:'🗺️',label:'맵',     fn:()=>setPhase('map'), active:false},
+            {icon:'⚔️',label:'배틀',   fn:()=>{},              active:false},
+            {icon:'🏠',label:'홈',     fn:()=>{},              active:true },
+            {icon:'🦔',label:'캐릭터', fn:()=>onSwitchGame(),  active:false},
+            {icon:'🏆',label:'랭킹',   fn:()=>{},              active:false},
+          ].map((item,i)=>(
+            <button key={i} onClick={item.fn} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:2, background:'none', border:'none', cursor:'pointer', padding:'6px 14px' }}>
+              <span style={{ fontSize:22, filter:item.active?'drop-shadow(0 0 8px #FFB300)':'none', opacity:item.active?1:0.6 }}>{item.icon}</span>
+              <span style={{ fontSize:10, fontWeight:700, color:item.active?'#FFB300':'rgba(255,255,255,0.45)' }}>{item.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Map ───────────────────────────────────────────────────────────────────────
+  if (phase === 'map') {
+    const isUnlocked = (i:number) => i===0 || progress[i-1]>=1;
+    const totalStars = progress.reduce((a,b)=>a+b,0);
+    return (
+      <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100vh', userSelect:'none', background:'linear-gradient(180deg,#1565C0 0%,#0D47A1 60%,#0A2E6E 100%)', overflow:'hidden' }}>
+        <style>{GAME_CSS}</style>
+        <div style={{ flexShrink:0, padding:'calc(var(--sat) + clamp(10px,2.5vh,16px)) clamp(12px,4vw,16px) clamp(6px,1.5vh,10px)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <button onClick={()=>setPhase('main')} style={{ padding:'6px 12px', borderRadius:999, color:'white', fontSize:14, fontWeight:700, background:'rgba(0,0,0,0.3)', border:'1px solid rgba(255,255,255,0.2)', cursor:'pointer' }}>← 홈</button>
+          <span style={{ fontSize:22, fontWeight:900, letterSpacing:4, color:'#FFE566', WebkitTextStroke:'1px #FFA500' }}>ANi PAnG</span>
+          <div style={{ display:'flex', alignItems:'center', gap:4, padding:'6px 12px', borderRadius:999, background:'rgba(0,0,0,0.3)', border:'1px solid rgba(255,255,255,0.2)' }}>
+            <span>⭐</span><span style={{ color:'white', fontWeight:700, fontSize:14 }}>{totalStars}/{LEVELS.length*3}</span>
+          </div>
+        </div>
+        <div style={{ flex:1, position:'relative', margin:'0 16px 16px' }}>
+          <div style={{ width:'100%', height:'100%', position:'relative', borderRadius:16, overflow:'hidden', background:'rgba(0,0,60,0.25)', border:'2px solid rgba(255,255,255,0.1)' }}>
+            <svg style={{ position:'absolute', inset:0, width:'100%', height:'100%', zIndex:1 }}>
+              {MAP_POS.slice(0,-1).map(([col,row],i)=>{
+                const [nc,nr]=MAP_POS[i+1]; const done=progress[i]>0;
+                return <line key={i} x1={`${COL_X[col]}%`} y1={`${ROW_Y[row]}%`} x2={`${COL_X[nc]}%`} y2={`${ROW_Y[nr]}%`} stroke={done?'#FFB300':'rgba(255,255,255,0.18)'} strokeWidth="3" strokeDasharray={done?'0':'8,5'} strokeLinecap="round"/>;
+              })}
+            </svg>
+            {LEVELS.map((_,i)=>{
+              const [col,row]=MAP_POS[i]; const unlocked=isUnlocked(i); const s=progress[i];
+              const modeIcon=LEVELS[i].mode==='time'?'⏱':'🎯';
+              return (
+                <button key={i} onClick={()=>unlocked&&startLevel(i)} disabled={!unlocked}
+                  style={{ position:'absolute', width:60, height:60, left:`calc(${COL_X[col]}% - 30px)`, top:`calc(${ROW_Y[row]}% - 30px)`, zIndex:2, borderRadius:'50%', cursor:unlocked?'pointer':'default', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+                    background:!unlocked?'rgba(10,10,40,0.8)':s===3?'linear-gradient(135deg,#FF6F00,#FFB300)':s===2?'linear-gradient(135deg,#6A1B9A,#CE93D8)':'linear-gradient(135deg,#0D47A1,#1976D2)',
+                    border:unlocked?'3px solid rgba(255,255,255,0.55)':'2px solid rgba(255,255,255,0.12)', boxShadow:unlocked?'0 4px 16px rgba(0,0,0,0.5)':'none', opacity:unlocked?1:0.45 }}>
+                  {unlocked ? (<>
+                    <div style={{ display:'flex', alignItems:'center', gap:1 }}><span style={{ fontSize:7 }}>{modeIcon}</span><span style={{ color:'white', fontWeight:900, fontSize:15 }}>{i+1}</span></div>
+                    <div style={{ display:'flex' }}>{[1,2,3].map(n=><span key={n} style={{ fontSize:8, opacity:n<=s?1:0.2 }}>⭐</span>)}</div>
+                  </>) : <span style={{ fontSize:20 }}>🔒</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Play / End ────────────────────────────────────────────────────────────────
+  return (
+    <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100vh', overflow:'hidden', position:'relative', background:'linear-gradient(180deg,#7EC8F0 0%,#AEE4F8 30%,#C5F0A4 70%,#8BC34A 100%)', userSelect:'none' }}>
+      <style>{GAME_CSS}</style>
+
+      {/* Cloud decorations */}
+      <div style={{ position:'absolute', inset:0, pointerEvents:'none', zIndex:0 }}>
+        <div style={{ position:'absolute', top:'7%', left:'5%',  width:100, height:50, borderRadius:'50%', background:'rgba(255,255,255,0.6)', filter:'blur(10px)' }}/>
+        <div style={{ position:'absolute', top:'5%', left:'18%', width:65,  height:32, borderRadius:'50%', background:'rgba(255,255,255,0.5)', filter:'blur(7px)'  }}/>
+        <div style={{ position:'absolute', top:'9%', right:'7%', width:85,  height:42, borderRadius:'50%', background:'rgba(255,255,255,0.55)',filter:'blur(9px)'  }}/>
+      </div>
+
+      {/* Header white card */}
+      <div style={{ flexShrink:0, position:'relative', zIndex:10, margin:'calc(var(--sat) + 8px) 10px 0', background:'white', borderRadius:22, padding:'8px 10px', boxShadow:'0 4px 20px rgba(0,0,0,0.18)', display:'flex', alignItems:'center', gap:8 }}>
+        {/* Timer / Moves badge */}
+        <div style={{
+          background: condBg,
+          borderRadius: 16,
+          padding: '6px 14px',
+          minWidth: 56,
+          textAlign: 'center',
+          boxShadow: '0 4px 0 rgba(0,0,0,0.18)',
+          flexShrink: 0,
+          animation: isWarning ? 'pulseWarn 0.55s ease infinite' : undefined,
+        }}>
+          <div style={{ fontSize:'clamp(24px,7vw,30px)', fontWeight:900, color:'white', lineHeight:1 }}>{condLabel}</div>
+          <div style={{ fontSize:8, color:'rgba(255,255,255,0.9)', fontWeight:700, letterSpacing:1, marginTop:1 }}>{isTime?'TIME':'MOVE'}</div>
+        </div>
+        {/* Stage + score bar */}
+        <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:3, position:'relative' }}>
+          <span style={{ fontSize:10, fontWeight:800, color:'#aaa', letterSpacing:2 }}>STAGE {lvlIdx+1}</span>
+          <div style={{ width:'100%', position:'relative', height:8, borderRadius:999, background:'#efefef', overflow:'visible' }}>
+            <div style={{ position:'absolute', left:0, top:0, bottom:0, borderRadius:999, width:`${Math.min((score/lvl.goal[2])*100,100)}%`, background:'linear-gradient(90deg,#FF8C00,#FFD700)', transition:'width 0.3s ease' }}/>
+            {lvl.goal.map((gv,i) => (
+              <div key={i} style={{ position:'absolute', top:-3, bottom:-3, left:`${(gv/lvl.goal[2])*100}%`, width:2, background:'rgba(0,0,0,0.15)', transform:'translateX(-50%)' }}/>
+            ))}
+          </div>
+          <span style={{ fontSize:'clamp(17px,5.5vw,22px)', fontWeight:900, color:'#222' }}>{score.toLocaleString()}</span>
+          {/* Floating score numbers */}
+          <div style={{ position:'absolute', top:-8, left:0, right:0, display:'flex', justifyContent:'center', pointerEvents:'none', zIndex:20 }}>
+            {floats.map(f => (
+              <span key={f.id} style={{
+                position:'absolute',
+                fontWeight:900,
+                fontSize:'clamp(13px,3.8vw,16px)',
+                color:'#FF6F00',
+                textShadow:'0 1px 0 rgba(255,255,255,0.8), 0 0 8px rgba(255,140,0,0.6)',
+                animation:'floatUp 1.1s ease-out both',
+                whiteSpace:'nowrap',
+              }}>{f.text}</span>
+            ))}
+          </div>
+        </div>
+        {/* Stars + back button */}
+        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4, flexShrink:0 }}>
+          <div style={{ display:'flex' }}>
+            {[1,2,3].map(s=>(
+              <span key={s} style={{ fontSize:15, filter:s<=curStars?'drop-shadow(0 0 5px #FFD700)':'grayscale(1) opacity(0.3)', transition:'filter 0.3s, transform 0.3s', transform:s<=curStars?'scale(1.1)':'scale(1)' }}>⭐</span>
+            ))}
+          </div>
+          <button onClick={()=>setPhase('main')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:17, padding:0, lineHeight:1 }}>⚙️</button>
+        </div>
+      </div>
+
+      {/* Hint button */}
+      {phase==='play' && !busy && (
+        <div style={{ position:'absolute', top:'calc(var(--sat) + 8px)', right:10, zIndex:15, pointerEvents:'none' }}>
+          {hintPair && (
+            <div style={{ fontSize:9, fontWeight:800, color:'rgba(255,220,0,0.9)', textShadow:'0 1px 4px rgba(0,0,0,0.6)', letterSpacing:1, animation:'splashPulse 1s ease infinite', paddingTop:2 }}>💡 HINT</div>
+          )}
+        </div>
+      )}
+
+      {/* Combo / Special popup */}
+      {popup && (
+        <div style={{ position:'absolute', zIndex:30, pointerEvents:'none', display:'flex', justifyContent:'center', top:'23%', left:0, right:0 }}>
+          <div key={popup} style={{
+            padding: popKind==='special' ? '10px 30px' : '8px 24px',
+            borderRadius: 999,
+            fontWeight: 900,
+            fontSize: popKind==='special' ? 'clamp(16px,4.5vw,20px)' : 'clamp(14px,4vw,17px)',
+            color: 'white',
+            background: popKind==='special'
+              ? 'linear-gradient(135deg,#6A1B9A,#E040FB)'
+              : 'linear-gradient(135deg,#FF6F00,#FFB300)',
+            boxShadow: popKind==='special'
+              ? '0 4px 28px rgba(160,0,220,0.75), 0 0 0 2px rgba(255,255,255,0.3)'
+              : '0 4px 24px rgba(255,100,0,0.7)',
+            whiteSpace: 'nowrap',
+            animation: 'comboIn 0.38s cubic-bezier(0.34,1.56,0.64,1) both',
+          }}>{popup}</div>
+        </div>
+      )}
+
+      {/* Grid */}
+      <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', position:'relative', zIndex:10, padding:'6px 10px clamp(10px,2.5vh,16px)' }}>
+        <div style={{ width:'100%', maxWidth:390, borderRadius:24, padding:'clamp(6px,1.8vw,10px)', background:'rgba(25,15,75,0.72)', boxShadow:'0 8px 36px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1)', backdropFilter:'blur(2px)' }}>
+          <div style={{ display:'grid', gridTemplateColumns:`repeat(${COLS},1fr)`, gap:'clamp(3px,1vw,5px)' }}>
+            {Array.from({ length: ROWS * COLS }, (_, idx) => {
+              const row = Math.floor(idx / COLS);
+              const col = idx % COLS;
+              const cell = grid[row]?.[col] ?? null;
+              const active = curMap[row]?.[col] === 1;
+
+              if (!active) {
+                return (
+                  <div key={`hole-${row}-${col}`} style={{ aspectRatio:'1', borderRadius:'50%', background:'rgba(0,0,0,0.38)', boxShadow:'inset 0 3px 8px rgba(0,0,0,0.75)' }}/>
+                );
+              }
+
+              if (!cell) return <div key={`empty-${row}-${col}`} style={{ aspectRatio:'1' }}/>;
+
+              const tile = TILES[cell.t];
+              const isSel = sel?.[0]===row && sel?.[1]===col;
+              const isSpecial = cell.kind !== 'normal';
+              const isHint = phase==='play' && hintPair !== null && (
+                (hintPair[0][0]===row && hintPair[0][1]===col) ||
+                (hintPair[1][0]===row && hintPair[1][1]===col)
+              );
+
+              return (
+                <button key={cell.id} onClick={()=>tap(row,col)} disabled={busy||phase==='end'}
+                  style={{
+                    aspectRatio:'1', position:'relative', overflow:'hidden', borderRadius:'50%', padding:0,
+                    background: tile.bg,
+                    border: isSel
+                      ? '3px solid white'
+                      : isHint
+                      ? '2.5px solid #FFE566'
+                      : isSpecial
+                      ? `2.5px solid ${cell.kind==='lightning'?'#FFE566':'#FF7043'}`
+                      : '2px solid rgba(255,255,255,0.5)',
+                    boxShadow: isSel
+                      ? `0 0 0 3px rgba(255,255,255,0.35), 0 0 18px white, 0 4px 10px rgba(0,0,0,0.4), inset 0 -4px 8px rgba(0,0,0,0.2), inset 0 4px 8px rgba(255,255,255,0.35)`
+                      : isHint
+                      ? `0 0 18px rgba(255,230,0,0.9), 0 3px 8px rgba(0,0,0,0.35), inset 0 -3px 6px rgba(0,0,0,0.15)`
+                      : isSpecial
+                      ? `0 0 12px ${cell.kind==='lightning'?'#FFE56699':'#FF704399'}, 0 3px 8px rgba(0,0,0,0.35), inset 0 -3px 6px rgba(0,0,0,0.15), inset 0 3px 6px rgba(255,255,255,0.3)`
+                      : `0 3px 8px rgba(0,0,0,0.35), inset 0 -3px 6px rgba(0,0,0,0.15), inset 0 3px 6px rgba(255,255,255,0.3)`,
+                    transform: isSel ? 'scale(1.15)' : cell.hit ? 'scale(0)' : 'scale(1)',
+                    opacity: cell.hit ? 0 : 1,
+                    transition: 'transform 0.15s ease, opacity 0.15s ease',
+                    cursor: 'pointer',
+                    animation: isHint && !isSel ? 'hintGlow 0.75s ease infinite' : undefined,
+                  }}>
+                  <img src={tile.img} alt="" style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'center 8%' }}/>
+                  <div style={{ position:'absolute', top:0, left:'5%', right:'5%', height:'48%', borderRadius:'0 0 50% 50%', background:'linear-gradient(180deg,rgba(255,255,255,0.62) 0%,rgba(255,255,255,0.05) 100%)', pointerEvents:'none', zIndex:1 }}/>
+                  <div style={{ position:'absolute', bottom:0, left:0, right:0, height:'28%', borderRadius:'0 0 50% 50%', background:'linear-gradient(0deg,rgba(0,0,0,0.2) 0%,transparent 100%)', pointerEvents:'none', zIndex:1 }}/>
+                  {isSpecial && <span style={{ position:'absolute', bottom:2, right:2, fontSize:'clamp(9px,2.2vw,12px)', filter:'drop-shadow(0 0 4px rgba(0,0,0,1))', lineHeight:1, zIndex:3 }}>{cell.kind==='lightning'?'⚡':'💣'}</span>}
+                  {isSel && <div style={{ position:'absolute', inset:0, background:'rgba(255,255,255,0.2)', borderRadius:'50%', zIndex:2 }}/>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* End overlay */}
+      {phase==='end' && (
+        <div style={{ position:'absolute', inset:0, zIndex:20, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:'clamp(10px,2.5vh,18px)', background:'rgba(10,10,60,0.88)', backdropFilter:'blur(8px)', padding:'0 clamp(16px,5vw,24px)' }}>
+          <h2 style={{ fontSize:'clamp(22px,6vw,30px)', fontWeight:900, color:'white', margin:0 }}>게임 종료! 🏆</h2>
+          <div style={{ display:'flex', gap:'clamp(8px,2.5vw,12px)', fontSize:'clamp(32px,10vw,48px)' }}>
+            {[1,2,3].map(s=>(
+              <span key={s} style={{
+                display:'inline-block',
+                filter: s<=endStars ? 'drop-shadow(0 0 14px #FFD700) drop-shadow(0 0 6px #FF8C00)' : 'grayscale(1) opacity(0.25)',
+                animation: s<=endStars ? `starPop 0.5s ${(s-1)*0.18}s cubic-bezier(0.34,1.56,0.64,1) both` : undefined,
+              }}>⭐</span>
+            ))}
+          </div>
+          <div style={{ textAlign:'center' }}>
+            <div style={{ fontSize:'clamp(10px,2.8vw,12px)', color:'white', opacity:0.5, marginBottom:4 }}>{isTime?`⏱ ${(lvl as {sec?:number}).sec}초 도전`:`🎯 ${(lvl as {moves?:number}).moves}수 도전`}</div>
+            <div style={{ fontSize:'clamp(12px,3.5vw,14px)', color:'white', opacity:0.6 }}>최종 점수</div>
+            <div style={{ fontSize:'clamp(32px,10vw,48px)', fontWeight:900, color:'white', marginTop:4 }}>{score.toLocaleString()}</div>
+            <div style={{ fontSize:'clamp(11px,3vw,12px)', color:'white', opacity:0.5, marginTop:8, lineHeight:1.6 }}>
+              {endStars===0?'아쉬워요… 다시 도전!':endStars===1?'좋아요! 더 잘할 수 있어요':endStars===2?'훌륭해요! 조금만 더!':'완벽해요! 대단해요! 🎉'}
+            </div>
+            <div style={{ display:'flex', gap:8, marginTop:6, justifyContent:'center' }}>
+              {lvl.goal.map((gv,i)=>(
+                <div key={i} style={{ textAlign:'center', opacity: score>=gv ? 1 : 0.45 }}>
+                  <div style={{ fontSize:10 }}>{'⭐'.repeat(i+1)}</div>
+                  <div style={{ fontSize:11, fontWeight:700, color: score>=gv ? '#FFE566' : 'rgba(255,255,255,0.5)' }}>{gv.toLocaleString()}</div>
+                </div>
+              ))}
+            </div>
+            {endStars>0&&lvlIdx<LEVELS.length-1&&<div style={{ fontSize:'clamp(11px,3vw,12px)', color:'#FDE68A', marginTop:4, opacity:0.9 }}>다음 레벨 해제됨! 🔓</div>}
+          </div>
+          <div style={{ display:'flex', gap:'clamp(8px,2.5vw,12px)' }}>
+            <button onClick={()=>startLevel(lvlIdx)} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background:'linear-gradient(135deg,#1565C0,#42A5F5)', boxShadow:'0 4px 0 #0D3B80', border:'none', cursor:'pointer' }}>다시하기 🔄</button>
+            {endStars>0 && lvlIdx<LEVELS.length-1
+              ? <button onClick={()=>startLevel(lvlIdx+1)} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background:'linear-gradient(135deg,#FF6F00,#FFB300)', boxShadow:'0 4px 0 #B84800', border:'none', cursor:'pointer' }}>다음 스테이지 ▶</button>
+              : <button onClick={()=>setPhase('map')} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background:'linear-gradient(135deg,#FF6F00,#FFB300)', boxShadow:'0 4px 0 #B84800', border:'none', cursor:'pointer' }}>맵으로 🗺️</button>
+            }
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
