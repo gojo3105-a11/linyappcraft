@@ -197,6 +197,12 @@ function hasAnyMatch(g: Grid): boolean {
   return false;
 }
 
+// 터질(hit) 표시가 남아있는 칸이 있는지
+function anyHit(g: Grid): boolean {
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (g[r]?.[c]?.hit) return true;
+  return false;
+}
+
 function expandSpecials(hits: Set<string>, g: Grid) {
   let changed = true;
   while (changed) {
@@ -341,6 +347,17 @@ const GAME_CSS = `
     0%,100% { transform:scale(1); }
     50%      { transform:scale(1.15); }
   }
+  @keyframes popOut {
+    0%   { transform:scale(1) rotate(0deg);   opacity:1; }
+    40%  { transform:scale(1.28) rotate(7deg); opacity:1; }
+    70%  { transform:scale(0.7) rotate(-6deg); opacity:0.7; }
+    100% { transform:scale(0) rotate(-16deg); opacity:0; }
+  }
+  @keyframes tileShake {
+    0%,100% { transform:translateX(0); }
+    25%      { transform:translateX(-5px); }
+    75%      { transform:translateX(5px); }
+  }
 `;
 
 export default function LinyDoryGame() {
@@ -355,7 +372,7 @@ export default function LinyDoryGame() {
   const [movesLeft, setMovesLeft] = useState(0);
   const [popup, setPopup]         = useState<string|null>(null);
   const [popKind, setPopKind]     = useState<'combo'|'special'>('combo');
-  const [busy, setBusy]           = useState(false);
+  const [shakeCells, setShakeCells] = useState<string[]>([]);
   const [floats, setFloats]       = useState<{id:number;text:string}[]>([]);
   const [hintPair, setHintPair]   = useState<[[number,number],[number,number]]|null>(null);
   const [isLucky,  setIsLucky]    = useState(false);
@@ -374,7 +391,6 @@ export default function LinyDoryGame() {
   const [account,     setAccount]     = useState<string>(getScope());
 
   const gRef     = useRef<Grid>(grid);
-  const busyRef  = useRef(false);
   const scoreRef = useRef(0);
   const lvlRef   = useRef(0);
   const movesRef = useRef(0);
@@ -383,6 +399,17 @@ export default function LinyDoryGame() {
   const hintTmr  = useRef<ReturnType<typeof setTimeout>|null>(null);
   const luckyRef = useRef(false);
   const luckyTmr = useRef<ReturnType<typeof setTimeout>|null>(null);
+  // 연쇄 처리는 단일 리졸버가 항상 최신 보드(gRef)를 읽어 진행 — 입력은 잠그지 않음
+  const resolvingRef = useRef(false);        // 리졸버 중복 실행 방지
+  const dirtyRef     = useRef(false);        // 애니메이션 도중 새 스왑이 커밋되면 표시
+  const comboRef     = useRef(0);            // 리졸버 세션 동안 누적 콤보
+  const lastSwapRef  = useRef<[number,number]|null>(null); // 특수 블럭 생성 위치 보정
+  const phaseRef     = useRef<Phase>(phase);
+  const boostersRef  = useRef(boosters);
+  const dragRef      = useRef<{r:number;c:number;x:number;y:number;moved:boolean}|null>(null);
+
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
+  useEffect(() => { boostersRef.current = boosters; }, [boosters]);
 
   const scheduleHint = useCallback(() => {
     if (hintTmr.current) clearTimeout(hintTmr.current);
@@ -492,10 +519,12 @@ export default function LinyDoryGame() {
     mapRef.current = map;
     _uid = 0;
     const g = mkGrid(lvl.types, map);
-    gRef.current=g; busyRef.current=false; scoreRef.current=0; lvlRef.current=idx;
+    gRef.current=g; scoreRef.current=0; lvlRef.current=idx;
+    resolvingRef.current=false; dirtyRef.current=false; comboRef.current=0;
+    lastSwapRef.current=null; dragRef.current=null;
     const mv = (lvl as {moves?:number}).moves ?? 0; movesRef.current=mv;
     setLvlIdx(idx); setGrid(g); setScore(0); setTime((lvl as {sec?:number}).sec ?? 0);
-    setMovesLeft(mv); setSel(null); setBusy(false); setPopup(null); setFloats([]);
+    setMovesLeft(mv); setSel(null); setShakeCells([]); setPopup(null); setFloats([]);
     setNearMiss(false); setIsLucky(false); luckyRef.current = false;
     setBoosterMode(null);
     setPhase('play');
@@ -504,137 +533,178 @@ export default function LinyDoryGame() {
     hintTmr.current = setTimeout(() => setHintPair(findHint(gRef.current)), 2500);
   }, []);
 
-  const chain = useCallback(async (g: Grid, swapTo: [number,number]) => {
-    const types = LEVELS[lvlRef.current].types;
-    const map = mapRef.current;
-    let combo=0, cur=g, first=true;
-    while (true) {
-      const res = buildCycle(cur, first, first ? swapTo : undefined);
-      if (!res) break;
-      combo++;
-      push(res.nextG);
-      const spHits = [...res.hits].filter(k => { const [r,c]=k.split(',').map(Number); return cur[r][c]?.kind!=='normal'; }).length;
-      const pts = res.hits.size*100*combo + spHits*200;
-      inc(pts);
-      if (res.newSpec.size > 0) {
-        const k = [...res.newSpec.values()][0].kind;
-        pop(k==='bomb' ? '💣 BOMB 생성!' : '⚡ LIGHTNING 생성!', 'special');
-      } else if (combo >= 2) {
-        pop(`${combo}x COMBO! +${pts.toLocaleString()}`, 'combo');
-        if (combo >= 5) { const q = questUpdateMaxCombo(combo); setQuests(q); }
+  // 연쇄 리졸버 — 항상 최신 보드(gRef)를 읽어 매치를 해소한다.
+  // 입력을 잠그지 않으므로 블럭이 터지는 동안에도 새 스왑/부스터가 커밋되면 같은 세션에서 함께 처리된다.
+  const resolve = useCallback(async () => {
+    if (resolvingRef.current) return;
+    resolvingRef.current = true;
+    try {
+      while (phaseRef.current === 'play') {
+        dirtyRef.current = false;
+        // 매치가 남아있는 동안 반복(매 반복마다 gRef를 새로 읽어 도중 들어온 스왑도 반영)
+        while (phaseRef.current === 'play') {
+          const g = gRef.current;
+          // 부스터/특수블럭 발동으로 미리 표시된 칸은 먼저 터뜨려 떨어뜨린다(매치 판정 전)
+          if (anyHit(g)) {
+            await wait(280);
+            push(applyFall(gRef.current, LEVELS[lvlRef.current].types, mapRef.current));
+            await wait(200);
+            continue;
+          }
+          const swp = lastSwapRef.current; lastSwapRef.current = null;
+          const res = buildCycle(g, true, swp ?? undefined);
+          if (!res) break;
+          comboRef.current++;
+          const combo = comboRef.current;
+          push(res.nextG);
+          const spHits = [...res.hits].filter(k => { const [r,c]=k.split(',').map(Number); return g[r][c]?.kind!=='normal'; }).length;
+          const pts = res.hits.size*100*combo + spHits*200;
+          inc(pts);
+          if (res.newSpec.size > 0) {
+            const k = [...res.newSpec.values()][0].kind;
+            pop(k==='bomb' ? '💣 BOMB 생성!' : '⚡ LIGHTNING 생성!', 'special');
+          } else if (combo >= 2) {
+            pop(`${combo}x COMBO! +${pts.toLocaleString()}`, 'combo');
+            if (combo >= 5) setQuests(questUpdateMaxCombo(combo));
+          }
+          await wait(280);
+          push(applyFall(gRef.current, LEVELS[lvlRef.current].types, mapRef.current));
+          await wait(200);
+        }
+        // 막힌 보드면 셔플(완전히 정착된 뒤에만)
+        let reshuffles = 0;
+        while (phaseRef.current === 'play' && !hasMoves(gRef.current) && reshuffles++ < 3) {
+          pop('🔀 셔플!', 'special');
+          await wait(700);
+          push(mkGrid(LEVELS[lvlRef.current].types, mapRef.current));
+        }
+        if (!dirtyRef.current) break; // 애니메이션 도중 새 입력이 없었으면 종료
       }
-      await wait(350);
-      cur = applyFall(res.nextG, types, map); push(cur); await wait(220);
-      first = false;
+    } finally {
+      comboRef.current = 0;
+      resolvingRef.current = false;
     }
-    let reshuffles = 0;
-    while (!hasMoves(cur) && reshuffles++ < 3) {
-      pop('🔀 셔플!', 'special');
-      await wait(700);
-      cur = mkGrid(LEVELS[lvlRef.current].types, mapRef.current);
-      push(cur);
+    if (phaseRef.current === 'play') {
+      if (LEVELS[lvlRef.current].mode === 'moves' && movesRef.current <= 0) { endGame(); return; }
+      scheduleHint();
     }
-    busyRef.current=false; setBusy(false);
-  }, [push, inc, pop]);
+  }, [push, inc, pop, endGame, scheduleHint]);
 
-  // 부스터(망치/폭탄) 발동 — 선택한 칸에 효과 적용
-  const useBoosterAt = useCallback(async (kind: 'hammer'|'bomb', r: number, c: number) => {
-    if (busyRef.current) return;
+  // 두 칸 교환 시도 — 유효하면 즉시 커밋하고 리졸버를 가동(입력 잠금 없음)
+  const trySwap = useCallback((sr: number, sc: number, r: number, c: number) => {
+    if (phaseRef.current !== 'play') return;
+    if (Math.abs(sr-r)+Math.abs(sc-c) !== 1) return;
     const g = gRef.current;
-    if (!g[r]?.[c]) return;
-    busyRef.current=true; setBusy(true); clearHint();
-    setBoosterMode(null);
-    setBoosters(prev => { const next={...prev,[kind]:Math.max(0,prev[kind]-1)}; saveBoosters(next); return next; });
-
-    const hits = new Set<string>();
-    if (kind === 'hammer') {
-      hits.add(`${r},${c}`);
-    } else {
-      for (let dr=-1; dr<=1; dr++) for (let dc=-1; dc<=1; dc++) {
-        const nr=r+dr, nc=c+dc;
-        if (nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&g[nr]?.[nc]) hits.add(`${nr},${nc}`);
-      }
-    }
-    expandSpecials(hits, g);
-    const marked: Grid = g.map(row => row.map(x => x ? {...x} : null));
-    hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell=marked[rr][cc]; if(cell) cell.hit=true; });
-    push(marked); inc(hits.size*80);
-    pop(kind==='bomb' ? '💣 폭탄 발동!' : '🔨 망치 발동!', 'special');
-    await wait(350);
-    const fallen = applyFall(marked, LEVELS[lvlRef.current].types, mapRef.current);
-    push(fallen); await wait(220);
-    await chain(fallen, [r,c]);
-    scheduleHint();
-  }, [push, inc, pop, chain, clearHint, scheduleHint]);
-
-  // 셔플 부스터 — 즉시 보드 재생성
-  const useShuffle = useCallback(() => {
-    if (phase!=='play' || busyRef.current) return;
-    let ok = false;
-    setBoosters(prev => { if (prev.shuffle<=0) return prev; ok=true; const next={...prev,shuffle:prev.shuffle-1}; saveBoosters(next); return next; });
-    if (!ok) return;
-    clearHint();
-    const g = mkGrid(LEVELS[lvlRef.current].types, mapRef.current);
-    push(g);
-    pop('🔀 셔플!', 'special');
-    scheduleHint();
-  }, [phase, push, pop, clearHint, scheduleHint]);
-
-  const tap = useCallback(async (r: number, c: number) => {
-    if (phase!=='play' || busyRef.current) return;
-    if (!gRef.current[r]?.[c]) return;
-    if (boosterMode) { await useBoosterAt(boosterMode, r, c); return; }
-    if (!sel) { setSel([r,c]); return; }
-    const [sr,sc] = sel; setSel(null);
-    if (sr===r && sc===c) return;
-    if (Math.abs(sr-r)+Math.abs(sc-c)!==1) { setSel([r,c]); return; }
-
-    busyRef.current=true; setBusy(true);
-    clearHint();
-
-    const g = gRef.current;
-    const sw: Grid = g.map(row => [...row]);
+    const a = g[sr]?.[sc], b = g[r]?.[c];
+    if (!a || !b || a.hit || b.hit) return; // 터지는 중인 칸은 이동 불가
+    const sw: Grid = g.map(row => row.map(x => x ? {...x} : null));
     [sw[sr][sc], sw[r][c]] = [sw[r][c], sw[sr][sc]];
-    push(sw); await wait(120);
-
-    const hasMatch = hasAnyMatch(sw);
     const srcSpec = sw[r][c]?.kind !== 'normal';
     const dstSpec = sw[sr][sc]?.kind !== 'normal';
-
-    if (!hasMatch && !srcSpec && !dstSpec) {
-      const rv: Grid = sw.map(row => [...row]);
-      [rv[sr][sc], rv[r][c]] = [rv[r][c], rv[sr][sc]];
-      push(rv); await wait(200); busyRef.current=false; setBusy(false);
-      scheduleHint();
+    const matched = hasAnyMatch(sw);
+    if (!matched && !srcSpec && !dstSpec) {
+      // 무효 스왑 — 커밋하지 않고 흔들림 피드백만
+      setShakeCells([`${sr},${sc}`, `${r},${c}`]);
+      setTimeout(() => setShakeCells([]), 300);
       return;
     }
-
-    const lvl = LEVELS[lvlRef.current];
-    if (lvl.mode === 'moves') {
+    clearHint();
+    if (LEVELS[lvlRef.current].mode === 'moves') {
       movesRef.current = Math.max(0, movesRef.current-1);
       setMovesLeft(movesRef.current);
     }
-
-    if (!hasMatch && (srcSpec || dstSpec)) {
+    // 특수 블럭을 일반 블럭과 바꾸면 즉시 발동(주변 표시)
+    if (!matched && (srcSpec || dstSpec)) {
       const hits = new Set<string>();
       if (srcSpec) hits.add(`${r},${c}`);
       if (dstSpec) hits.add(`${sr},${sc}`);
       expandSpecials(hits, sw);
-      const marked: Grid = sw.map(row => row.map(x => x ? {...x} : null));
-      hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell=marked[rr][cc]; if(cell) cell.hit=true; });
-      push(marked); inc(hits.size*120);
+      hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell=sw[rr][cc]; if(cell) cell.hit=true; });
+      inc(hits.size*120);
       pop((srcSpec ? sw[r][c]?.kind : sw[sr][sc]?.kind) === 'bomb' ? '💣 BOOM!' : '⚡ ZAP!', 'special');
-      await wait(350);
-      const fallen = applyFall(marked, LEVELS[lvlRef.current].types, mapRef.current);
-      push(fallen); await wait(220);
-      await chain(fallen, [r,c]);
-    } else {
-      await chain(sw, [r,c]);
     }
+    lastSwapRef.current = [r,c];
+    dirtyRef.current = true;
+    push(sw);
+    resolve();
+  }, [clearHint, inc, pop, push, resolve]);
 
-    if (LEVELS[lvlRef.current].mode==='moves' && movesRef.current<=0) { endGame(); return; }
+  // 부스터(망치/폭탄) 발동 — 선택한 칸에 효과 적용 (입력 잠금 없음)
+  const triggerBooster = useCallback((kind: 'hammer'|'bomb', r: number, c: number) => {
+    if (phaseRef.current !== 'play') return;
+    if ((boostersRef.current[kind] ?? 0) <= 0) { setShowShop(true); return; }
+    const g = gRef.current;
+    const cell = g[r]?.[c];
+    if (!cell || cell.hit) return;
+    setBoosterMode(null);
+    clearHint();
+    setBoosters(prev => { const next={...prev,[kind]:Math.max(0,prev[kind]-1)}; saveBoosters(next); return next; });
+    const sw: Grid = g.map(row => row.map(x => x ? {...x} : null));
+    const hits = new Set<string>();
+    if (kind === 'hammer') hits.add(`${r},${c}`);
+    else for (let dr=-1; dr<=1; dr++) for (let dc=-1; dc<=1; dc++) {
+      const nr=r+dr, nc=c+dc;
+      if (nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&sw[nr]?.[nc]) hits.add(`${nr},${nc}`);
+    }
+    expandSpecials(hits, sw);
+    hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell2=sw[rr][cc]; if(cell2) cell2.hit=true; });
+    inc(hits.size*80);
+    pop(kind==='bomb' ? '💣 폭탄 발동!' : '🔨 망치 발동!', 'special');
+    dirtyRef.current = true;
+    push(sw);
+    resolve();
+  }, [clearHint, inc, pop, push, resolve]);
+
+  // 셔플 부스터 — 즉시 보드 재생성
+  const triggerShuffle = useCallback(() => {
+    if (phaseRef.current !== 'play') return;
+    if ((boostersRef.current.shuffle ?? 0) <= 0) { setShowShop(true); return; }
+    setBoosters(prev => { const next={...prev,shuffle:Math.max(0,prev.shuffle-1)}; saveBoosters(next); return next; });
+    clearHint();
+    push(mkGrid(LEVELS[lvlRef.current].types, mapRef.current));
+    pop('🔀 셔플!', 'special');
     scheduleHint();
-  }, [phase, sel, push, chain, endGame, clearHint, scheduleHint, inc, boosterMode, useBoosterAt]);
+  }, [push, pop, clearHint, scheduleHint]);
+
+  // ── 입력(탭/드래그) ───────────────────────────────────
+  const handleTap = (r: number, c: number) => {
+    if (phaseRef.current !== 'play') return;
+    const cell = gRef.current[r]?.[c];
+    if (!cell || cell.hit) return;
+    if (boosterMode) { triggerBooster(boosterMode, r, c); return; }
+    if (!sel) { setSel([r,c]); return; }
+    const [sr,sc] = sel; setSel(null);
+    if (sr===r && sc===c) return;
+    if (Math.abs(sr-r)+Math.abs(sc-c) !== 1) { setSel([r,c]); return; }
+    trySwap(sr,sc,r,c);
+  };
+  const onTilePointerDown = (e: { clientX:number; clientY:number }, r: number, c: number) => {
+    if (phaseRef.current !== 'play') return;
+    const cell = gRef.current[r]?.[c];
+    if (!cell || cell.hit) return;
+    dragRef.current = { r, c, x:e.clientX, y:e.clientY, moved:false };
+  };
+  const onGridPointerMove = (e: { clientX:number; clientY:number }) => {
+    const d = dragRef.current;
+    if (!d || d.moved) return;
+    const dx = e.clientX - d.x, dy = e.clientY - d.y;
+    if (Math.abs(dx) < 14 && Math.abs(dy) < 14) return; // 드래그 임계값
+    d.moved = true;
+    if (boosterMode) { dragRef.current = null; return; } // 부스터는 탭으로만
+    let tr = d.r, tc = d.c;
+    if (Math.abs(dx) > Math.abs(dy)) tc += dx > 0 ? 1 : -1;
+    else tr += dy > 0 ? 1 : -1;
+    setSel(null);
+    dragRef.current = null;
+    if (tr < 0 || tr >= ROWS || tc < 0 || tc >= COLS) return;
+    trySwap(d.r, d.c, tr, tc);
+  };
+  const onGridPointerUp = () => {
+    const d = dragRef.current;
+    dragRef.current = null;
+    if (!d || d.moved) return;
+    handleTap(d.r, d.c); // 드래그가 아니면 탭으로 처리
+  };
 
   // ── 시뮬레이션 결제 ──────────────────────────────────
   const startPay = (label: string, cash: number, onDone: () => void) => {
@@ -1134,7 +1204,7 @@ export default function LinyDoryGame() {
       </div>
 
       {/* Hint button */}
-      {phase==='play' && !busy && (
+      {phase==='play' && (
         <div style={{ position:'absolute', top:'calc(var(--sat) + 8px)', right:10, zIndex:15, pointerEvents:'none' }}>
           {hintPair && (
             <div style={{ fontSize:9, fontWeight:800, color:'rgba(255,220,0,0.9)', textShadow:'0 1px 4px rgba(0,0,0,0.6)', letterSpacing:1, animation:'splashPulse 1s ease infinite', paddingTop:2 }}>💡 HINT</div>
@@ -1183,7 +1253,12 @@ export default function LinyDoryGame() {
       {/* Grid */}
       <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', position:'relative', zIndex:10, padding:'6px 10px clamp(10px,2.5vh,16px)' }}>
         <div style={{ width:'100%', maxWidth:390, borderRadius:24, padding:'clamp(6px,1.8vw,10px)', background:'rgba(25,15,75,0.72)', boxShadow:'0 8px 36px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1)', backdropFilter:'blur(2px)' }}>
-          <div style={{ display:'grid', gridTemplateColumns:`repeat(${COLS},1fr)`, gap:'clamp(3px,1vw,5px)' }}>
+          <div
+            onPointerMove={onGridPointerMove}
+            onPointerUp={onGridPointerUp}
+            onPointerLeave={onGridPointerUp}
+            onPointerCancel={() => { dragRef.current = null; }}
+            style={{ display:'grid', gridTemplateColumns:`repeat(${COLS},1fr)`, gap:'clamp(3px,1vw,5px)', touchAction:'none' }}>
             {Array.from({ length: ROWS * COLS }, (_, idx) => {
               const row = Math.floor(idx / COLS);
               const col = idx % COLS;
@@ -1206,11 +1281,15 @@ export default function LinyDoryGame() {
                 (hintPair[1][0]===row && hintPair[1][1]===col)
               );
 
+              const isShake = shakeCells.includes(`${row},${col}`);
               return (
-                <button key={cell.id} onClick={()=>tap(row,col)} disabled={busy||phase==='end'}
+                <button key={cell.id}
+                  onPointerDown={(e)=>onTilePointerDown(e,row,col)}
+                  disabled={phase==='end'}
                   style={{
                     aspectRatio:'1', position:'relative', overflow:'hidden', borderRadius:'50%', padding:0,
                     background: tile.bg,
+                    touchAction:'none',
                     border: isSel
                       ? '3px solid white'
                       : isHint
@@ -1225,11 +1304,18 @@ export default function LinyDoryGame() {
                       : isSpecial
                       ? `0 0 12px ${cell.kind==='lightning'?'#FFE56699':'#FF704399'}, 0 3px 8px rgba(0,0,0,0.35), inset 0 -3px 6px rgba(0,0,0,0.15), inset 0 3px 6px rgba(255,255,255,0.3)`
                       : `0 3px 8px rgba(0,0,0,0.35), inset 0 -3px 6px rgba(0,0,0,0.15), inset 0 3px 6px rgba(255,255,255,0.3)`,
-                    transform: isSel ? 'scale(1.15)' : cell.hit ? 'scale(0)' : 'scale(1)',
-                    opacity: cell.hit ? 0 : 1,
-                    transition: 'transform 0.15s ease, opacity 0.15s ease',
+                    transform: cell.hit ? undefined : isSel ? 'scale(1.15)' : 'scale(1)',
+                    opacity: cell.hit ? undefined : 1,
+                    transition: 'transform 0.12s ease',
                     cursor: 'pointer',
-                    animation: isHint && !isSel ? 'hintGlow 0.75s ease infinite' : undefined,
+                    // 터질 때 자연스럽게 부풀었다 사라지는 효과(popOut), 무효 스왑은 흔들림(tileShake)
+                    animation: cell.hit
+                      ? 'popOut 0.28s ease-out forwards'
+                      : isShake
+                      ? 'tileShake 0.3s ease'
+                      : isHint && !isSel
+                      ? 'hintGlow 0.75s ease infinite'
+                      : undefined,
                   }}>
                   {/* 4개 이상 매치로 생성된 특수 블럭은 캐릭터 이미지 대신 전용 아이콘으로 교체 */}
                   {isSpecial ? (
@@ -1263,11 +1349,10 @@ export default function LinyDoryGame() {
             const cnt = boosters[b.kind];
             const armed = boosterMode === b.kind;
             return (
-              <button key={b.kind} disabled={busy}
+              <button key={b.kind}
                 onClick={() => {
-                  if (busy) return;
                   if (cnt <= 0) { setShowShop(true); return; }
-                  if (b.kind === 'shuffle') { useShuffle(); return; }
+                  if (b.kind === 'shuffle') { triggerShuffle(); return; }
                   setBoosterMode(armed ? null : b.kind);
                 }}
                 style={{
