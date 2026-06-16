@@ -3,7 +3,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 const ROWS = 7;
 const COLS = 7;
 
-const CHAR = (n: string) => `/characters/KakaoTalk_20260610_202544565${n}.png`;
+const BASE = import.meta.env.BASE_URL;
+const CHAR = (n: string) => `${BASE}characters/KakaoTalk_20260610_202544565${n}.png`;
 const TILES = [
   { img: CHAR(''),     bg: 'linear-gradient(145deg,#FFD54F,#FF8F00)', glow: '#FFB300' },
   { img: CHAR('_01'), bg: 'linear-gradient(145deg,#64B5F6,#1565C0)', glow: '#42A5F5' },
@@ -465,7 +466,7 @@ export default function AniPangGame({ onSwitchGame = () => {} }: { onSwitchGame?
   if (phase === 'splash') return (
     <div style={{ position:'relative', width:'100%', height:'100vh', overflow:'hidden', userSelect:'none' }}>
       <style>{GAME_CSS}</style>
-      <img src="/characters/MAIN.png" alt="ANi PAnG" style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'top center' }} />
+      <img src={`${BASE}characters/MAIN.png`} alt="ANi PAnG" style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'top center' }} />
       <div style={{ position:'absolute', top:0, left:0, right:0, padding:'calc(var(--sat) + clamp(28px,6vh,48px)) clamp(16px,5vw,32px) clamp(40px,8vh,80px)', background:'linear-gradient(180deg,rgba(5,10,40,0.85) 0%,transparent 100%)', display:'flex', flexDirection:'column', alignItems:'center' }}>
         <h1 style={{ margin:0, fontSize:'clamp(36px,10vw,52px)', fontWeight:900, letterSpacing:'clamp(3px,1.5vw,6px)', color:'#FFE566', WebkitTextStroke:'2px #FFA500', textShadow:'0 4px 0 rgba(0,0,0,0.5),0 0 30px rgba(255,200,0,0.8)', animation:'splashPulse 2s ease infinite' }}>ANi PAnG</h1>
         <p style={{ margin:'6px 0 0', fontSize:'clamp(10px,2.8vw,13px)', fontWeight:700, letterSpacing:'clamp(2px,1vw,4px)', color:'white', opacity:0.7 }}>ANIMAL PUZZLE</p>
@@ -491,7 +492,7 @@ export default function AniPangGame({ onSwitchGame = () => {} }: { onSwitchGame?
     return (
       <div style={{ position:'relative', width:'100%', height:'100vh', overflow:'hidden', userSelect:'none', background:'#0d1a0d' }}>
         <style>{GAME_CSS}</style>
-        <img src="/characters/MAIN.png" alt="" style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'top center' }} />
+        <img src={`${BASE}characters/MAIN.png`} alt="" style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'top center' }} />
         <div style={{ position:'absolute', top:0, left:0, right:0, height:120, background:'linear-gradient(180deg,rgba(5,15,5,0.85) 0%,transparent 100%)' }}/>
         <div style={{ position:'absolute', bottom:0, left:0, right:0, height:'clamp(180px,40vh,260px)', background:'linear-gradient(0deg,rgba(5,15,5,0.97) 0%,rgba(5,15,5,0.65) 65%,transparent 100%)' }}/>
         <div style={{ position:'absolute', top:0, left:0, right:0, padding:'calc(var(--sat) + clamp(10px,2.5vh,16px)) clamp(10px,3vw,16px) 0', display:'flex', alignItems:'center', gap:'clamp(5px,1.5vw,8px)' }}>
