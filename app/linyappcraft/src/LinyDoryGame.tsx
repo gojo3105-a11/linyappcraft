@@ -100,7 +100,9 @@ function mkGrid(types: number, map: readonly (0|1)[][]): Grid {
         const t = cell.t;
         const hMatch = c >= 2 && g[r][c-1]?.t === t && g[r][c-2]?.t === t;
         const vMatch = r >= 2 && g[r-1]?.[c]?.t === t && g[r-2]?.[c]?.t === t;
-        if (!hMatch && !vMatch) break;
+        // 2x2 정사각형도 매치로 인정되므로 초기 보드에서 미리 제거
+        const sqMatch = r >= 1 && c >= 1 && g[r-1]?.[c]?.t === t && g[r]?.[c-1]?.t === t && g[r-1]?.[c-1]?.t === t;
+        if (!hMatch && !vMatch && !sqMatch) break;
         g[r][c] = mk(rnd(types));
       }
     }
@@ -115,12 +117,12 @@ function hasMoves(g: Grid): boolean {
       if (c+1 < COLS && g[r]?.[c+1]) {
         const sw: Grid = g.map(row => [...row]);
         [sw[r][c], sw[r][c+1]] = [sw[r][c+1], sw[r][c]];
-        if (findGroups(sw).length > 0) return true;
+        if (hasAnyMatch(sw)) return true;
       }
       if (r+1 < ROWS && g[r+1]?.[c]) {
         const sw: Grid = g.map(row => [...row]);
         [sw[r][c], sw[r+1][c]] = [sw[r+1][c], sw[r][c]];
-        if (findGroups(sw).length > 0) return true;
+        if (hasAnyMatch(sw)) return true;
       }
     }
   }
@@ -134,43 +136,65 @@ function findHint(g: Grid): [[number,number],[number,number]] | null {
       if (c+1 < COLS && g[r]?.[c+1]) {
         const sw: Grid = g.map(row => [...row]);
         [sw[r][c], sw[r][c+1]] = [sw[r][c+1], sw[r][c]];
-        if (findGroups(sw).length > 0) return [[r,c],[r,c+1]];
+        if (hasAnyMatch(sw)) return [[r,c],[r,c+1]];
       }
       if (r+1 < ROWS && g[r+1]?.[c]) {
         const sw: Grid = g.map(row => [...row]);
         [sw[r][c], sw[r+1][c]] = [sw[r+1][c], sw[r][c]];
-        if (findGroups(sw).length > 0) return [[r,c],[r+1,c]];
+        if (hasAnyMatch(sw)) return [[r,c],[r+1,c]];
       }
     }
   }
   return null;
 }
 
-interface Group { cells: [number,number][]; dir: 'h'|'v'; }
+// 같은 종류의 일반 블럭인지 비교
+const sameTile = (a: GridCell, b: GridCell): boolean =>
+  !!a && !!b && a.kind === 'normal' && b.kind === 'normal' && a.t === b.t;
 
-function findGroups(g: Grid): Group[] {
-  const out: Group[] = [];
+// 매치(터질) 대상 칸 마스크 — 가로/세로 직선 3개 이상 + 2x2 정사각형 포함
+function findMatchedMask(g: Grid): boolean[][] {
+  const mask: boolean[][] = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
+  // 가로 직선 3개 이상
   for (let r = 0; r < ROWS; r++) {
-    let c = 0;
-    while (c < COLS) {
-      if (!g[r][c] || g[r][c]!.kind !== 'normal') { c++; continue; }
-      const t = g[r][c]!.t; let e = c;
-      while (e+1 < COLS && g[r][e+1]?.t === t && g[r][e+1]?.kind === 'normal') e++;
-      if (e-c >= 2) { out.push({ cells: Array.from({length:e-c+1},(_,i)=>[r,c+i] as [number,number]), dir:'h' }); c=e+1; }
-      else c++;
+    for (let c = 0; c < COLS;) {
+      const cell = g[r][c];
+      if (!cell || cell.kind !== 'normal') { c++; continue; }
+      let e = c;
+      while (e+1 < COLS && sameTile(g[r][e+1], cell)) e++;
+      if (e-c >= 2) for (let i = c; i <= e; i++) mask[r][i] = true;
+      c = e + 1;
     }
   }
+  // 세로 직선 3개 이상
   for (let c = 0; c < COLS; c++) {
-    let r = 0;
-    while (r < ROWS) {
-      if (!g[r][c] || g[r][c]!.kind !== 'normal') { r++; continue; }
-      const t = g[r][c]!.t; let e = r;
-      while (e+1 < ROWS && g[e+1]?.[c]?.t === t && g[e+1]?.[c]?.kind === 'normal') e++;
-      if (e-r >= 2) { out.push({ cells: Array.from({length:e-r+1},(_,i)=>[r+i,c] as [number,number]), dir:'v' }); r=e+1; }
-      else r++;
+    for (let r = 0; r < ROWS;) {
+      const cell = g[r][c];
+      if (!cell || cell.kind !== 'normal') { r++; continue; }
+      let e = r;
+      while (e+1 < ROWS && sameTile(g[e+1][c], cell)) e++;
+      if (e-r >= 2) for (let i = r; i <= e; i++) mask[i][c] = true;
+      r = e + 1;
     }
   }
-  return out;
+  // 2x2 정사각형 (직선 3개가 아니어도 매치로 인정)
+  for (let r = 0; r < ROWS-1; r++) {
+    for (let c = 0; c < COLS-1; c++) {
+      const a = g[r][c];
+      if (!a || a.kind !== 'normal') continue;
+      if (sameTile(a, g[r][c+1]) && sameTile(a, g[r+1][c]) && sameTile(a, g[r+1][c+1])) {
+        mask[r][c] = mask[r][c+1] = mask[r+1][c] = mask[r+1][c+1] = true;
+      }
+    }
+  }
+  return mask;
+}
+
+// 매치가 하나라도 존재하는지
+function hasAnyMatch(g: Grid): boolean {
+  const mask = findMatchedMask(g);
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (mask[r][c]) return true;
+  return false;
 }
 
 function expandSpecials(hits: Set<string>, g: Grid) {
@@ -195,24 +219,43 @@ function expandSpecials(hits: Set<string>, g: Grid) {
 }
 
 function buildCycle(g: Grid, mkSpecials: boolean, swapTo?: [number,number]): { hits: Set<string>; newSpec: Map<string,Cell>; nextG: Grid } | null {
-  const groups = findGroups(g);
-  if (!groups.length) return null;
+  const mask = findMatchedMask(g);
   const hits = new Set<string>();
   const newSpec = new Map<string,Cell>();
-  groups.forEach(grp => {
-    const len = grp.cells.length;
-    grp.cells.forEach(([r,c]) => hits.add(`${r},${c}`));
-    if (!mkSpecials || len < 4) return;
-    let pos: [number,number];
-    if (swapTo) {
-      const found = grp.cells.find(([r,c]) => r===swapTo[0] && c===swapTo[1]);
-      pos = found ?? grp.cells[Math.floor(len/2)];
-    } else pos = grp.cells[Math.floor(len/2)];
+  // 매치된 칸들을 같은 종류끼리 연결 묶음(flood fill)으로 그룹화
+  // → 직선·ㄱ/ㅗ자·2x2 정사각형 모두 하나의 묶음으로 처리되고, 4개 이상이면 특수 블럭 생성
+  const visited: boolean[][] = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
+  let found = false;
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    if (!mask[r][c] || visited[r][c]) continue;
+    const t = g[r][c]!.t;
+    const comp: [number,number][] = [];
+    const stack: [number,number][] = [[r,c]];
+    visited[r][c] = true;
+    while (stack.length) {
+      const [cr,cc] = stack.pop()!;
+      comp.push([cr,cc]);
+      for (const [dr,dc] of [[-1,0],[1,0],[0,-1],[0,1]] as const) {
+        const nr=cr+dr, nc=cc+dc;
+        if (nr<0||nr>=ROWS||nc<0||nc>=COLS) continue;
+        if (visited[nr][nc] || !mask[nr][nc] || g[nr][nc]?.t !== t) continue;
+        visited[nr][nc] = true;
+        stack.push([nr,nc]);
+      }
+    }
+    found = true;
+    comp.forEach(([cr,cc]) => hits.add(`${cr},${cc}`));
+    const len = comp.length;
+    if (!mkSpecials || len < 4) continue;
+    let pos: [number,number] | undefined;
+    if (swapTo) pos = comp.find(([cr,cc]) => cr===swapTo[0] && cc===swapTo[1]);
+    pos = pos ?? comp[Math.floor(len/2)];
     const [tr,tc] = pos; const key = `${tr},${tc}`;
     hits.delete(key);
     const cell = g[tr][tc];
     if (cell) newSpec.set(key, mk(cell.t, len>=5?'bomb':'lightning'));
-  });
+  }
+  if (!found) return null;
   expandSpecials(hits, g);
   const nextG: Grid = g.map(row => row.map(c => c ? {...c} : null));
   hits.forEach(key => {
@@ -554,7 +597,7 @@ export default function LinyDoryGame() {
     [sw[sr][sc], sw[r][c]] = [sw[r][c], sw[sr][sc]];
     push(sw); await wait(120);
 
-    const hasMatch = findGroups(sw).length > 0;
+    const hasMatch = hasAnyMatch(sw);
     const srcSpec = sw[r][c]?.kind !== 'normal';
     const dstSpec = sw[sr][sc]?.kind !== 'normal';
 
