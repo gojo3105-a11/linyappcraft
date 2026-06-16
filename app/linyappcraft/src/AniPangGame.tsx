@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { questAddGameCleared, questUpdateMaxCombo, questClaim, loadQuests, type QuestSave } from './quest';
 
 const ROWS = 7;
 const COLS = 7;
@@ -262,6 +263,27 @@ const GAME_CSS = `
     0%,100% { opacity:0.85; }
     50%      { opacity:1; }
   }
+  @keyframes luckySlide {
+    0%   { transform:translateY(-60px); opacity:0; }
+    15%  { transform:translateY(0); opacity:1; }
+    85%  { transform:translateY(0); opacity:1; }
+    100% { transform:translateY(-60px); opacity:0; }
+  }
+  @keyframes luckyGlow {
+    0%,100% { box-shadow:0 0 20px rgba(255,215,0,0.6); }
+    50%      { box-shadow:0 0 40px rgba(255,215,0,1), 0 0 80px rgba(255,140,0,0.5); }
+  }
+  @keyframes nearMissShake {
+    0%,100% { transform:translateX(0); }
+    20%     { transform:translateX(-6px); }
+    40%     { transform:translateX(6px); }
+    60%     { transform:translateX(-4px); }
+    80%     { transform:translateX(4px); }
+  }
+  @keyframes questBadge {
+    0%,100% { transform:scale(1); }
+    50%      { transform:scale(1.15); }
+  }
 `;
 
 export default function AniPangGame({ onSwitchGame = () => {} }: { onSwitchGame?: () => void } = {}) {
@@ -279,6 +301,10 @@ export default function AniPangGame({ onSwitchGame = () => {} }: { onSwitchGame?
   const [busy, setBusy]           = useState(false);
   const [floats, setFloats]       = useState<{id:number;text:string}[]>([]);
   const [hintPair, setHintPair]   = useState<[[number,number],[number,number]]|null>(null);
+  const [isLucky,  setIsLucky]    = useState(false);
+  const [nearMiss, setNearMiss]   = useState(false);
+  const [quests,   setQuests]     = useState<QuestSave>(loadQuests);
+  const [showQuests, setShowQuests] = useState(false);
 
   const gRef     = useRef<Grid>(grid);
   const busyRef  = useRef(false);
@@ -288,6 +314,8 @@ export default function AniPangGame({ onSwitchGame = () => {} }: { onSwitchGame?
   const mapRef   = useRef<readonly (0|1)[][]>(MAPS[0]);
   const popT     = useRef<ReturnType<typeof setTimeout>|null>(null);
   const hintTmr  = useRef<ReturnType<typeof setTimeout>|null>(null);
+  const luckyRef = useRef(false);
+  const luckyTmr = useRef<ReturnType<typeof setTimeout>|null>(null);
 
   const scheduleHint = useCallback(() => {
     if (hintTmr.current) clearTimeout(hintTmr.current);
@@ -302,10 +330,12 @@ export default function AniPangGame({ onSwitchGame = () => {} }: { onSwitchGame?
   const push = useCallback((g: Grid) => { gRef.current=g; setGrid(g); }, []);
 
   const inc = useCallback((n: number) => {
-    scoreRef.current += n;
+    const pts = luckyRef.current ? n * 2 : n;
+    scoreRef.current += pts;
     setScore(scoreRef.current);
     const fid = ++_fid;
-    setFloats(p => [...p.slice(-5), { id: fid, text: n >= 1000 ? `+${(n/1000).toFixed(1)}K` : `+${n}` }]);
+    const label = pts >= 1000 ? `+${(pts/1000).toFixed(1)}K` : `+${pts}`;
+    setFloats(p => [...p.slice(-5), { id: fid, text: luckyRef.current ? `⭐${label}` : label }]);
     setTimeout(() => setFloats(p => p.filter(f => f.id !== fid)), 1100);
   }, []);
 
@@ -328,8 +358,16 @@ export default function AniPangGame({ onSwitchGame = () => {} }: { onSwitchGame?
 
   const endGame = useCallback(() => {
     clearHint();
+    if (luckyTmr.current) clearTimeout(luckyTmr.current);
+    luckyRef.current = false; setIsLucky(false);
     const li = lvlRef.current;
     const s = calcStars(scoreRef.current, LEVELS[li].goal);
+    const goal0 = LEVELS[li].goal[0];
+    setNearMiss(s === 0 && scoreRef.current >= goal0 * 0.72 && scoreRef.current < goal0);
+    if (s > 0) {
+      const q = questAddGameCleared();
+      setQuests(q);
+    }
     setProgress(prev => { const next=[...prev]; if (s>next[li]) next[li]=s; saveProg(next); return next; });
     setPhase('end');
   }, [clearHint]);
@@ -345,6 +383,23 @@ export default function AniPangGame({ onSwitchGame = () => {} }: { onSwitchGame?
     if (phase !== 'play') { clearHint(); }
   }, [phase, clearHint]);
 
+  useEffect(() => {
+    if (phase !== 'play') return;
+    const id = setInterval(() => {
+      if (luckyRef.current) return;
+      if (Math.random() < 0.22) {
+        luckyRef.current = true;
+        setIsLucky(true);
+        pop('🌟 2배 점수! 6초!', 'special');
+        luckyTmr.current = setTimeout(() => {
+          luckyRef.current = false;
+          setIsLucky(false);
+        }, 6000);
+      }
+    }, 8000);
+    return () => clearInterval(id);
+  }, [phase, pop]);
+
   const startLevel = useCallback((idx: number) => {
     const lvl = LEVELS[idx];
     const map = MAPS[idx];
@@ -355,6 +410,7 @@ export default function AniPangGame({ onSwitchGame = () => {} }: { onSwitchGame?
     const mv = (lvl as {moves?:number}).moves ?? 0; movesRef.current=mv;
     setLvlIdx(idx); setGrid(g); setScore(0); setTime((lvl as {sec?:number}).sec ?? 0);
     setMovesLeft(mv); setSel(null); setBusy(false); setPopup(null); setFloats([]);
+    setNearMiss(false); setIsLucky(false); luckyRef.current = false;
     setPhase('play');
     if (hintTmr.current) clearTimeout(hintTmr.current);
     setHintPair(null);
@@ -376,7 +432,10 @@ export default function AniPangGame({ onSwitchGame = () => {} }: { onSwitchGame?
       if (res.newSpec.size > 0) {
         const k = [...res.newSpec.values()][0].kind;
         pop(k==='bomb' ? '💣 BOMB 생성!' : '⚡ LIGHTNING 생성!', 'special');
-      } else if (combo >= 2) pop(`${combo}x COMBO! +${pts.toLocaleString()}`, 'combo');
+      } else if (combo >= 2) {
+        pop(`${combo}x COMBO! +${pts.toLocaleString()}`, 'combo');
+        if (combo >= 5) { const q = questUpdateMaxCombo(combo); setQuests(q); }
+      }
       await wait(350);
       cur = applyFall(res.nextG, types, map); push(cur); await wait(220);
       first = false;
@@ -508,8 +567,55 @@ export default function AniPangGame({ onSwitchGame = () => {} }: { onSwitchGame?
           <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(0,0,0,0.55)', borderRadius:999, padding:'5px 10px', border:'1.5px solid rgba(255,180,0,0.35)' }}>
             <span style={{ fontSize:14 }}>💰</span><span style={{ fontSize:13, fontWeight:900, color:'#FFE566' }}>{totalStars * 10}</span>
           </div>
-          <div style={{ width:34, height:34, borderRadius:'50%', background:'rgba(0,0,0,0.55)', border:'1.5px solid rgba(255,255,255,0.18)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, cursor:'pointer' }}>⚙️</div>
+          <button onClick={() => setShowQuests(true)} style={{ position:'relative', width:34, height:34, borderRadius:'50%', background:'rgba(0,0,0,0.55)', border:'1.5px solid rgba(255,180,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, cursor:'pointer' }}>
+            📋
+            {(() => { const q = quests; const cnt = (q.gamesCleared>=3&&!q.claimed.game?1:0)+(q.maxCombo>=5&&!q.claimed.combo?1:0); return cnt > 0 ? <span style={{ position:'absolute', top:-4, right:-4, width:14, height:14, borderRadius:'50%', background:'#FF3030', border:'1.5px solid white', fontSize:9, fontWeight:900, color:'white', display:'flex', alignItems:'center', justifyContent:'center', animation:'questBadge 1s ease infinite' }}>{cnt}</span> : null; })()}
+          </button>
         </div>
+
+        {/* Quest Panel Overlay */}
+        {showQuests && (
+          <div style={{ position:'absolute', inset:0, zIndex:50, background:'rgba(0,0,0,0.75)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+            <div style={{ width:'100%', maxWidth:340, background:'linear-gradient(160deg,#0d1a0d,#1a1a0d)', borderRadius:20, border:'2px solid rgba(255,180,0,0.35)', boxShadow:'0 20px 60px rgba(0,0,0,0.8)', overflow:'hidden' }}>
+              <div style={{ padding:'16px 16px 12px', borderBottom:'1px solid rgba(255,180,0,0.2)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                <span style={{ fontSize:16, fontWeight:900, color:'#FFD700', letterSpacing:1 }}>📋 일일 퀘스트</span>
+                <button onClick={() => setShowQuests(false)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'rgba(255,255,255,0.6)', lineHeight:1 }}>✕</button>
+              </div>
+              <div style={{ padding:12, display:'flex', flexDirection:'column', gap:8 }}>
+                {[
+                  { key:'game' as const, icon:'🎮', label:'게임 3판 클리어', target:3, current:quests.gamesCleared, reward:'🌰 +50', claimed:quests.claimed.game },
+                  { key:'combo' as const, icon:'⚡', label:'5x 콤보 달성', target:5, current:quests.maxCombo, reward:'💎 +100', claimed:quests.claimed.combo },
+                ].map(q => {
+                  const done = q.current >= q.target;
+                  return (
+                    <div key={q.key} style={{ padding:'10px 12px', borderRadius:12, background: q.claimed ? 'rgba(255,255,255,0.04)' : done ? 'rgba(255,180,0,0.1)' : 'rgba(255,255,255,0.05)', border: `1px solid ${q.claimed ? 'rgba(255,255,255,0.1)' : done ? 'rgba(255,180,0,0.4)' : 'rgba(255,255,255,0.1)'}`, display:'flex', alignItems:'center', gap:10 }}>
+                      <span style={{ fontSize:20, opacity: q.claimed ? 0.4 : 1 }}>{q.icon}</span>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:12, fontWeight:800, color: q.claimed ? 'rgba(255,255,255,0.35)' : 'white' }}>{q.label}</div>
+                        <div style={{ fontSize:10, color:'rgba(255,255,255,0.45)', marginTop:2 }}>
+                          {q.claimed ? '완료 ✓' : `${Math.min(q.current, q.target)} / ${q.target}`}
+                        </div>
+                        {!q.claimed && <div style={{ marginTop:4, height:4, borderRadius:999, background:'rgba(255,255,255,0.1)', overflow:'hidden' }}>
+                          <div style={{ height:'100%', borderRadius:999, background:'linear-gradient(90deg,#FF8C00,#FFD700)', width:`${Math.min((q.current/q.target)*100,100)}%`, transition:'width 0.3s' }}/>
+                        </div>}
+                      </div>
+                      {done && !q.claimed && (
+                        <button onClick={() => { const r = questClaim(q.key); if (r.success) setQuests(loadQuests()); }} style={{ padding:'6px 10px', borderRadius:999, background:'linear-gradient(135deg,#FF8C00,#FFD700)', border:'none', cursor:'pointer', fontSize:10, fontWeight:900, color:'#3D1C00', whiteSpace:'nowrap' }}>
+                          수령 {q.reward}
+                        </button>
+                      )}
+                      {q.claimed && <span style={{ fontSize:18, opacity:0.5 }}>✅</span>}
+                    </div>
+                  );
+                })}
+                <div style={{ padding:'8px 12px', borderRadius:10, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)', fontSize:10, color:'rgba(255,255,255,0.35)', textAlign:'center' }}>
+                  ⚔️ 적 30마리 처치 → 💰 +1000 (고슴도치 게임에서 달성)
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div style={{ position:'absolute', bottom:'calc(var(--sab) + clamp(60px,10vh,80px))', left:0, right:0, display:'flex', flexDirection:'column', alignItems:'center', gap:'clamp(10px,2.5vh,16px)', padding:'0 clamp(16px,5vw,32px)' }}>
           <div style={{ display:'flex', alignItems:'flex-end', gap:10 }}>
             {dots.map(li => {
@@ -670,6 +776,23 @@ export default function AniPangGame({ onSwitchGame = () => {} }: { onSwitchGame?
         </div>
       )}
 
+      {/* Lucky Time Event banner */}
+      {phase === 'play' && isLucky && (
+        <div style={{ position:'absolute', top:0, left:0, right:0, zIndex:25, pointerEvents:'none',
+          display:'flex', justifyContent:'center', paddingTop:'calc(var(--sat) + 76px)' }}>
+          <div style={{
+            padding: '8px 24px', borderRadius: 999,
+            background: 'linear-gradient(135deg,#FF8C00,#FFD700,#FF8C00)',
+            backgroundSize: '200% 100%',
+            fontWeight: 900, fontSize: 'clamp(14px,4vw,17px)', color: '#3D1C00',
+            boxShadow: '0 4px 24px rgba(255,180,0,0.9)',
+            animation: 'luckyGlow 0.8s ease infinite',
+            whiteSpace: 'nowrap',
+            letterSpacing: 1,
+          }}>🌟 2배 점수 타임! 🌟</div>
+        </div>
+      )}
+
       {/* Combo / Special popup */}
       {popup && (
         <div style={{ position:'absolute', zIndex:30, pointerEvents:'none', display:'flex', justifyContent:'center', top:'23%', left:0, right:0 }}>
@@ -756,8 +879,15 @@ export default function AniPangGame({ onSwitchGame = () => {} }: { onSwitchGame?
 
       {/* End overlay */}
       {phase==='end' && (
-        <div style={{ position:'absolute', inset:0, zIndex:20, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:'clamp(10px,2.5vh,18px)', background:'rgba(10,10,60,0.88)', backdropFilter:'blur(8px)', padding:'0 clamp(16px,5vw,24px)' }}>
-          <h2 style={{ fontSize:'clamp(22px,6vw,30px)', fontWeight:900, color:'white', margin:0 }}>게임 종료! 🏆</h2>
+        <div style={{ position:'absolute', inset:0, zIndex:20, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:'clamp(8px,2vh,14px)', background:'rgba(10,10,60,0.88)', backdropFilter:'blur(8px)', padding:'0 clamp(16px,5vw,24px)' }}>
+          {nearMiss ? (
+            <div style={{ textAlign:'center', animation:'nearMissShake 0.5s ease 0.2s' }}>
+              <div style={{ fontSize:'clamp(26px,7vw,34px)', fontWeight:900, color:'#FFD700', animation:'splashPulse 0.8s ease infinite' }}>😱 아깝다!</div>
+              <div style={{ fontSize:'clamp(12px,3.2vw,14px)', color:'rgba(255,240,100,0.9)', marginTop:2 }}>조금만 더 하면 별을 딸 수 있어요!</div>
+            </div>
+          ) : (
+            <h2 style={{ fontSize:'clamp(22px,6vw,30px)', fontWeight:900, color:'white', margin:0 }}>게임 종료! 🏆</h2>
+          )}
           <div style={{ display:'flex', gap:'clamp(8px,2.5vw,12px)', fontSize:'clamp(32px,10vw,48px)' }}>
             {[1,2,3].map(s=>(
               <span key={s} style={{
@@ -772,7 +902,7 @@ export default function AniPangGame({ onSwitchGame = () => {} }: { onSwitchGame?
             <div style={{ fontSize:'clamp(12px,3.5vw,14px)', color:'white', opacity:0.6 }}>최종 점수</div>
             <div style={{ fontSize:'clamp(32px,10vw,48px)', fontWeight:900, color:'white', marginTop:4 }}>{score.toLocaleString()}</div>
             <div style={{ fontSize:'clamp(11px,3vw,12px)', color:'white', opacity:0.5, marginTop:8, lineHeight:1.6 }}>
-              {endStars===0?'아쉬워요… 다시 도전!':endStars===1?'좋아요! 더 잘할 수 있어요':endStars===2?'훌륭해요! 조금만 더!':'완벽해요! 대단해요! 🎉'}
+              {nearMiss ? `목표까지 ${(lvl.goal[0]-score).toLocaleString()}점 남았어요!` : endStars===0?'아쉬워요… 다시 도전!':endStars===1?'좋아요! 더 잘할 수 있어요':endStars===2?'훌륭해요! 조금만 더!':'완벽해요! 대단해요! 🎉'}
             </div>
             <div style={{ display:'flex', gap:8, marginTop:6, justifyContent:'center' }}>
               {lvl.goal.map((gv,i)=>(
@@ -785,10 +915,12 @@ export default function AniPangGame({ onSwitchGame = () => {} }: { onSwitchGame?
             {endStars>0&&lvlIdx<LEVELS.length-1&&<div style={{ fontSize:'clamp(11px,3vw,12px)', color:'#FDE68A', marginTop:4, opacity:0.9 }}>다음 레벨 해제됨! 🔓</div>}
           </div>
           <div style={{ display:'flex', gap:'clamp(8px,2.5vw,12px)' }}>
-            <button onClick={()=>startLevel(lvlIdx)} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background:'linear-gradient(135deg,#1565C0,#42A5F5)', boxShadow:'0 4px 0 #0D3B80', border:'none', cursor:'pointer' }}>다시하기 🔄</button>
+            <button onClick={()=>startLevel(lvlIdx)} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background: nearMiss ? 'linear-gradient(135deg,#FF6F00,#FFD700)' : 'linear-gradient(135deg,#1565C0,#42A5F5)', boxShadow: nearMiss ? '0 4px 0 #B84800' : '0 4px 0 #0D3B80', border:'none', cursor:'pointer' }}>
+              {nearMiss ? '한 판 더! 🔥' : '다시하기 🔄'}
+            </button>
             {endStars>0 && lvlIdx<LEVELS.length-1
               ? <button onClick={()=>startLevel(lvlIdx+1)} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background:'linear-gradient(135deg,#FF6F00,#FFB300)', boxShadow:'0 4px 0 #B84800', border:'none', cursor:'pointer' }}>다음 스테이지 ▶</button>
-              : <button onClick={()=>setPhase('map')} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background:'linear-gradient(135deg,#FF6F00,#FFB300)', boxShadow:'0 4px 0 #B84800', border:'none', cursor:'pointer' }}>맵으로 🗺️</button>
+              : !nearMiss && <button onClick={()=>setPhase('map')} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background:'linear-gradient(135deg,#FF6F00,#FFB300)', boxShadow:'0 4px 0 #B84800', border:'none', cursor:'pointer' }}>맵으로 🗺️</button>
             }
           </div>
         </div>

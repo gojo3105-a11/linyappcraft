@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { HeroSVG } from './sprites/HeroSVG';
 import { MonsterSVG } from './sprites/MonsterSVG';
+import { questAddKill, questClaim, loadQuests, type QuestSave } from './quest';
 
 // ── localStorage 저장/불러오기 ─────────────────────────
 const HH_KEY = 'hedgehog_v2';
@@ -97,6 +98,11 @@ export default function HedgehogGame({ onSwitchGame = () => {} }: { onSwitchGame
   const [isAuto,     setIsAuto]     = useState(false);
   const [autoTarget, setAutoTarget] = useState<GradeCode>('epic');
 
+  const [offlineGold,     setOfflineGold]     = useState(0);
+  const [showOffline,     setShowOffline]      = useState(false);
+  const [quests,          setQuests]           = useState<QuestSave>(loadQuests);
+  const [showQuestHH,     setShowQuestHH]      = useState(false);
+
   const [monster,   setMonster]  = useState<Mon>({name:'제로 버섯',hp:120,maxHp:120,isBoss:false});
   const [myHp,      setMyHp]     = useState(200);
   const [dmgs,      setDmgs]     = useState<Dmg[]>([]);
@@ -115,6 +121,17 @@ export default function HedgehogGame({ onSwitchGame = () => {} }: { onSwitchGame
 
   const pop = (msg:string)=>{setToast(msg);setTimeout(()=>setToast(null),2200);};
 
+  // 오프라인 보상 계산 (최초 마운트 시)
+  useEffect(() => {
+    const raw = loadHH();
+    if (raw.lastSave) {
+      const elapsed = Math.min((Date.now() - raw.lastSave) / 1000, 4 * 3600);
+      const earned = Math.floor(elapsed * (raw.stage ?? 1) * 5);
+      if (earned >= 100) { setOfflineGold(earned); setShowOffline(true); }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // 진행 상황 자동 저장
   useEffect(() => {
     const save = {
@@ -122,6 +139,7 @@ export default function HedgehogGame({ onSwitchGame = () => {} }: { onSwitchGame
       equipped,
       ownedPetIds: ownedPets.map(p => p.id),
       equippedPetId: equippedPet?.id ?? null,
+      lastSave: Date.now(),
     };
     localStorage.setItem(HH_KEY, JSON.stringify(save));
   }, [gold, diamond, lamp, stage, level, lampLv, trainAtk, trainHp, equipped, ownedPets, equippedPet]);
@@ -149,6 +167,8 @@ export default function HedgehogGame({ onSwitchGame = () => {} }: { onSwitchGame
         if(nxt<=0){
           if(prev.isBoss){setDiamond(d=>d+st*100);pop(`🎉 보스 격파! 💎 +${st*100}`);}
           else{setGold(g=>g+Math.floor(st*20*(1+Math.random())));if(Math.random()<0.35)setLamp(l=>l+1);setStage(s=>s+1);}
+          const q=questAddKill(); setQuests(q);
+          if(q.kills===30&&!q.claimed.kill) pop('⚔️ 퀘스트 달성! 수령하세요');
           const max=Math.floor(120*Math.pow(1.3,st));
           const name=MON_NAMES[Math.floor(Math.random()*MON_NAMES.length)];
           return{name:`${name} [${st}구역]`,hp:max,maxHp:max,isBoss:false};
@@ -239,6 +259,64 @@ export default function HedgehogGame({ onSwitchGame = () => {} }: { onSwitchGame
         </div>
       )}
 
+      {/* ── 오프라인 보상 팝업 ── */}
+      {showOffline&&(
+        <div style={{position:'absolute',inset:0,zIndex:80,background:'rgba(0,0,0,0.8)',backdropFilter:'blur(6px)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+          <div style={{width:'100%',maxWidth:320,background:'linear-gradient(160deg,#0a0d1a,#1a0d0a)',borderRadius:20,border:`2px solid ${SC.gold}55`,boxShadow:`0 0 40px ${SC.gold}33`,padding:24,textAlign:'center'}}>
+            <div style={{fontSize:36,marginBottom:8}}>🌙</div>
+            <div style={{fontSize:16,fontWeight:900,color:SC.gold,marginBottom:4}}>오프라인 보상!</div>
+            <div style={{fontSize:12,color:'rgba(255,255,255,0.5)',marginBottom:16}}>자리를 비운 동안 골드를 모았어요</div>
+            <div style={{fontSize:28,fontWeight:900,color:SC.gold,textShadow:`0 0 20px ${SC.gold}`,marginBottom:20}}>
+              💰 +{offlineGold.toLocaleString()}
+            </div>
+            <button onClick={()=>{setGold(g=>g+offlineGold);setShowOffline(false);pop(`💰 +${offlineGold.toLocaleString()} 골드 수령!`);}}
+              style={{width:'100%',padding:'14px',borderRadius:999,background:`linear-gradient(135deg,${SC.gold},#FF8C00)`,border:'none',cursor:'pointer',fontWeight:900,fontSize:16,color:'#3D1C00',boxShadow:`0 6px 0 #8B4500`}}>
+              수령하기 💰
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── 퀘스트 팝업 ── */}
+      {showQuestHH&&(
+        <div style={{position:'absolute',inset:0,zIndex:80,background:'rgba(0,0,0,0.75)',backdropFilter:'blur(4px)',display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+          <div style={{width:'100%',maxWidth:340,background:'linear-gradient(160deg,#0a0d1a,#0d1a0d)',borderRadius:20,border:`2px solid ${SC.gold}44`,boxShadow:`0 20px 60px rgba(0,0,0,0.8)`,overflow:'hidden'}}>
+            <div style={{padding:'16px 16px 12px',borderBottom:`1px solid ${SC.gold}33`,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+              <span style={{fontSize:16,fontWeight:900,color:SC.gold,letterSpacing:1}}>📋 일일 퀘스트</span>
+              <button onClick={()=>setShowQuestHH(false)} style={{background:'none',border:'none',cursor:'pointer',fontSize:20,color:'rgba(255,255,255,0.5)',lineHeight:1}}>✕</button>
+            </div>
+            <div style={{padding:12,display:'flex',flexDirection:'column',gap:8}}>
+              {[
+                {key:'game' as const,icon:'🎮',label:'AniPang 3판 클리어',target:3,current:quests.gamesCleared,reward:'🌰 +50',claimed:quests.claimed.game},
+                {key:'combo' as const,icon:'⚡',label:'AniPang 5x 콤보',target:5,current:quests.maxCombo,reward:'💎 +100',claimed:quests.claimed.combo},
+                {key:'kill' as const,icon:'⚔️',label:'적 30마리 처치',target:30,current:quests.kills,reward:'💰 +1000',claimed:quests.claimed.kill},
+              ].map(q=>{
+                const done=q.current>=q.target;
+                return (
+                  <div key={q.key} style={{padding:'10px 12px',borderRadius:12,background:q.claimed?'rgba(255,255,255,0.03)':done?`${SC.gold}18`:'rgba(255,255,255,0.04)',border:`1px solid ${q.claimed?'rgba(255,255,255,0.08)':done?`${SC.gold}55`:'rgba(255,255,255,0.08)'}`,display:'flex',alignItems:'center',gap:10}}>
+                    <span style={{fontSize:20,opacity:q.claimed?0.4:1}}>{q.icon}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:800,color:q.claimed?'rgba(255,255,255,0.3)':'white'}}>{q.label}</div>
+                      <div style={{fontSize:10,color:'rgba(255,255,255,0.4)',marginTop:2}}>{q.claimed?'완료 ✓':`${Math.min(q.current,q.target)} / ${q.target}`}</div>
+                      {!q.claimed&&<div style={{marginTop:4,height:4,borderRadius:999,background:'rgba(255,255,255,0.08)',overflow:'hidden'}}>
+                        <div style={{height:'100%',borderRadius:999,background:`linear-gradient(90deg,${SC.cyan},${SC.gold})`,width:`${Math.min((q.current/q.target)*100,100)}%`,transition:'width 0.3s'}}/>
+                      </div>}
+                    </div>
+                    {done&&!q.claimed&&(
+                      <button onClick={()=>{const r=questClaim(q.key);if(r.success){setQuests(loadQuests());if(q.key==='game')setLamp(l=>l+50);if(q.key==='combo')setDiamond(d=>d+100);if(q.key==='kill')setGold(g=>g+1000);pop(`🎉 ${r.reward} 수령!`);}}}
+                        style={{padding:'6px 10px',borderRadius:999,background:`linear-gradient(135deg,${SC.gold},#FF8C00)`,border:'none',cursor:'pointer',fontSize:10,fontWeight:900,color:'#3D1C00',whiteSpace:'nowrap'}}>
+                        수령 {q.reward}
+                      </button>
+                    )}
+                    {q.claimed&&<span style={{fontSize:18,opacity:0.5}}>✅</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ════ HUD ════ */}
       <div className="shrink-0 relative z-10 flex items-center gap-2.5 px-3 py-2"
         style={{background:'rgba(4,10,20,0.97)',borderBottom:`1px solid ${SC.border}`}}>
@@ -288,11 +366,16 @@ export default function HedgehogGame({ onSwitchGame = () => {} }: { onSwitchGame
           </div>
         </div>
 
-        {/* 재화 */}
+        {/* 재화 + 퀘스트 버튼 */}
         <div className="shrink-0 flex flex-col gap-0.5 text-[9px] font-bold">
           <span style={{color:SC.gold}}>◈ {gold>=10000?`${(gold/1000).toFixed(1)}K`:gold.toLocaleString()}</span>
           <span style={{color:'#44AAFF'}}>◆ {diamond}</span>
           <span style={{color:'#44DD88'}}>● {lamp}</span>
+          <button onClick={()=>setShowQuestHH(true)}
+            style={{position:'relative',marginTop:2,padding:'2px 6px',borderRadius:6,background:`rgba(255,184,0,0.12)`,border:`1px solid ${SC.gold}55`,cursor:'pointer',fontSize:8,fontWeight:900,color:SC.gold,letterSpacing:0.5}}>
+            📋 퀘스트
+            {(()=>{const cnt=(quests.kills>=30&&!quests.claimed.kill?1:0)+(quests.gamesCleared>=3&&!quests.claimed.game?1:0)+(quests.maxCombo>=5&&!quests.claimed.combo?1:0);return cnt>0?<span style={{position:'absolute',top:-4,right:-4,width:12,height:12,borderRadius:'50%',background:'#FF3030',border:'1px solid white',fontSize:8,fontWeight:900,color:'white',display:'flex',alignItems:'center',justifyContent:'center'}}>{cnt}</span>:null;})()}
+          </button>
         </div>
       </div>
 
