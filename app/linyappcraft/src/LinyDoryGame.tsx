@@ -53,7 +53,7 @@ const MAP_POS = [[0,0],[1,0],[2,0],[2,1],[1,1],[0,1],[0,2],[1,2],[2,2],[1,3]];
 const COL_X = [18, 50, 82];
 const ROW_Y = [84, 62, 40, 18];
 
-const LS_KEY = 'anipang_v3';
+const LS_KEY = 'linydory_v3';
 const loadProg = (): number[] => {
   try { return JSON.parse(localStorage.getItem(LS_KEY) ?? 'null') ?? Array(LEVELS.length).fill(0); }
   catch { return Array(LEVELS.length).fill(0); }
@@ -286,7 +286,7 @@ const GAME_CSS = `
   }
 `;
 
-export default function AniPangGame() {
+export default function LinyDoryGame() {
   const [phase, setPhase]         = useState<Phase>(import.meta.env.DEV ? 'main' : 'splash');
   const [loadPct, setLoadPct]     = useState(0);
   const [lvlIdx, setLvlIdx]       = useState(0);
@@ -532,9 +532,9 @@ export default function AniPangGame() {
   if (phase === 'splash') return (
     <div style={{ position:'relative', width:'100%', height:'100vh', overflow:'hidden', userSelect:'none' }}>
       <style>{GAME_CSS}</style>
-      <img src={`${BASE}characters/MAIN.png`} alt="ANi PAnG" style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'top center' }} />
+      <img src={`${BASE}characters/MAIN.png`} alt="리니와도리의 가시소동" style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'top center' }} />
       <div style={{ position:'absolute', top:0, left:0, right:0, padding:'calc(var(--sat) + clamp(28px,6vh,48px)) clamp(16px,5vw,32px) clamp(40px,8vh,80px)', background:'linear-gradient(180deg,rgba(5,10,40,0.85) 0%,transparent 100%)', display:'flex', flexDirection:'column', alignItems:'center' }}>
-        <h1 style={{ margin:0, fontSize:'clamp(36px,10vw,52px)', fontWeight:900, letterSpacing:'clamp(3px,1.5vw,6px)', color:'#FFE566', WebkitTextStroke:'2px #FFA500', textShadow:'0 4px 0 rgba(0,0,0,0.5),0 0 30px rgba(255,200,0,0.8)', animation:'splashPulse 2s ease infinite' }}>ANi PAnG</h1>
+        <h1 style={{ margin:0, fontSize:'clamp(26px,7.5vw,40px)', fontWeight:900, letterSpacing:'clamp(1px,0.5vw,3px)', color:'#FFE566', WebkitTextStroke:'2px #FFA500', textShadow:'0 4px 0 rgba(0,0,0,0.5),0 0 30px rgba(255,200,0,0.8)', animation:'splashPulse 2s ease infinite', textAlign:'center', whiteSpace:'nowrap' }}>리니와도리의 가시소동</h1>
         <p style={{ margin:'6px 0 0', fontSize:'clamp(10px,2.8vw,13px)', fontWeight:700, letterSpacing:'clamp(2px,1vw,4px)', color:'white', opacity:0.7 }}>ANIMAL PUZZLE</p>
       </div>
       <div style={{ position:'absolute', bottom:0, left:0, right:0, padding:'clamp(36px,8vh,60px) clamp(20px,5vw,32px) calc(var(--sab) + clamp(24px,5vh,40px))', background:'linear-gradient(0deg,rgba(5,10,40,0.9) 0%,transparent 100%)', display:'flex', flexDirection:'column', alignItems:'center', gap:10 }}>
@@ -676,7 +676,7 @@ export default function AniPangGame() {
         <style>{GAME_CSS}</style>
         <div style={{ flexShrink:0, padding:'calc(var(--sat) + clamp(10px,2.5vh,16px)) clamp(12px,4vw,16px) clamp(6px,1.5vh,10px)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <button onClick={()=>setPhase('main')} style={{ padding:'6px 12px', borderRadius:999, color:'white', fontSize:14, fontWeight:700, background:'rgba(0,0,0,0.3)', border:'1px solid rgba(255,255,255,0.2)', cursor:'pointer' }}>← 홈</button>
-          <span style={{ fontSize:22, fontWeight:900, letterSpacing:4, color:'#FFE566', WebkitTextStroke:'1px #FFA500' }}>ANi PAnG</span>
+          <span style={{ fontSize:15, fontWeight:900, letterSpacing:1, color:'#FFE566', WebkitTextStroke:'0.5px #FFA500', whiteSpace:'nowrap' }}>리니와도리의 가시소동</span>
           <div style={{ display:'flex', alignItems:'center', gap:4, padding:'6px 12px', borderRadius:999, background:'rgba(0,0,0,0.3)', border:'1px solid rgba(255,255,255,0.2)' }}>
             <span>⭐</span><span style={{ color:'white', fontWeight:700, fontSize:14 }}>{totalStars}/{LEVELS.length*3}</span>
           </div>

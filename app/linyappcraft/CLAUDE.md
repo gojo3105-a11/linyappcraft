@@ -1,10 +1,10 @@
-﻿# AniPang Game Project
+﻿# 리니와도리의 가시소동 (LinyDory) Game Project
 
-This is a match-3 puzzle game (Ani Pang style) built with React + TypeScript + Vite.
+This is a match-3 puzzle game built with React + TypeScript + Vite.
 
 ## Key files
-- `src/AniPangGame.tsx` — main game component (6x6 grid, 6 animal tiles, 60s timer)
-- `src/App.tsx` — renders AniPangGame
+- `src/LinyDoryGame.tsx` — main game component (6x6 grid, 6 animal tiles, 60s timer)
+- `src/App.tsx` — renders LinyDoryGame
 - `src/index.css` — minimal global styles
 - `granite.config.ts` — brand color #1976D2
 

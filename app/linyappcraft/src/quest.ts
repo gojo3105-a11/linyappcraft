@@ -1,5 +1,5 @@
 const QUEST_KEY = 'daily_quests_v1';
-const COINS_KEY = 'anipang_coins_v1';
+const COINS_KEY = 'linydory_coins_v1';
 
 export interface QuestSave {
   date: string;
