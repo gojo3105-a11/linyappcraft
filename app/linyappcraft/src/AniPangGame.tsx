@@ -541,7 +541,7 @@ export default function AniPangGame({ onSwitchGame = () => {} }: { onSwitchGame?
             {icon:'🗺️',label:'맵',     fn:()=>setPhase('map'), active:false},
             {icon:'⚔️',label:'배틀',   fn:()=>{},              active:false},
             {icon:'🏠',label:'홈',     fn:()=>{},              active:true },
-            {icon:'🦔',label:'캐릭터', fn:()=>onSwitchGame(),  active:false},
+            {icon:'🦔',label:'캐릭터', fn:()=>{},              active:false},
             {icon:'🏆',label:'랭킹',   fn:()=>{},              active:false},
           ].map((item,i)=>(
             <button key={i} onClick={item.fn} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:2, background:'none', border:'none', cursor:'pointer', padding:'6px 14px' }}>
