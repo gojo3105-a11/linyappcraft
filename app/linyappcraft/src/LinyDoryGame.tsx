@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { questAddGameCleared, questUpdateMaxCombo, questClaim, loadQuests, loadCoins, spendCoins, addCoins, loadBoosters, saveBoosters, type BoosterKind, type QuestSave } from './quest';
+import { questAddGameCleared, questUpdateMaxCombo, questAddSpecials, questAddBlocks, questClaim, loadQuests, loadCoins, spendCoins, addCoins, loadBoosters, saveBoosters, QUESTS, type BoosterKind, type QuestSave } from './quest';
 import { sGet, sSet, getScope, setScope } from './store';
 import { tossLogin, fetchUserKey } from './toss';
 
@@ -358,6 +358,12 @@ const GAME_CSS = `
     25%      { transform:translateX(-5px); }
     75%      { transform:translateX(5px); }
   }
+  @keyframes flameBurst {
+    0%   { opacity:0;   transform:translate(-50%,-40%) scale(0.4) rotate(-8deg); }
+    25%  { opacity:1;   transform:translate(-50%,-58%) scale(1.35) rotate(6deg); }
+    60%  { opacity:0.9; transform:translate(-50%,-86%) scale(1.05) rotate(-5deg); }
+    100% { opacity:0;   transform:translate(-50%,-120%) scale(0.7) rotate(4deg); }
+  }
 `;
 
 export default function LinyDoryGame() {
@@ -373,6 +379,7 @@ export default function LinyDoryGame() {
   const [popup, setPopup]         = useState<string|null>(null);
   const [popKind, setPopKind]     = useState<'combo'|'special'>('combo');
   const [shakeCells, setShakeCells] = useState<string[]>([]);
+  const [flames, setFlames]       = useState<{id:number;r:number;c:number}[]>([]);
   const [floats, setFloats]       = useState<{id:number;text:string}[]>([]);
   const [hintPair, setHintPair]   = useState<[[number,number],[number,number]]|null>(null);
   const [isLucky,  setIsLucky]    = useState(false);
@@ -407,6 +414,8 @@ export default function LinyDoryGame() {
   const phaseRef     = useRef<Phase>(phase);
   const boostersRef  = useRef(boosters);
   const dragRef      = useRef<{r:number;c:number;x:number;y:number;moved:boolean}|null>(null);
+  const sessionBlocksRef   = useRef(0);  // 이번 판에 터트린 블럭 수(퀘스트 집계용)
+  const sessionSpecialsRef = useRef(0);  // 이번 판에 만든 특수 블럭 수
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { boostersRef.current = boosters; }, [boosters]);
@@ -437,6 +446,15 @@ export default function LinyDoryGame() {
     if (popT.current) clearTimeout(popT.current);
     setPopup(msg); setPopKind(kind);
     popT.current = setTimeout(() => setPopup(null), 1400);
+  }, []);
+
+  // 폭탄·아이템으로 블럭이 터질 때 해당 칸에 불길(🔥) 효과를 잠깐 띄운다
+  const spawnFlames = useCallback((keys: Iterable<string>) => {
+    const arr = [...keys].map(k => { const [r,c]=k.split(',').map(Number); return { id: ++_fid, r, c }; });
+    if (!arr.length) return;
+    setFlames(p => [...p.slice(-40), ...arr]);
+    const ids = new Set(arr.map(a => a.id));
+    setTimeout(() => setFlames(p => p.filter(f => !ids.has(f.id))), 600);
   }, []);
 
   useEffect(() => {
@@ -477,10 +495,11 @@ export default function LinyDoryGame() {
     const s = calcStars(scoreRef.current, LEVELS[li].goal);
     const goal0 = LEVELS[li].goal[0];
     setNearMiss(s === 0 && scoreRef.current >= goal0 * 0.72 && scoreRef.current < goal0);
-    if (s > 0) {
-      const q = questAddGameCleared();
-      setQuests(q);
-    }
+    // 이번 판에 누적된 블럭/특수 블럭 집계를 일일 퀘스트에 반영
+    questAddBlocks(sessionBlocksRef.current);   sessionBlocksRef.current = 0;
+    questAddSpecials(sessionSpecialsRef.current); sessionSpecialsRef.current = 0;
+    if (s > 0) questAddGameCleared();
+    setQuests(loadQuests());
     setProgress(prev => { const next=[...prev]; if (s>next[li]) next[li]=s; saveProg(next); return next; });
     setPhase('end');
   }, [clearHint]);
@@ -522,6 +541,7 @@ export default function LinyDoryGame() {
     gRef.current=g; scoreRef.current=0; lvlRef.current=idx;
     resolvingRef.current=false; dirtyRef.current=false; comboRef.current=0;
     lastSwapRef.current=null; dragRef.current=null;
+    sessionBlocksRef.current=0; sessionSpecialsRef.current=0; setFlames([]);
     const mv = (lvl as {moves?:number}).moves ?? 0; movesRef.current=mv;
     setLvlIdx(idx); setGrid(g); setScore(0); setTime((lvl as {sec?:number}).sec ?? 0);
     setMovesLeft(mv); setSel(null); setShakeCells([]); setPopup(null); setFloats([]);
@@ -557,6 +577,11 @@ export default function LinyDoryGame() {
           comboRef.current++;
           const combo = comboRef.current;
           push(res.nextG);
+          // 퀘스트 집계: 터트린 블럭 수 / 만든 특수 블럭 수
+          sessionBlocksRef.current   += res.hits.size;
+          sessionSpecialsRef.current += res.newSpec.size;
+          // 폭탄이 터지면 불길 효과
+          if ([...res.hits].some(k => { const [r,c]=k.split(',').map(Number); return g[r][c]?.kind==='bomb'; })) spawnFlames(res.hits);
           const spHits = [...res.hits].filter(k => { const [r,c]=k.split(',').map(Number); return g[r][c]?.kind!=='normal'; }).length;
           const pts = res.hits.size*100*combo + spHits*200;
           inc(pts);
@@ -588,7 +613,7 @@ export default function LinyDoryGame() {
       if (LEVELS[lvlRef.current].mode === 'moves' && movesRef.current <= 0) { endGame(); return; }
       scheduleHint();
     }
-  }, [push, inc, pop, endGame, scheduleHint]);
+  }, [push, inc, pop, endGame, scheduleHint, spawnFlames]);
 
   // 두 칸 교환 시도 — 유효하면 즉시 커밋하고 리졸버를 가동(입력 잠금 없음)
   const trySwap = useCallback((sr: number, sc: number, r: number, c: number) => {
@@ -621,13 +646,15 @@ export default function LinyDoryGame() {
       expandSpecials(hits, sw);
       hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell=sw[rr][cc]; if(cell) cell.hit=true; });
       inc(hits.size*120);
+      sessionBlocksRef.current += hits.size;
+      spawnFlames(hits);
       pop((srcSpec ? sw[r][c]?.kind : sw[sr][sc]?.kind) === 'bomb' ? '💣 BOOM!' : '⚡ ZAP!', 'special');
     }
     lastSwapRef.current = [r,c];
     dirtyRef.current = true;
     push(sw);
     resolve();
-  }, [clearHint, inc, pop, push, resolve]);
+  }, [clearHint, inc, pop, push, resolve, spawnFlames]);
 
   // 부스터(망치/폭탄) 발동 — 선택한 칸에 효과 적용 (입력 잠금 없음)
   const triggerBooster = useCallback((kind: 'hammer'|'bomb', r: number, c: number) => {
@@ -649,11 +676,13 @@ export default function LinyDoryGame() {
     expandSpecials(hits, sw);
     hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell2=sw[rr][cc]; if(cell2) cell2.hit=true; });
     inc(hits.size*80);
+    sessionBlocksRef.current += hits.size;
+    spawnFlames(hits); // 아이템 사용 시 불길 효과
     pop(kind==='bomb' ? '💣 폭탄 발동!' : '🔨 망치 발동!', 'special');
     dirtyRef.current = true;
     push(sw);
     resolve();
-  }, [clearHint, inc, pop, push, resolve]);
+  }, [clearHint, inc, pop, push, resolve, spawnFlames]);
 
   // 셔플 부스터 — 즉시 보드 재생성
   const triggerShuffle = useCallback(() => {
@@ -1003,9 +1032,9 @@ export default function LinyDoryGame() {
           <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(0,0,0,0.55)', borderRadius:999, padding:'5px 10px', border:'1.5px solid rgba(255,180,0,0.35)' }}>
             <span style={{ fontSize:14 }}>🪙</span><span style={{ fontSize:13, fontWeight:900, color:'#FFE566' }}>{coins.toLocaleString()}</span>
           </div>
-          <button onClick={() => setShowQuests(true)} style={{ position:'relative', width:34, height:34, borderRadius:'50%', background:'rgba(0,0,0,0.55)', border:'1.5px solid rgba(255,180,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, cursor:'pointer' }}>
+          <button onClick={() => { setQuests(loadQuests()); setShowQuests(true); }} style={{ position:'relative', width:34, height:34, borderRadius:'50%', background:'rgba(0,0,0,0.55)', border:'1.5px solid rgba(255,180,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, cursor:'pointer' }}>
             📋
-            {(() => { const q = quests; const cnt = (q.gamesCleared>=3&&!q.claimed.game?1:0)+(q.maxCombo>=5&&!q.claimed.combo?1:0); return cnt > 0 ? <span style={{ position:'absolute', top:-4, right:-4, width:14, height:14, borderRadius:'50%', background:'#FF3030', border:'1.5px solid white', fontSize:9, fontWeight:900, color:'white', display:'flex', alignItems:'center', justifyContent:'center', animation:'questBadge 1s ease infinite' }}>{cnt}</span> : null; })()}
+            {(() => { const cnt = QUESTS.filter(qd => qd.metric(quests) >= qd.target && !quests.claimed[qd.key]).length; return cnt > 0 ? <span style={{ position:'absolute', top:-4, right:-4, width:14, height:14, borderRadius:'50%', background:'#FF3030', border:'1.5px solid white', fontSize:9, fontWeight:900, color:'white', display:'flex', alignItems:'center', justifyContent:'center', animation:'questBadge 1s ease infinite' }}>{cnt}</span> : null; })()}
           </button>
         </div>
 
@@ -1017,30 +1046,33 @@ export default function LinyDoryGame() {
                 <span style={{ fontSize:16, fontWeight:900, color:'#FFD700', letterSpacing:1 }}>📋 일일 퀘스트</span>
                 <button onClick={() => setShowQuests(false)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'rgba(255,255,255,0.6)', lineHeight:1 }}>✕</button>
               </div>
-              <div style={{ padding:12, display:'flex', flexDirection:'column', gap:8 }}>
-                {[
-                  { key:'game' as const, icon:'🎮', label:'게임 3판 클리어', target:3, current:quests.gamesCleared, reward:'🪙 +300', claimed:quests.claimed.game },
-                  { key:'combo' as const, icon:'⚡', label:'5x 콤보 달성', target:5, current:quests.maxCombo, reward:'🪙 +500', claimed:quests.claimed.combo },
-                ].map(q => {
-                  const done = q.current >= q.target;
+              <div style={{ padding:12, display:'flex', flexDirection:'column', gap:8, maxHeight:'68vh', overflowY:'auto' }}>
+                {QUESTS.map(qd => {
+                  const current = qd.metric(quests);
+                  const claimed = quests.claimed[qd.key];
+                  const done = current >= qd.target;
+                  const diffColor = qd.difficulty==='쉬움' ? '#66BB6A' : qd.difficulty==='보통' ? '#FFB300' : '#EF5350';
                   return (
-                    <div key={q.key} style={{ padding:'10px 12px', borderRadius:12, background: q.claimed ? 'rgba(255,255,255,0.04)' : done ? 'rgba(255,180,0,0.1)' : 'rgba(255,255,255,0.05)', border: `1px solid ${q.claimed ? 'rgba(255,255,255,0.1)' : done ? 'rgba(255,180,0,0.4)' : 'rgba(255,255,255,0.1)'}`, display:'flex', alignItems:'center', gap:10 }}>
-                      <span style={{ fontSize:20, opacity: q.claimed ? 0.4 : 1 }}>{q.icon}</span>
+                    <div key={qd.key} style={{ padding:'10px 12px', borderRadius:12, background: claimed ? 'rgba(255,255,255,0.04)' : done ? 'rgba(255,180,0,0.1)' : 'rgba(255,255,255,0.05)', border: `1px solid ${claimed ? 'rgba(255,255,255,0.1)' : done ? 'rgba(255,180,0,0.4)' : 'rgba(255,255,255,0.1)'}`, display:'flex', alignItems:'center', gap:10 }}>
+                      <span style={{ fontSize:20, opacity: claimed ? 0.4 : 1 }}>{qd.icon}</span>
                       <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontSize:12, fontWeight:800, color: q.claimed ? 'rgba(255,255,255,0.35)' : 'white' }}>{q.label}</div>
-                        <div style={{ fontSize:10, color:'rgba(255,255,255,0.45)', marginTop:2 }}>
-                          {q.claimed ? '완료 ✓' : `${Math.min(q.current, q.target)} / ${q.target}`}
+                        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                          <span style={{ fontSize:12, fontWeight:800, color: claimed ? 'rgba(255,255,255,0.35)' : 'white' }}>{qd.label}</span>
+                          <span style={{ fontSize:8, fontWeight:900, color:diffColor, border:`1px solid ${diffColor}`, borderRadius:999, padding:'1px 5px', opacity: claimed?0.4:1 }}>{qd.difficulty}</span>
                         </div>
-                        {!q.claimed && <div style={{ marginTop:4, height:4, borderRadius:999, background:'rgba(255,255,255,0.1)', overflow:'hidden' }}>
-                          <div style={{ height:'100%', borderRadius:999, background:'linear-gradient(90deg,#FF8C00,#FFD700)', width:`${Math.min((q.current/q.target)*100,100)}%`, transition:'width 0.3s' }}/>
+                        <div style={{ fontSize:10, color:'rgba(255,255,255,0.45)', marginTop:2 }}>
+                          {claimed ? '완료 ✓' : `${Math.min(current, qd.target)} / ${qd.target}`} · 🪙 {qd.reward.toLocaleString()}
+                        </div>
+                        {!claimed && <div style={{ marginTop:4, height:4, borderRadius:999, background:'rgba(255,255,255,0.1)', overflow:'hidden' }}>
+                          <div style={{ height:'100%', borderRadius:999, background:'linear-gradient(90deg,#FF8C00,#FFD700)', width:`${Math.min((current/qd.target)*100,100)}%`, transition:'width 0.3s' }}/>
                         </div>}
                       </div>
-                      {done && !q.claimed && (
-                        <button onClick={() => { const r = questClaim(q.key); if (r.success) setQuests(loadQuests()); }} style={{ padding:'6px 10px', borderRadius:999, background:'linear-gradient(135deg,#FF8C00,#FFD700)', border:'none', cursor:'pointer', fontSize:10, fontWeight:900, color:'#3D1C00', whiteSpace:'nowrap' }}>
-                          수령 {q.reward}
+                      {done && !claimed && (
+                        <button onClick={() => { const r = questClaim(qd.key); if (r.success) { setQuests(loadQuests()); pop(`${r.reward} 수령!`, 'special'); } }} style={{ padding:'6px 10px', borderRadius:999, background:'linear-gradient(135deg,#FF8C00,#FFD700)', border:'none', cursor:'pointer', fontSize:10, fontWeight:900, color:'#3D1C00', whiteSpace:'nowrap' }}>
+                          수령 🪙{qd.reward.toLocaleString()}
                         </button>
                       )}
-                      {q.claimed && <span style={{ fontSize:18, opacity:0.5 }}>✅</span>}
+                      {claimed && <span style={{ fontSize:18, opacity:0.5 }}>✅</span>}
                     </div>
                   );
                 })}
@@ -1258,7 +1290,21 @@ export default function LinyDoryGame() {
             onPointerUp={onGridPointerUp}
             onPointerLeave={onGridPointerUp}
             onPointerCancel={() => { dragRef.current = null; }}
-            style={{ display:'grid', gridTemplateColumns:`repeat(${COLS},1fr)`, gap:'clamp(3px,1vw,5px)', touchAction:'none' }}>
+            style={{ position:'relative', display:'grid', gridTemplateColumns:`repeat(${COLS},1fr)`, gap:'clamp(3px,1vw,5px)', touchAction:'none' }}>
+            {/* 폭탄·아이템 사용 시 터지는 칸에 불길 효과 */}
+            {flames.map(f => (
+              <span key={f.id} style={{
+                position:'absolute',
+                left:`${((f.c+0.5)/COLS)*100}%`,
+                top:`${((f.r+0.5)/ROWS)*100}%`,
+                fontSize:'clamp(20px,5.5vw,30px)',
+                lineHeight:1,
+                pointerEvents:'none',
+                zIndex:6,
+                filter:'drop-shadow(0 0 7px rgba(255,110,0,0.95)) drop-shadow(0 0 3px rgba(255,210,0,0.9))',
+                animation:'flameBurst 0.6s ease-out forwards',
+              }}>🔥</span>
+            ))}
             {Array.from({ length: ROWS * COLS }, (_, idx) => {
               const row = Math.floor(idx / COLS);
               const col = idx % COLS;
