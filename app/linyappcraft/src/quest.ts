@@ -37,6 +37,30 @@ export function addCoins(n: number): number {
   return next;
 }
 
+export function spendCoins(n: number): boolean {
+  const cur = loadCoins();
+  if (cur < n) return false;
+  localStorage.setItem(COINS_KEY, JSON.stringify(cur - n));
+  window.dispatchEvent(new Event('coins-updated'));
+  return true;
+}
+
+// ── 부스터(블럭 제거 아이템) 인벤토리 ──────────────────
+const BOOST_KEY = 'linydory_boosters_v1';
+export type BoosterKind = 'hammer' | 'bomb' | 'shuffle';
+
+export function loadBoosters(): Record<BoosterKind, number> {
+  try {
+    const d = JSON.parse(localStorage.getItem(BOOST_KEY) ?? 'null');
+    if (d) return { hammer: d.hammer ?? 0, bomb: d.bomb ?? 0, shuffle: d.shuffle ?? 0 };
+  } catch {}
+  return { hammer: 0, bomb: 0, shuffle: 0 };
+}
+
+export function saveBoosters(b: Record<BoosterKind, number>) {
+  localStorage.setItem(BOOST_KEY, JSON.stringify(b));
+}
+
 // ── 퀘스트 진행 ───────────────────────────────────────
 export function questAddGameCleared(): QuestSave {
   const d = loadQuests();

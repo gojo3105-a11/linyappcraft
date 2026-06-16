@@ -1,5 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { questAddGameCleared, questUpdateMaxCombo, questClaim, loadQuests, loadCoins, type QuestSave } from './quest';
+import { questAddGameCleared, questUpdateMaxCombo, questClaim, loadQuests, loadCoins, spendCoins, loadBoosters, saveBoosters, type BoosterKind, type QuestSave } from './quest';
+
+// 부스터(블럭 제거 아이템) 상점 정보
+const BOOSTERS: { kind: BoosterKind; icon: string; name: string; desc: string; price: number }[] = [
+  { kind: 'hammer',  icon: '🔨', name: '망치',   desc: '블럭 1개 제거',     price: 100 },
+  { kind: 'bomb',    icon: '💣', name: '폭탄',   desc: '주변 3×3 제거',     price: 250 },
+  { kind: 'shuffle', icon: '🔀', name: '셔플',   desc: '보드 전체 섞기',     price: 150 },
+];
 
 const ROWS = 7;
 const COLS = 7;
@@ -306,6 +313,9 @@ export default function LinyDoryGame() {
   const [quests,   setQuests]     = useState<QuestSave>(loadQuests);
   const [showQuests, setShowQuests] = useState(false);
   const [coins,    setCoins]      = useState(loadCoins);
+  const [boosters,    setBoosters]    = useState(loadBoosters);
+  const [boosterMode, setBoosterMode] = useState<'hammer'|'bomb'|null>(null);
+  const [showShop,    setShowShop]    = useState(false);
 
   const gRef     = useRef<Grid>(grid);
   const busyRef  = useRef(false);
@@ -418,6 +428,7 @@ export default function LinyDoryGame() {
     setLvlIdx(idx); setGrid(g); setScore(0); setTime((lvl as {sec?:number}).sec ?? 0);
     setMovesLeft(mv); setSel(null); setBusy(false); setPopup(null); setFloats([]);
     setNearMiss(false); setIsLucky(false); luckyRef.current = false;
+    setBoosterMode(null);
     setPhase('play');
     if (hintTmr.current) clearTimeout(hintTmr.current);
     setHintPair(null);
@@ -457,9 +468,53 @@ export default function LinyDoryGame() {
     busyRef.current=false; setBusy(false);
   }, [push, inc, pop]);
 
+  // 부스터(망치/폭탄) 발동 — 선택한 칸에 효과 적용
+  const useBoosterAt = useCallback(async (kind: 'hammer'|'bomb', r: number, c: number) => {
+    if (busyRef.current) return;
+    const g = gRef.current;
+    if (!g[r]?.[c]) return;
+    busyRef.current=true; setBusy(true); clearHint();
+    setBoosterMode(null);
+    setBoosters(prev => { const next={...prev,[kind]:Math.max(0,prev[kind]-1)}; saveBoosters(next); return next; });
+
+    const hits = new Set<string>();
+    if (kind === 'hammer') {
+      hits.add(`${r},${c}`);
+    } else {
+      for (let dr=-1; dr<=1; dr++) for (let dc=-1; dc<=1; dc++) {
+        const nr=r+dr, nc=c+dc;
+        if (nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&g[nr]?.[nc]) hits.add(`${nr},${nc}`);
+      }
+    }
+    expandSpecials(hits, g);
+    const marked: Grid = g.map(row => row.map(x => x ? {...x} : null));
+    hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell=marked[rr][cc]; if(cell) cell.hit=true; });
+    push(marked); inc(hits.size*80);
+    pop(kind==='bomb' ? '💣 폭탄 발동!' : '🔨 망치 발동!', 'special');
+    await wait(350);
+    const fallen = applyFall(marked, LEVELS[lvlRef.current].types, mapRef.current);
+    push(fallen); await wait(220);
+    await chain(fallen, [r,c]);
+    scheduleHint();
+  }, [push, inc, pop, chain, clearHint, scheduleHint]);
+
+  // 셔플 부스터 — 즉시 보드 재생성
+  const useShuffle = useCallback(() => {
+    if (phase!=='play' || busyRef.current) return;
+    let ok = false;
+    setBoosters(prev => { if (prev.shuffle<=0) return prev; ok=true; const next={...prev,shuffle:prev.shuffle-1}; saveBoosters(next); return next; });
+    if (!ok) return;
+    clearHint();
+    const g = mkGrid(LEVELS[lvlRef.current].types, mapRef.current);
+    push(g);
+    pop('🔀 셔플!', 'special');
+    scheduleHint();
+  }, [phase, push, pop, clearHint, scheduleHint]);
+
   const tap = useCallback(async (r: number, c: number) => {
     if (phase!=='play' || busyRef.current) return;
     if (!gRef.current[r]?.[c]) return;
+    if (boosterMode) { await useBoosterAt(boosterMode, r, c); return; }
     if (!sel) { setSel([r,c]); return; }
     const [sr,sc] = sel; setSel(null);
     if (sr===r && sc===c) return;
@@ -510,7 +565,7 @@ export default function LinyDoryGame() {
 
     if (LEVELS[lvlRef.current].mode==='moves' && movesRef.current<=0) { endGame(); return; }
     scheduleHint();
-  }, [phase, sel, push, chain, endGame, clearHint, scheduleHint, inc]);
+  }, [phase, sel, push, chain, endGame, clearHint, scheduleHint, inc, boosterMode, useBoosterAt]);
 
   const lvl      = LEVELS[lvlIdx];
   const isTime   = lvl.mode === 'time';
@@ -883,6 +938,97 @@ export default function LinyDoryGame() {
           </div>
         </div>
       </div>
+
+      {/* Booster aim banner */}
+      {phase==='play' && boosterMode && (
+        <div style={{ position:'absolute', left:0, right:0, top:'44%', zIndex:24, display:'flex', justifyContent:'center', pointerEvents:'none' }}>
+          <div style={{ padding:'7px 18px', borderRadius:999, background:'rgba(0,0,0,0.8)', color:'#FFE566', fontWeight:800, fontSize:13, whiteSpace:'nowrap', boxShadow:'0 0 18px rgba(255,180,0,0.6)', animation:'splashPulse 0.9s ease infinite' }}>
+            {boosterMode==='bomb'?'💣':'🔨'} 제거할 블럭 선택! (다시 탭하면 취소)
+          </div>
+        </div>
+      )}
+
+      {/* Booster bar */}
+      {phase==='play' && (
+        <div style={{ flexShrink:0, position:'relative', zIndex:12, display:'flex', alignItems:'center', justifyContent:'center', gap:'clamp(6px,2vw,10px)', padding:'0 10px calc(var(--sab) + 8px)' }}>
+          {BOOSTERS.map(b => {
+            const cnt = boosters[b.kind];
+            const armed = boosterMode === b.kind;
+            return (
+              <button key={b.kind} disabled={busy}
+                onClick={() => {
+                  if (busy) return;
+                  if (cnt <= 0) { setShowShop(true); return; }
+                  if (b.kind === 'shuffle') { useShuffle(); return; }
+                  setBoosterMode(armed ? null : b.kind);
+                }}
+                style={{
+                  position:'relative', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+                  width:58, height:54, borderRadius:16, cursor:'pointer',
+                  background: armed ? 'linear-gradient(145deg,#FF8C00,#FFD700)' : 'rgba(255,255,255,0.92)',
+                  border: armed ? '2.5px solid white' : '2px solid rgba(0,0,0,0.1)',
+                  boxShadow: armed ? '0 0 16px rgba(255,180,0,0.9), 0 4px 0 rgba(0,0,0,0.15)' : '0 4px 0 rgba(0,0,0,0.15)',
+                  opacity: cnt <= 0 ? 0.5 : 1, transition:'all 0.15s ease',
+                }}>
+                <span style={{ fontSize:22, lineHeight:1 }}>{b.icon}</span>
+                <span style={{ fontSize:9, fontWeight:800, color: armed ? '#3D1C00' : '#555' }}>{b.name}</span>
+                <span style={{ position:'absolute', top:-6, right:-6, minWidth:18, height:18, padding:'0 4px', borderRadius:999,
+                  background: cnt > 0 ? '#22AA55' : '#BBB', border:'1.5px solid white', color:'white', fontSize:10, fontWeight:900,
+                  display:'flex', alignItems:'center', justifyContent:'center' }}>{cnt}</span>
+              </button>
+            );
+          })}
+          <button onClick={() => setShowShop(true)}
+            style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+              width:58, height:54, borderRadius:16, cursor:'pointer', background:'linear-gradient(145deg,#42A5F5,#1565C0)', border:'2px solid rgba(255,255,255,0.4)', boxShadow:'0 4px 0 #0D3B80' }}>
+            <span style={{ fontSize:20, lineHeight:1 }}>🛒</span>
+            <span style={{ fontSize:9, fontWeight:800, color:'white' }}>상점</span>
+          </button>
+        </div>
+      )}
+
+      {/* Shop overlay (코인으로 부스터 구매) */}
+      {showShop && (
+        <div style={{ position:'absolute', inset:0, zIndex:40, background:'rgba(0,0,0,0.78)', backdropFilter:'blur(5px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+          <div style={{ width:'100%', maxWidth:340, background:'linear-gradient(160deg,#0d1a3a,#1a0d2e)', borderRadius:22, border:'2px solid rgba(255,180,0,0.4)', boxShadow:'0 20px 60px rgba(0,0,0,0.8)', overflow:'hidden' }}>
+            <div style={{ padding:'16px 16px 12px', borderBottom:'1px solid rgba(255,180,0,0.2)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <span style={{ fontSize:16, fontWeight:900, color:'#FFD700', letterSpacing:1 }}>🛒 아이템 상점</span>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <span style={{ fontSize:13, fontWeight:900, color:'#FFE566' }}>🪙 {coins.toLocaleString()}</span>
+                <button onClick={() => setShowShop(false)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'rgba(255,255,255,0.6)', lineHeight:1 }}>✕</button>
+              </div>
+            </div>
+            <div style={{ padding:12, display:'flex', flexDirection:'column', gap:8 }}>
+              {BOOSTERS.map(b => {
+                const afford = coins >= b.price;
+                return (
+                  <div key={b.kind} style={{ padding:'10px 12px', borderRadius:14, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', display:'flex', alignItems:'center', gap:10 }}>
+                    <span style={{ fontSize:26 }}>{b.icon}</span>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:800, color:'white' }}>{b.name} <span style={{ fontSize:10, color:'rgba(255,255,255,0.45)', fontWeight:600 }}>보유 {boosters[b.kind]}</span></div>
+                      <div style={{ fontSize:10, color:'rgba(255,255,255,0.5)', marginTop:2 }}>{b.desc}</div>
+                    </div>
+                    <button disabled={!afford}
+                      onClick={() => {
+                        if (!spendCoins(b.price)) { pop('🪙 코인이 부족해요', 'special'); return; }
+                        setBoosters(prev => { const next={...prev,[b.kind]:prev[b.kind]+1}; saveBoosters(next); return next; });
+                        pop(`${b.icon} ${b.name} 구매!`, 'special');
+                      }}
+                      style={{ padding:'8px 12px', borderRadius:999, border:'none', cursor: afford ? 'pointer' : 'default',
+                        background: afford ? 'linear-gradient(135deg,#FF8C00,#FFD700)' : 'rgba(255,255,255,0.12)',
+                        color: afford ? '#3D1C00' : 'rgba(255,255,255,0.4)', fontSize:11, fontWeight:900, whiteSpace:'nowrap' }}>
+                      🪙 {b.price}
+                    </button>
+                  </div>
+                );
+              })}
+              <div style={{ padding:'8px 12px', borderRadius:10, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)', fontSize:10, color:'rgba(255,255,255,0.4)', textAlign:'center', lineHeight:1.5 }}>
+                코인은 출석·일일 퀘스트로 모을 수 있어요 🎁
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* End overlay */}
       {phase==='end' && (
