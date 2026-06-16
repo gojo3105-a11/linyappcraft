@@ -1188,10 +1188,14 @@ export default function LinyDoryGame() {
                     cursor: 'pointer',
                     animation: isHint && !isSel ? 'hintGlow 0.75s ease infinite' : undefined,
                   }}>
-                  <img src={tile.img} alt="" style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'center 8%' }}/>
+                  {/* 4개 이상 매치로 생성된 특수 블럭은 캐릭터 이미지 대신 전용 아이콘으로 교체 */}
+                  {isSpecial ? (
+                    <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'clamp(24px,7vw,34px)', lineHeight:1, filter:'drop-shadow(0 2px 4px rgba(0,0,0,0.7))', zIndex:2 }}>{cell.kind==='lightning'?'⚡':'💣'}</span>
+                  ) : (
+                    <img src={tile.img} alt="" style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'center 8%' }}/>
+                  )}
                   <div style={{ position:'absolute', top:0, left:'5%', right:'5%', height:'48%', borderRadius:'0 0 50% 50%', background:'linear-gradient(180deg,rgba(255,255,255,0.62) 0%,rgba(255,255,255,0.05) 100%)', pointerEvents:'none', zIndex:1 }}/>
                   <div style={{ position:'absolute', bottom:0, left:0, right:0, height:'28%', borderRadius:'0 0 50% 50%', background:'linear-gradient(0deg,rgba(0,0,0,0.2) 0%,transparent 100%)', pointerEvents:'none', zIndex:1 }}/>
-                  {isSpecial && <span style={{ position:'absolute', bottom:2, right:2, fontSize:'clamp(9px,2.2vw,12px)', filter:'drop-shadow(0 0 4px rgba(0,0,0,1))', lineHeight:1, zIndex:3 }}>{cell.kind==='lightning'?'⚡':'💣'}</span>}
                   {isSel && <div style={{ position:'absolute', inset:0, background:'rgba(255,255,255,0.2)', borderRadius:'50%', zIndex:2 }}/>}
                 </button>
               );
