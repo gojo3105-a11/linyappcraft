@@ -53,18 +53,29 @@ const MAPS = [
   makeMap([5,3,6,7,6,3,5]),
 ] as const;
 
+// 스테이지가 올라갈수록 난이도 상승:
+//  - 블럭 종류(types) 증가 → 매치 난이도 ↑
+//  - 제한 시간/이동 횟수 감소
+//  - 목표 점수(goal) 상승
 const LEVELS = [
-  { mode: 'time'  as const, sec: 60,   types: 4, goal: [500,  1500,  3000] as const },
-  { mode: 'time'  as const, sec: 55,   types: 4, goal: [700,  2000,  4000] as const },
-  { mode: 'moves' as const, moves: 30, types: 4, goal: [900,  2500,  5000] as const },
-  { mode: 'time'  as const, sec: 50,   types: 5, goal: [1100, 3000,  6000] as const },
-  { mode: 'moves' as const, moves: 28, types: 5, goal: [1400, 3500,  7000] as const },
-  { mode: 'time'  as const, sec: 48,   types: 5, goal: [1700, 4000,  8000] as const },
-  { mode: 'moves' as const, moves: 25, types: 6, goal: [2000, 5000, 10000] as const },
-  { mode: 'time'  as const, sec: 45,   types: 6, goal: [2500, 6000, 12000] as const },
-  { mode: 'moves' as const, moves: 22, types: 6, goal: [3000, 7000, 15000] as const },
-  { mode: 'time'  as const, sec: 35,   types: 6, goal: [4000, 9000, 20000] as const },
+  { mode: 'time'  as const, sec: 75,   types: 4, goal: [400,  1000,  2000] as const },
+  { mode: 'time'  as const, sec: 65,   types: 4, goal: [600,  1500,  3000] as const },
+  { mode: 'moves' as const, moves: 28, types: 4, goal: [800,  2000,  4000] as const },
+  { mode: 'time'  as const, sec: 60,   types: 5, goal: [1100, 2800,  5500] as const },
+  { mode: 'moves' as const, moves: 25, types: 5, goal: [1500, 3600,  7000] as const },
+  { mode: 'time'  as const, sec: 52,   types: 5, goal: [1900, 4500,  9000] as const },
+  { mode: 'moves' as const, moves: 22, types: 6, goal: [2400, 5500, 11000] as const },
+  { mode: 'time'  as const, sec: 46,   types: 6, goal: [3000, 7000, 14000] as const },
+  { mode: 'moves' as const, moves: 20, types: 6, goal: [3800, 8500, 17000] as const },
+  { mode: 'time'  as const, sec: 40,   types: 6, goal: [4800, 11000, 22000] as const },
 ];
+
+// 스테이지 인덱스 → 난이도 등급(표시용)
+const difficultyOf = (idx: number): { label: string; stars: number; color: string } =>
+  idx <= 2 ? { label: '쉬움',   stars: 1, color: '#66BB6A' }
+  : idx <= 5 ? { label: '보통',   stars: 2, color: '#FFB300' }
+  : idx <= 8 ? { label: '어려움', stars: 3, color: '#FF7043' }
+  :            { label: '최고',   stars: 4, color: '#EF5350' };
 
 const MAP_POS = [[0,0],[1,0],[2,0],[2,1],[1,1],[0,1],[0,2],[1,2],[2,2],[1,3]];
 const COL_X = [18, 50, 82];
@@ -73,6 +84,19 @@ const ROW_Y = [84, 62, 40, 18];
 const LS_BASE = 'linydory_v3';
 const loadProg = (): number[] => sGet<number[]>(LS_BASE, Array(LEVELS.length).fill(0));
 const saveProg = (p: number[]) => sSet(LS_BASE, p);
+
+const TUT_BASE = 'linydory_tutorial_v1';
+const loadTutorialDone = (): boolean => sGet<boolean>(TUT_BASE, false);
+const saveTutorialDone = () => sSet(TUT_BASE, true);
+
+// 시작 튜토리얼 단계
+const TUTORIAL_STEPS = [
+  { icon: '👋', title: '리니와 도리의 가시소동!', desc: '같은 동물 블럭 3개 이상을 맞춰 터트리는 퍼즐 게임이에요.' },
+  { icon: '👆', title: '드래그로 이동', desc: '블럭을 원하는 방향으로 끌어(스와이프) 옆 블럭과 자리를 바꿔요. 탭으로 선택해도 돼요.' },
+  { icon: '⚡', title: '특수 블럭', desc: '4개 이상 한 번에 터트리면 ⚡(라이트닝), 5개 이상이면 💣(폭탄) 특수 블럭이 생겨요. 2×2 정사각형도 특수 블럭이 돼요!' },
+  { icon: '🔨', title: '아이템 & 콤바인', desc: '망치·폭탄·셔플 아이템으로 위기를 돌파하세요. 블럭이 터지는 동안에도 다른 블럭을 움직일 수 있어요.' },
+  { icon: '🎯', title: '목표 점수 달성', desc: '제한 시간·이동 횟수 안에 목표 점수를 넘기면 별을 얻어요. 스테이지가 오를수록 어려워져요!' },
+];
 
 interface Cell { id: number; t: number; kind: TileKind; hit: boolean; }
 type GridCell = Cell | null;
@@ -386,6 +410,8 @@ export default function LinyDoryGame() {
   const [nearMiss, setNearMiss]   = useState(false);
   const [quests,   setQuests]     = useState<QuestSave>(loadQuests);
   const [showQuests, setShowQuests] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [tutStep, setTutStep]     = useState(0);
   const [coins,    setCoins]      = useState(loadCoins);
   const [boosters,    setBoosters]    = useState(loadBoosters);
   const [boosterMode, setBoosterMode] = useState<'hammer'|'bomb'|null>(null);
@@ -475,6 +501,13 @@ export default function LinyDoryGame() {
     window.addEventListener('scope-changed', onScope);
     return () => window.removeEventListener('scope-changed', onScope);
   }, []);
+
+  // 처음 메인 화면에 도착하면(아직 안 봤다면) 튜토리얼 표시
+  useEffect(() => {
+    if (phase === 'main' && !loadTutorialDone()) { setTutStep(0); setShowTutorial(true); }
+  }, [phase]);
+
+  const closeTutorial = useCallback(() => { saveTutorialDone(); setShowTutorial(false); }, []);
 
   useEffect(() => {
     if (phase !== 'splash') return;
@@ -805,6 +838,40 @@ export default function LinyDoryGame() {
 
   const renderModals = () => (
     <>
+      {/* Tutorial overlay (첫 실행 / 설정에서 다시 보기) */}
+      {showTutorial && (() => {
+        const step = TUTORIAL_STEPS[tutStep];
+        const last = tutStep >= TUTORIAL_STEPS.length - 1;
+        return (
+          <div style={{ position:'absolute', inset:0, zIndex:70, background:'rgba(0,0,0,0.82)', backdropFilter:'blur(6px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+            <div style={{ width:'100%', maxWidth:340, background:'linear-gradient(160deg,#0d1a3a,#1a0d2e)', borderRadius:22, border:'2px solid rgba(255,180,0,0.4)', boxShadow:'0 20px 60px rgba(0,0,0,0.8)', overflow:'hidden' }}>
+              <div style={{ padding:'10px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', borderBottom:'1px solid rgba(255,180,0,0.2)' }}>
+                <span style={{ fontSize:12, fontWeight:800, color:'#FFD700', letterSpacing:1 }}>📖 튜토리얼 {tutStep+1}/{TUTORIAL_STEPS.length}</span>
+                <button onClick={closeTutorial} style={{ background:'none', border:'none', cursor:'pointer', fontSize:12, fontWeight:800, color:'rgba(255,255,255,0.55)' }}>건너뛰기 ✕</button>
+              </div>
+              <div style={{ padding:'24px 22px 10px', textAlign:'center' }}>
+                <div style={{ fontSize:56, marginBottom:10, animation:'splashPulse 1.6s ease infinite' }}>{step.icon}</div>
+                <div style={{ fontSize:17, fontWeight:900, color:'white', marginBottom:8 }}>{step.title}</div>
+                <div style={{ fontSize:13, color:'rgba(255,255,255,0.75)', lineHeight:1.6, minHeight:62 }}>{step.desc}</div>
+              </div>
+              <div style={{ display:'flex', justifyContent:'center', gap:6, padding:'4px 0 12px' }}>
+                {TUTORIAL_STEPS.map((_,i) => (
+                  <span key={i} style={{ width:i===tutStep?16:7, height:7, borderRadius:999, background:i===tutStep?'#FFD700':'rgba(255,255,255,0.25)', transition:'all 0.2s' }}/>
+                ))}
+              </div>
+              <div style={{ display:'flex', gap:8, padding:'0 16px 16px' }}>
+                {tutStep > 0 && (
+                  <button onClick={() => setTutStep(s => Math.max(0, s-1))} style={{ flex:1, padding:'12px', borderRadius:12, border:'1px solid rgba(255,255,255,0.2)', cursor:'pointer', background:'rgba(255,255,255,0.06)', color:'rgba(255,255,255,0.8)', fontSize:13, fontWeight:800 }}>이전</button>
+                )}
+                <button onClick={() => last ? closeTutorial() : setTutStep(s => s+1)} style={{ flex:2, padding:'12px', borderRadius:12, border:'none', cursor:'pointer', background:'linear-gradient(135deg,#FF8C00,#FFD700)', color:'#3D1C00', fontSize:14, fontWeight:900 }}>
+                  {last ? '시작하기 🎮' : '다음 ▶'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Shop overlay */}
       {showShop && (
         <div style={{ position:'absolute', inset:0, zIndex:40, background:'rgba(0,0,0,0.78)', backdropFilter:'blur(5px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
@@ -932,6 +999,11 @@ export default function LinyDoryGame() {
                 <div><div style={{ fontSize:18, fontWeight:900, color:'#FFE566' }}>🪙 {coins.toLocaleString()}</div><div style={{ fontSize:9, color:'rgba(255,255,255,0.4)' }}>코인</div></div>
                 <div><div style={{ fontSize:18, fontWeight:900, color:'#9EC0FF' }}>🎒 {boosters.hammer+boosters.bomb+boosters.shuffle}</div><div style={{ fontSize:9, color:'rgba(255,255,255,0.4)' }}>아이템</div></div>
               </div>
+              {/* 튜토리얼 다시 보기 */}
+              <button onClick={() => { setShowSettings(false); setTutStep(0); setShowTutorial(true); }}
+                style={{ padding:'11px', borderRadius:12, border:'1px solid rgba(120,160,255,0.35)', cursor:'pointer', background:'rgba(120,160,255,0.12)', color:'#9EC0FF', fontSize:12, fontWeight:800 }}>
+                📖 튜토리얼 다시 보기
+              </button>
               {/* 데이터 초기화 */}
               <button onClick={() => {
                   if (confirm('이 계정의 진행도·코인·아이템을 모두 초기화할까요?')) {
@@ -1099,6 +1171,11 @@ export default function LinyDoryGame() {
             })}
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+            {(() => { const d = difficultyOf(stageIdx); return (
+              <span style={{ fontSize:11, fontWeight:800, color:d.color, background:'rgba(0,0,0,0.4)', padding:'3px 10px', borderRadius:999, border:`1px solid ${d.color}` }}>
+                {'🔥'.repeat(d.stars)} {d.label}
+              </span>
+            ); })()}
             <span style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.6)', background:'rgba(0,0,0,0.4)', padding:'3px 10px', borderRadius:999, border:'1px solid rgba(255,255,255,0.15)' }}>
               {lvlCfg.mode==='time'?`⏱ ${(lvlCfg as {sec?:number}).sec}초`:`🎯 ${(lvlCfg as {moves?:number}).moves}수`}
             </span>
