@@ -1,8 +1,17 @@
-import { StrictMode } from "react";
+import { Component, StrictMode } from "react";
+import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 
 import App from "./App.tsx";
 import "./index.css";
+
+class TossProviderBoundary extends Component<{ children: ReactNode }, { crashed: boolean }> {
+  state = { crashed: false };
+  static getDerivedStateFromError() { return { crashed: true }; }
+  render() {
+    return this.state.crashed ? <App /> : this.props.children;
+  }
+}
 
 async function init() {
   const root = createRoot(document.getElementById("root")!);
@@ -23,9 +32,11 @@ async function init() {
     ]);
     root.render(
       <StrictMode>
-        <TDSMobileAITProvider brandPrimaryColor={config.brand.primaryColor}>
-          <App />
-        </TDSMobileAITProvider>
+        <TossProviderBoundary>
+          <TDSMobileAITProvider brandPrimaryColor={config.brand.primaryColor}>
+            <App />
+          </TDSMobileAITProvider>
+        </TossProviderBoundary>
       </StrictMode>,
     );
   } catch {
