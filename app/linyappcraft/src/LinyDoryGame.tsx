@@ -3,6 +3,7 @@ import { questAddGameCleared, questUpdateMaxCombo, questAddSpecials, questAddBlo
 import { sGet, sSet, getScope, setScope } from './store';
 import { tossLogin, fetchUserKey } from './toss';
 import { sfx, buzz, primeAudio, isMuted, toggleMuted } from './sfx';
+import { submitScore, loadWeeklyBest, getLeaderboard, type LBEntry } from './leaderboard';
 
 // 부스터(블럭 제거 아이템) 상점 정보
 // price = 코인 가격, cash = 시뮬레이션 현금 결제 가격(원)
@@ -81,6 +82,12 @@ const difficultyOf = (idx: number): { label: string; stars: number; color: strin
 // 별 등급별 클리어 보상 코인(0/1/2/3별). 기록 갱신 시 전액, 재도전(갱신 없음)은 25%만.
 const CLEAR_COINS = [0, 60, 140, 300] as const;
 const FIRST_CLEAR_BONUS = 100;
+
+// 이어하기 — 코인으로 시간/이동 추가 (한 판 최대 3회, 비용 점증)
+const MAX_CONTINUES = 3;
+const CONTINUE_COSTS = [200, 400, 800] as const;
+const CONTINUE_TIME = 15;   // 시간 모드: +15초
+const CONTINUE_MOVES = 5;   // 이동 모드: +5수
 
 const MAP_POS = [[0,0],[1,0],[2,0],[2,1],[1,1],[0,1],[0,2],[1,2],[2,2],[1,3]];
 const COL_X = [18, 50, 82];
@@ -432,6 +439,10 @@ export default function LinyDoryGame() {
   const [showQuests, setShowQuests] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutStep, setTutStep]     = useState(0);
+  const [continueOffer, setContinueOffer] = useState(false);
+  const [continuesUsed, setContinuesUsed] = useState(0);
+  const [showRanking, setShowRanking] = useState(false);
+  const [ranking, setRanking]     = useState<LBEntry[]>([]);
   const [coins,    setCoins]      = useState(loadCoins);
   const [boosters,    setBoosters]    = useState(loadBoosters);
   const [boosterMode, setBoosterMode] = useState<'hammer'|'bomb'|null>(null);
@@ -462,6 +473,8 @@ export default function LinyDoryGame() {
   const dragRef      = useRef<{r:number;c:number;x:number;y:number;moved:boolean}|null>(null);
   const sessionBlocksRef   = useRef(0);  // 이번 판에 터트린 블럭 수(퀘스트 집계용)
   const sessionSpecialsRef = useRef(0);  // 이번 판에 만든 특수 블럭 수
+  const continuesUsedRef   = useRef(0);  // 이번 판 이어하기 사용 횟수
+  const pausedRef          = useRef(false); // 이어하기 제안 중 입력/타이머 정지
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { boostersRef.current = boosters; }, [boosters]);
@@ -577,16 +590,51 @@ export default function LinyDoryGame() {
         color: palette[i % palette.length], e: ['🎉','✨','⭐','🎊'][i % 4],
       })));
     } else { sfx.lose(); setConfetti([]); }
+    // 주간 랭킹에 점수 제출
+    submitScore(scoreRef.current);
     setProgress(prev => { const next=[...prev]; if (s>next[li]) next[li]=s; saveProg(next); return next; });
     setPhase('end');
   }, [clearHint, progress]);
 
+  // 시간/이동이 다 떨어졌을 때 — 이어하기 제안 가능하면 일시정지하고 제안, 아니면 종료
+  const outOfResource = useCallback(() => {
+    if (continuesUsedRef.current < MAX_CONTINUES) {
+      pausedRef.current = true;
+      setContinueOffer(true);
+    } else {
+      endGame();
+    }
+  }, [endGame]);
+
+  // 이어하기 수락 — 코인 차감 후 시간/이동 보충하고 재개
+  const acceptContinue = useCallback(() => {
+    const cost = CONTINUE_COSTS[continuesUsedRef.current];
+    if (!spendCoins(cost)) { pop('🪙 코인이 부족해요!', 'special'); setShowShop(true); return; }
+    setCoins(loadCoins());
+    continuesUsedRef.current++; setContinuesUsed(c => c+1);
+    if (LEVELS[lvlRef.current].mode === 'time') setTime(t => t + CONTINUE_TIME);
+    else { movesRef.current += CONTINUE_MOVES; setMovesLeft(movesRef.current); }
+    setContinueOffer(false);
+    pausedRef.current = false;
+    sfx.coin(); pop('▶ 이어서 도전!', 'special');
+    scheduleHint();
+  }, [pop, scheduleHint]);
+
+  const declineContinue = useCallback(() => {
+    setContinueOffer(false);
+    pausedRef.current = false;
+    endGame();
+  }, [endGame]);
+
   useEffect(() => {
     if (phase !== 'play') return;
     if (LEVELS[lvlRef.current].mode !== 'time') return;
-    const id = setInterval(() => setTime(t => { if (t<=1) { endGame(); return 0; } return t-1; }), 1000);
+    const id = setInterval(() => {
+      if (pausedRef.current) return;            // 이어하기 제안 중엔 멈춤
+      setTime(t => { if (t<=1) { outOfResource(); return 0; } return t-1; });
+    }, 1000);
     return () => clearInterval(id);
-  }, [phase, endGame]);
+  }, [phase, outOfResource]);
 
   useEffect(() => {
     if (phase !== 'play') { clearHint(); }
@@ -619,7 +667,9 @@ export default function LinyDoryGame() {
     resolvingRef.current=false; dirtyRef.current=false; comboRef.current=0;
     lastSwapRef.current=null; dragRef.current=null;
     sessionBlocksRef.current=0; sessionSpecialsRef.current=0;
+    continuesUsedRef.current=0; pausedRef.current=false;
     setFlames([]); setScreenShake(false); setConfetti([]); setCoinsEarned(0);
+    setContinuesUsed(0); setContinueOffer(false);
     primeAudio();
     const mv = (lvl as {moves?:number}).moves ?? 0; movesRef.current=mv;
     setLvlIdx(idx); setGrid(g); setScore(0); setTime((lvl as {sec?:number}).sec ?? 0);
@@ -695,14 +745,14 @@ export default function LinyDoryGame() {
       resolvingRef.current = false;
     }
     if (phaseRef.current === 'play') {
-      if (LEVELS[lvlRef.current].mode === 'moves' && movesRef.current <= 0) { endGame(); return; }
+      if (LEVELS[lvlRef.current].mode === 'moves' && movesRef.current <= 0) { outOfResource(); return; }
       scheduleHint();
     }
-  }, [push, inc, pop, endGame, scheduleHint, spawnFlames, kickScreen]);
+  }, [push, inc, pop, outOfResource, scheduleHint, spawnFlames, kickScreen]);
 
   // 두 칸 교환 시도 — 유효하면 즉시 커밋하고 리졸버를 가동(입력 잠금 없음)
   const trySwap = useCallback((sr: number, sc: number, r: number, c: number) => {
-    if (phaseRef.current !== 'play') return;
+    if (phaseRef.current !== 'play' || pausedRef.current) return;
     if (Math.abs(sr-r)+Math.abs(sc-c) !== 1) return;
     const g = gRef.current;
     const a = g[sr]?.[sc], b = g[r]?.[c];
@@ -745,7 +795,7 @@ export default function LinyDoryGame() {
 
   // 부스터(망치/폭탄) 발동 — 선택한 칸에 효과 적용 (입력 잠금 없음)
   const triggerBooster = useCallback((kind: 'hammer'|'bomb', r: number, c: number) => {
-    if (phaseRef.current !== 'play') return;
+    if (phaseRef.current !== 'play' || pausedRef.current) return;
     if ((boostersRef.current[kind] ?? 0) <= 0) { setShowShop(true); return; }
     const g = gRef.current;
     const cell = g[r]?.[c];
@@ -773,7 +823,7 @@ export default function LinyDoryGame() {
 
   // 셔플 부스터 — 즉시 보드 재생성
   const triggerShuffle = useCallback(() => {
-    if (phaseRef.current !== 'play') return;
+    if (phaseRef.current !== 'play' || pausedRef.current) return;
     if ((boostersRef.current.shuffle ?? 0) <= 0) { setShowShop(true); return; }
     setBoosters(prev => { const next={...prev,shuffle:Math.max(0,prev.shuffle-1)}; saveBoosters(next); return next; });
     clearHint();
@@ -784,7 +834,7 @@ export default function LinyDoryGame() {
 
   // ── 입력(탭/드래그) ───────────────────────────────────
   const handleTap = (r: number, c: number) => {
-    if (phaseRef.current !== 'play') return;
+    if (phaseRef.current !== 'play' || pausedRef.current) return;
     const cell = gRef.current[r]?.[c];
     if (!cell || cell.hit) return;
     if (boosterMode) { triggerBooster(boosterMode, r, c); return; }
@@ -796,7 +846,7 @@ export default function LinyDoryGame() {
   };
   const onTilePointerDown = (e: { clientX:number; clientY:number }, r: number, c: number) => {
     primeAudio();
-    if (phaseRef.current !== 'play') return;
+    if (phaseRef.current !== 'play' || pausedRef.current) return;
     const cell = gRef.current[r]?.[c];
     if (!cell || cell.hit) return;
     dragRef.current = { r, c, x:e.clientX, y:e.clientY, moved:false };
@@ -893,6 +943,63 @@ export default function LinyDoryGame() {
 
   const renderModals = () => (
     <>
+      {/* 이어하기 제안 (시간/이동 소진) */}
+      {continueOffer && (() => {
+        const cost = CONTINUE_COSTS[Math.min(continuesUsed, MAX_CONTINUES-1)];
+        const timeMode = LEVELS[lvlRef.current].mode === 'time';
+        const afford = coins >= cost;
+        return (
+          <div style={{ position:'absolute', inset:0, zIndex:65, background:'rgba(8,8,40,0.86)', backdropFilter:'blur(6px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+            <div style={{ width:'100%', maxWidth:330, background:'linear-gradient(160deg,#101830,#1a0d2e)', borderRadius:22, border:'2px solid rgba(255,180,0,0.45)', boxShadow:'0 20px 60px rgba(0,0,0,0.8)', overflow:'hidden', textAlign:'center' }}>
+              <div style={{ padding:'22px 20px 6px' }}>
+                <div style={{ fontSize:46, animation:'splashPulse 1s ease infinite' }}>{timeMode ? '⏳' : '🎯'}</div>
+                <div style={{ fontSize:18, fontWeight:900, color:'white', marginTop:6 }}>{timeMode ? '시간이 다 됐어요!' : '이동을 다 썼어요!'}</div>
+                <div style={{ fontSize:13, color:'rgba(255,255,255,0.7)', marginTop:6, lineHeight:1.5 }}>
+                  코인으로 <b style={{ color:'#FFE566' }}>{timeMode ? `+${CONTINUE_TIME}초` : `+${CONTINUE_MOVES}수`}</b> 추가하고<br/>이어서 도전할 수 있어요!
+                </div>
+                <div style={{ fontSize:12, color:'rgba(255,255,255,0.55)', marginTop:8 }}>
+                  현재 <b style={{ color:'white' }}>{score.toLocaleString()}</b> / 목표 <b style={{ color:'#FFD700' }}>{lvl.goal[0].toLocaleString()}</b>
+                </div>
+              </div>
+              <div style={{ display:'flex', gap:8, padding:'14px 16px 8px' }}>
+                <button onClick={declineContinue} style={{ flex:1, padding:'13px', borderRadius:12, border:'1px solid rgba(255,255,255,0.2)', cursor:'pointer', background:'rgba(255,255,255,0.06)', color:'rgba(255,255,255,0.8)', fontSize:13, fontWeight:800 }}>포기하기</button>
+                <button onClick={acceptContinue} style={{ flex:2, padding:'13px', borderRadius:12, border:'none', cursor:'pointer', background: afford ? 'linear-gradient(135deg,#FF8C00,#FFD700)' : 'rgba(255,255,255,0.15)', color: afford ? '#3D1C00' : 'rgba(255,255,255,0.7)', fontSize:14, fontWeight:900 }}>
+                  🪙 {cost} {afford ? '이어하기 ▶' : '· 충전'}
+                </button>
+              </div>
+              <div style={{ fontSize:10, color:'rgba(255,255,255,0.4)', paddingBottom:14 }}>남은 이어하기 {MAX_CONTINUES - continuesUsed}회 · 보유 🪙 {coins.toLocaleString()}</div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 주간 랭킹 */}
+      {showRanking && (
+        <div style={{ position:'absolute', inset:0, zIndex:55, background:'rgba(0,0,0,0.8)', backdropFilter:'blur(5px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+          <div style={{ width:'100%', maxWidth:340, maxHeight:'86vh', background:'linear-gradient(160deg,#0d1a3a,#1a0d2e)', borderRadius:22, border:'2px solid rgba(120,160,255,0.4)', boxShadow:'0 20px 60px rgba(0,0,0,0.8)', overflow:'hidden', display:'flex', flexDirection:'column' }}>
+            <div style={{ padding:'16px 16px 12px', borderBottom:'1px solid rgba(120,160,255,0.2)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <span style={{ fontSize:16, fontWeight:900, color:'#9EC0FF', letterSpacing:1 }}>🏆 주간 랭킹</span>
+              <button onClick={() => setShowRanking(false)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'rgba(255,255,255,0.6)', lineHeight:1 }}>✕</button>
+            </div>
+            <div style={{ fontSize:10, color:'rgba(255,255,255,0.4)', textAlign:'center', padding:'8px 0 4px' }}>매주 월요일 초기화 · 이번 주 내 최고점 {loadWeeklyBest().toLocaleString()}</div>
+            <div style={{ padding:12, display:'flex', flexDirection:'column', gap:6, overflowY:'auto' }}>
+              {ranking.map(e => {
+                const medal = e.rank===1?'🥇':e.rank===2?'🥈':e.rank===3?'🥉':`${e.rank}`;
+                return (
+                  <div key={e.name} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', borderRadius:12,
+                    background: e.me ? 'rgba(255,180,0,0.18)' : 'rgba(255,255,255,0.05)',
+                    border: e.me ? '1.5px solid rgba(255,200,0,0.6)' : '1px solid rgba(255,255,255,0.08)' }}>
+                    <span style={{ width:26, textAlign:'center', fontSize:e.rank<=3?16:12, fontWeight:900, color: e.rank<=3?'#FFD700':'rgba(255,255,255,0.6)' }}>{medal}</span>
+                    <span style={{ flex:1, minWidth:0, fontSize:13, fontWeight:800, color: e.me?'#FFE566':'white', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{e.name}{e.me && ' (나)'}</span>
+                    <span style={{ fontSize:13, fontWeight:900, color: e.me?'#FFE566':'rgba(255,255,255,0.85)' }}>{e.score.toLocaleString()}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Tutorial overlay (첫 실행 / 설정에서 다시 보기) */}
       {showTutorial && (() => {
         const step = TUTORIAL_STEPS[tutStep];
@@ -1168,6 +1275,9 @@ export default function LinyDoryGame() {
           <button onClick={() => { setQuests(loadQuests()); setShowQuests(true); }} style={{ position:'relative', width:34, height:34, borderRadius:'50%', background:'rgba(0,0,0,0.55)', border:'1.5px solid rgba(255,180,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, cursor:'pointer' }}>
             📋
             {(() => { const cnt = QUESTS.filter(qd => qd.metric(quests) >= qd.target && !quests.claimed[qd.key]).length; return cnt > 0 ? <span style={{ position:'absolute', top:-4, right:-4, width:14, height:14, borderRadius:'50%', background:'#FF3030', border:'1.5px solid white', fontSize:9, fontWeight:900, color:'white', display:'flex', alignItems:'center', justifyContent:'center', animation:'questBadge 1s ease infinite' }}>{cnt}</span> : null; })()}
+          </button>
+          <button onClick={() => { sfx.click(); setRanking(getLeaderboard(loadWeeklyBest())); setShowRanking(true); }} style={{ width:34, height:34, borderRadius:'50%', background:'rgba(0,0,0,0.55)', border:'1.5px solid rgba(120,160,255,0.45)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, cursor:'pointer' }}>
+            🏆
           </button>
         </div>
 
@@ -1623,6 +1733,7 @@ export default function LinyDoryGame() {
               : !nearMiss && <button onClick={()=>setPhase('map')} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background:'linear-gradient(135deg,#FF6F00,#FFB300)', boxShadow:'0 4px 0 #B84800', border:'none', cursor:'pointer' }}>맵으로 🗺️</button>
             }
           </div>
+          <button onClick={() => { setRanking(getLeaderboard(loadWeeklyBest())); setShowRanking(true); }} style={{ marginTop:4, background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.7)', fontSize:'clamp(11px,3vw,13px)', fontWeight:800, textDecoration:'underline' }}>🏆 주간 랭킹 보기</button>
         </div>
       )}
     </div>
