@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { questAddGameCleared, questUpdateMaxCombo, questAddSpecials, questAddBlocks, questClaim, loadQuests, loadCoins, spendCoins, addCoins, loadBoosters, saveBoosters, QUESTS, type BoosterKind, type QuestSave } from './quest';
 import { sGet, sSet, getScope, setScope } from './store';
 import { tossLogin, fetchUserKey } from './toss';
+import { sfx, buzz, primeAudio, isMuted, toggleMuted } from './sfx';
 
 // 부스터(블럭 제거 아이템) 상점 정보
 // price = 코인 가격, cash = 시뮬레이션 현금 결제 가격(원)
@@ -76,6 +77,10 @@ const difficultyOf = (idx: number): { label: string; stars: number; color: strin
   : idx <= 5 ? { label: '보통',   stars: 2, color: '#FFB300' }
   : idx <= 8 ? { label: '어려움', stars: 3, color: '#FF7043' }
   :            { label: '최고',   stars: 4, color: '#EF5350' };
+
+// 별 등급별 클리어 보상 코인(0/1/2/3별). 기록 갱신 시 전액, 재도전(갱신 없음)은 25%만.
+const CLEAR_COINS = [0, 60, 140, 300] as const;
+const FIRST_CLEAR_BONUS = 100;
 
 const MAP_POS = [[0,0],[1,0],[2,0],[2,1],[1,1],[0,1],[0,2],[1,2],[2,2],[1,3]];
 const COL_X = [18, 50, 82];
@@ -388,6 +393,17 @@ const GAME_CSS = `
     60%  { opacity:0.9; transform:translate(-50%,-86%) scale(1.05) rotate(-5deg); }
     100% { opacity:0;   transform:translate(-50%,-120%) scale(0.7) rotate(4deg); }
   }
+  @keyframes screenShake {
+    0%,100% { transform:translate(0,0); }
+    20%     { transform:translate(-5px,3px); }
+    40%     { transform:translate(5px,-3px); }
+    60%     { transform:translate(-4px,-2px); }
+    80%     { transform:translate(4px,2px); }
+  }
+  @keyframes confettiFall {
+    0%   { transform:translateY(-30px) rotate(0deg);   opacity:1; }
+    100% { transform:translateY(420px) rotate(620deg); opacity:0; }
+  }
 `;
 
 export default function LinyDoryGame() {
@@ -404,6 +420,10 @@ export default function LinyDoryGame() {
   const [popKind, setPopKind]     = useState<'combo'|'special'>('combo');
   const [shakeCells, setShakeCells] = useState<string[]>([]);
   const [flames, setFlames]       = useState<{id:number;r:number;c:number}[]>([]);
+  const [screenShake, setScreenShake] = useState(false);
+  const [confetti, setConfetti]   = useState<{id:number;left:number;delay:number;color:string;e:string}[]>([]);
+  const [coinsEarned, setCoinsEarned] = useState(0);
+  const [muted, setMutedState]    = useState(isMuted());
   const [floats, setFloats]       = useState<{id:number;text:string}[]>([]);
   const [hintPair, setHintPair]   = useState<[[number,number],[number,number]]|null>(null);
   const [isLucky,  setIsLucky]    = useState(false);
@@ -474,6 +494,14 @@ export default function LinyDoryGame() {
     popT.current = setTimeout(() => setPopup(null), 1400);
   }, []);
 
+  // 큰 콤보/폭발 시 화면 흔들림(타격감)
+  const shakeTmr = useRef<ReturnType<typeof setTimeout>|null>(null);
+  const kickScreen = useCallback(() => {
+    setScreenShake(true);
+    if (shakeTmr.current) clearTimeout(shakeTmr.current);
+    shakeTmr.current = setTimeout(() => setScreenShake(false), 320);
+  }, []);
+
   // 폭탄·아이템으로 블럭이 터질 때 해당 칸에 불길(🔥) 효과를 잠깐 띄운다
   const spawnFlames = useCallback((keys: Iterable<string>) => {
     const arr = [...keys].map(k => { const [r,c]=k.split(',').map(Number); return { id: ++_fid, r, c }; });
@@ -533,9 +561,25 @@ export default function LinyDoryGame() {
     questAddSpecials(sessionSpecialsRef.current); sessionSpecialsRef.current = 0;
     if (s > 0) questAddGameCleared();
     setQuests(loadQuests());
+    // 클리어 보상 코인 — 기록 갱신이면 전액, 재도전이면 25%
+    const prevStars = progress[li] ?? 0;
+    let earned = CLEAR_COINS[s];
+    if (s > 0 && s <= prevStars) earned = Math.floor(earned * 0.25);
+    if (s > 0 && prevStars === 0) earned += FIRST_CLEAR_BONUS;
+    setCoinsEarned(earned);
+    if (earned > 0) { addCoins(earned); setTimeout(() => sfx.coin(), 500); }
+    // 승리/패배 사운드 & 색종이
+    if (s > 0) {
+      sfx.win(); buzz(40);
+      const palette = ['#FFD700','#FF6F00','#42A5F5','#66BB6A','#E040FB','#FF5252'];
+      setConfetti(Array.from({ length: 26 }, (_, i) => ({
+        id: i, left: Math.random()*100, delay: Math.random()*0.5,
+        color: palette[i % palette.length], e: ['🎉','✨','⭐','🎊'][i % 4],
+      })));
+    } else { sfx.lose(); setConfetti([]); }
     setProgress(prev => { const next=[...prev]; if (s>next[li]) next[li]=s; saveProg(next); return next; });
     setPhase('end');
-  }, [clearHint]);
+  }, [clearHint, progress]);
 
   useEffect(() => {
     if (phase !== 'play') return;
@@ -574,7 +618,9 @@ export default function LinyDoryGame() {
     gRef.current=g; scoreRef.current=0; lvlRef.current=idx;
     resolvingRef.current=false; dirtyRef.current=false; comboRef.current=0;
     lastSwapRef.current=null; dragRef.current=null;
-    sessionBlocksRef.current=0; sessionSpecialsRef.current=0; setFlames([]);
+    sessionBlocksRef.current=0; sessionSpecialsRef.current=0;
+    setFlames([]); setScreenShake(false); setConfetti([]); setCoinsEarned(0);
+    primeAudio();
     const mv = (lvl as {moves?:number}).moves ?? 0; movesRef.current=mv;
     setLvlIdx(idx); setGrid(g); setScore(0); setTime((lvl as {sec?:number}).sec ?? 0);
     setMovesLeft(mv); setSel(null); setShakeCells([]); setPopup(null); setFloats([]);
@@ -613,15 +659,21 @@ export default function LinyDoryGame() {
           // 퀘스트 집계: 터트린 블럭 수 / 만든 특수 블럭 수
           sessionBlocksRef.current   += res.hits.size;
           sessionSpecialsRef.current += res.newSpec.size;
-          // 폭탄이 터지면 불길 효과
-          if ([...res.hits].some(k => { const [r,c]=k.split(',').map(Number); return g[r][c]?.kind==='bomb'; })) spawnFlames(res.hits);
+          // 폭탄이 터지면 불길 효과 + 화면 흔들림
+          const bombHit = [...res.hits].some(k => { const [r,c]=k.split(',').map(Number); return g[r][c]?.kind==='bomb'; });
+          if (bombHit) { spawnFlames(res.hits); kickScreen(); sfx.explode(); }
           const spHits = [...res.hits].filter(k => { const [r,c]=k.split(',').map(Number); return g[r][c]?.kind!=='normal'; }).length;
           const pts = res.hits.size*100*combo + spHits*200;
           inc(pts);
+          // 사운드/햅틱
+          sfx.pop(combo); buzz(combo >= 4 ? 22 : 9);
+          if (combo >= 4) kickScreen();
           if (res.newSpec.size > 0) {
             const k = [...res.newSpec.values()][0].kind;
+            sfx.special();
             pop(k==='bomb' ? '💣 BOMB 생성!' : '⚡ LIGHTNING 생성!', 'special');
           } else if (combo >= 2) {
+            sfx.combo(combo);
             pop(`${combo}x COMBO! +${pts.toLocaleString()}`, 'combo');
             if (combo >= 5) setQuests(questUpdateMaxCombo(combo));
           }
@@ -646,7 +698,7 @@ export default function LinyDoryGame() {
       if (LEVELS[lvlRef.current].mode === 'moves' && movesRef.current <= 0) { endGame(); return; }
       scheduleHint();
     }
-  }, [push, inc, pop, endGame, scheduleHint, spawnFlames]);
+  }, [push, inc, pop, endGame, scheduleHint, spawnFlames, kickScreen]);
 
   // 두 칸 교환 시도 — 유효하면 즉시 커밋하고 리졸버를 가동(입력 잠금 없음)
   const trySwap = useCallback((sr: number, sc: number, r: number, c: number) => {
@@ -662,10 +714,12 @@ export default function LinyDoryGame() {
     const matched = hasAnyMatch(sw);
     if (!matched && !srcSpec && !dstSpec) {
       // 무효 스왑 — 커밋하지 않고 흔들림 피드백만
+      sfx.invalid();
       setShakeCells([`${sr},${sc}`, `${r},${c}`]);
       setTimeout(() => setShakeCells([]), 300);
       return;
     }
+    sfx.swap(); buzz(8);
     clearHint();
     if (LEVELS[lvlRef.current].mode === 'moves') {
       movesRef.current = Math.max(0, movesRef.current-1);
@@ -680,14 +734,14 @@ export default function LinyDoryGame() {
       hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell=sw[rr][cc]; if(cell) cell.hit=true; });
       inc(hits.size*120);
       sessionBlocksRef.current += hits.size;
-      spawnFlames(hits);
+      spawnFlames(hits); kickScreen(); sfx.explode(); buzz(25);
       pop((srcSpec ? sw[r][c]?.kind : sw[sr][sc]?.kind) === 'bomb' ? '💣 BOOM!' : '⚡ ZAP!', 'special');
     }
     lastSwapRef.current = [r,c];
     dirtyRef.current = true;
     push(sw);
     resolve();
-  }, [clearHint, inc, pop, push, resolve, spawnFlames]);
+  }, [clearHint, inc, pop, push, resolve, spawnFlames, kickScreen]);
 
   // 부스터(망치/폭탄) 발동 — 선택한 칸에 효과 적용 (입력 잠금 없음)
   const triggerBooster = useCallback((kind: 'hammer'|'bomb', r: number, c: number) => {
@@ -710,12 +764,12 @@ export default function LinyDoryGame() {
     hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell2=sw[rr][cc]; if(cell2) cell2.hit=true; });
     inc(hits.size*80);
     sessionBlocksRef.current += hits.size;
-    spawnFlames(hits); // 아이템 사용 시 불길 효과
+    spawnFlames(hits); kickScreen(); sfx.explode(); buzz(25); // 아이템 사용 시 불길 효과
     pop(kind==='bomb' ? '💣 폭탄 발동!' : '🔨 망치 발동!', 'special');
     dirtyRef.current = true;
     push(sw);
     resolve();
-  }, [clearHint, inc, pop, push, resolve, spawnFlames]);
+  }, [clearHint, inc, pop, push, resolve, spawnFlames, kickScreen]);
 
   // 셔플 부스터 — 즉시 보드 재생성
   const triggerShuffle = useCallback(() => {
@@ -741,6 +795,7 @@ export default function LinyDoryGame() {
     trySwap(sr,sc,r,c);
   };
   const onTilePointerDown = (e: { clientX:number; clientY:number }, r: number, c: number) => {
+    primeAudio();
     if (phaseRef.current !== 'play') return;
     const cell = gRef.current[r]?.[c];
     if (!cell || cell.hit) return;
@@ -999,6 +1054,12 @@ export default function LinyDoryGame() {
                 <div><div style={{ fontSize:18, fontWeight:900, color:'#FFE566' }}>🪙 {coins.toLocaleString()}</div><div style={{ fontSize:9, color:'rgba(255,255,255,0.4)' }}>코인</div></div>
                 <div><div style={{ fontSize:18, fontWeight:900, color:'#9EC0FF' }}>🎒 {boosters.hammer+boosters.bomb+boosters.shuffle}</div><div style={{ fontSize:9, color:'rgba(255,255,255,0.4)' }}>아이템</div></div>
               </div>
+              {/* 사운드 on/off */}
+              <button onClick={() => { const m = toggleMuted(); setMutedState(m); if (!m) sfx.click(); }}
+                style={{ padding:'11px', borderRadius:12, border:'1px solid rgba(120,160,255,0.35)', cursor:'pointer', background:'rgba(120,160,255,0.12)', color:'#9EC0FF', fontSize:12, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                <span>{muted ? '🔇 소리 꺼짐' : '🔊 소리 켜짐'}</span>
+                <span style={{ fontSize:10, opacity:0.7 }}>{muted ? '탭하면 켜기' : '탭하면 끄기'}</span>
+              </button>
               {/* 튜토리얼 다시 보기 */}
               <button onClick={() => { setShowSettings(false); setTutStep(0); setShowTutorial(true); }}
                 style={{ padding:'11px', borderRadius:12, border:'1px solid rgba(120,160,255,0.35)', cursor:'pointer', background:'rgba(120,160,255,0.12)', color:'#9EC0FF', fontSize:12, fontWeight:800 }}>
@@ -1250,7 +1311,7 @@ export default function LinyDoryGame() {
 
   // ── Play / End ────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100vh', overflow:'hidden', position:'relative', background:'linear-gradient(180deg,#7EC8F0 0%,#AEE4F8 30%,#C5F0A4 70%,#8BC34A 100%)', userSelect:'none' }}>
+    <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100vh', overflow:'hidden', position:'relative', background:'linear-gradient(180deg,#7EC8F0 0%,#AEE4F8 30%,#C5F0A4 70%,#8BC34A 100%)', userSelect:'none', animation: screenShake ? 'screenShake 0.32s ease' : undefined }}>
       <style>{GAME_CSS}</style>
 
       {/* Cloud decorations */}
@@ -1507,7 +1568,11 @@ export default function LinyDoryGame() {
 
       {/* End overlay */}
       {phase==='end' && (
-        <div style={{ position:'absolute', inset:0, zIndex:20, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:'clamp(8px,2vh,14px)', background:'rgba(10,10,60,0.88)', backdropFilter:'blur(8px)', padding:'0 clamp(16px,5vw,24px)' }}>
+        <div style={{ position:'absolute', inset:0, zIndex:20, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:'clamp(8px,2vh,14px)', background:'rgba(10,10,60,0.88)', backdropFilter:'blur(8px)', padding:'0 clamp(16px,5vw,24px)', overflow:'hidden' }}>
+          {/* 승리 색종이 */}
+          {confetti.map(p => (
+            <span key={p.id} style={{ position:'absolute', top:0, left:`${p.left}%`, fontSize:18, color:p.color, pointerEvents:'none', animation:`confettiFall ${1.6+p.delay}s ease-in ${p.delay}s forwards` }}>{p.e}</span>
+          ))}
           {nearMiss ? (
             <div style={{ textAlign:'center', animation:'nearMissShake 0.5s ease 0.2s' }}>
               <div style={{ fontSize:'clamp(26px,7vw,34px)', fontWeight:900, color:'#FFD700', animation:'splashPulse 0.8s ease infinite' }}>😱 아깝다!</div>
@@ -1532,6 +1597,13 @@ export default function LinyDoryGame() {
             <div style={{ fontSize:'clamp(11px,3vw,12px)', color:'white', opacity:0.5, marginTop:8, lineHeight:1.6 }}>
               {nearMiss ? `목표까지 ${(lvl.goal[0]-score).toLocaleString()}점 남았어요!` : endStars===0?'아쉬워요… 다시 도전!':endStars===1?'좋아요! 더 잘할 수 있어요':endStars===2?'훌륭해요! 조금만 더!':'완벽해요! 대단해요! 🎉'}
             </div>
+            {coinsEarned > 0 && (
+              <div style={{ marginTop:8, display:'inline-flex', alignItems:'center', gap:6, padding:'7px 16px', borderRadius:999, background:'rgba(255,180,0,0.18)', border:'1.5px solid rgba(255,200,0,0.5)', animation:'starPop 0.5s 0.4s cubic-bezier(0.34,1.56,0.64,1) both' }}>
+                <span style={{ fontSize:18 }}>🪙</span>
+                <span style={{ fontSize:'clamp(15px,4.5vw,18px)', fontWeight:900, color:'#FFE566' }}>+{coinsEarned.toLocaleString()}</span>
+                <span style={{ fontSize:10, color:'rgba(255,255,255,0.6)', fontWeight:700 }}>코인 획득!</span>
+              </div>
+            )}
             <div style={{ display:'flex', gap:8, marginTop:6, justifyContent:'center' }}>
               {lvl.goal.map((gv,i)=>(
                 <div key={i} style={{ textAlign:'center', opacity: score>=gv ? 1 : 0.45 }}>
