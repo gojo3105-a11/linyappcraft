@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { addCoins } from './quest';
+import { sGet, sSet } from './store';
 
-const DR_KEY = 'daily_reward_v1';
+const DR_BASE = 'daily_reward_v1';
 
 interface DRSave { lastDate: string; streak: number; }
 
@@ -16,8 +17,7 @@ function getYesterdayStr() {
 }
 
 function calc(): { show: boolean; streak: number; reward: number } {
-  let save: DRSave = { lastDate: '', streak: 0 };
-  try { save = JSON.parse(localStorage.getItem(DR_KEY) ?? 'null') ?? save; } catch {}
+  const save = sGet<DRSave>(DR_BASE, { lastDate: '', streak: 0 });
   const t = todayStr();
   if (save.lastDate === t) return { show: false, streak: save.streak, reward: REWARDS[(save.streak - 1) % 7] };
   const streak = save.lastDate === getYesterdayStr() ? save.streak + 1 : 1;
@@ -25,7 +25,7 @@ function calc(): { show: boolean; streak: number; reward: number } {
 }
 
 function claimReward(streak: number, reward: number) {
-  localStorage.setItem(DR_KEY, JSON.stringify({ lastDate: todayStr(), streak }));
+  sSet(DR_BASE, { lastDate: todayStr(), streak });
   addCoins(reward);
 }
 
@@ -47,6 +47,15 @@ const CSS = `
 
 export default function DailyReward() {
   const [closed, setClosed] = useState(false);
+  const [, setTick] = useState(0);
+
+  // 로그인(계정 전환)으로 저장소 스코프가 바뀌면 다시 평가
+  useEffect(() => {
+    const refresh = () => { setClosed(false); setTick(t => t + 1); };
+    window.addEventListener('scope-changed', refresh);
+    return () => window.removeEventListener('scope-changed', refresh);
+  }, []);
+
   const { show, streak, reward } = calc();
   const daySlot = (streak - 1) % 7;
 

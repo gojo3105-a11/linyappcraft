@@ -1,11 +1,21 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { questAddGameCleared, questUpdateMaxCombo, questClaim, loadQuests, loadCoins, spendCoins, loadBoosters, saveBoosters, type BoosterKind, type QuestSave } from './quest';
+import { questAddGameCleared, questUpdateMaxCombo, questClaim, loadQuests, loadCoins, spendCoins, addCoins, loadBoosters, saveBoosters, type BoosterKind, type QuestSave } from './quest';
+import { sGet, sSet, getScope, setScope } from './store';
+import { tossLogin, fetchUserKey } from './toss';
 
 // 부스터(블럭 제거 아이템) 상점 정보
-const BOOSTERS: { kind: BoosterKind; icon: string; name: string; desc: string; price: number }[] = [
-  { kind: 'hammer',  icon: '🔨', name: '망치',   desc: '블럭 1개 제거',     price: 100 },
-  { kind: 'bomb',    icon: '💣', name: '폭탄',   desc: '주변 3×3 제거',     price: 250 },
-  { kind: 'shuffle', icon: '🔀', name: '셔플',   desc: '보드 전체 섞기',     price: 150 },
+// price = 코인 가격, cash = 시뮬레이션 현금 결제 가격(원)
+const BOOSTERS: { kind: BoosterKind; icon: string; name: string; desc: string; price: number; cash: number }[] = [
+  { kind: 'hammer',  icon: '🔨', name: '망치',   desc: '블럭 1개 제거',     price: 100, cash: 500  },
+  { kind: 'bomb',    icon: '💣', name: '폭탄',   desc: '주변 3×3 제거',     price: 250, cash: 1200 },
+  { kind: 'shuffle', icon: '🔀', name: '셔플',   desc: '보드 전체 섞기',     price: 150, cash: 800  },
+];
+
+// 코인 충전 패키지 (시뮬레이션 결제)
+const COIN_PACKS: { coins: number; cash: number; bonus?: string }[] = [
+  { coins: 1000,  cash: 1100  },
+  { coins: 3500,  cash: 3300,  bonus: '+16%' },
+  { coins: 12000, cash: 11000, bonus: '+33%' },
 ];
 
 const ROWS = 7;
@@ -60,12 +70,9 @@ const MAP_POS = [[0,0],[1,0],[2,0],[2,1],[1,1],[0,1],[0,2],[1,2],[2,2],[1,3]];
 const COL_X = [18, 50, 82];
 const ROW_Y = [84, 62, 40, 18];
 
-const LS_KEY = 'linydory_v3';
-const loadProg = (): number[] => {
-  try { return JSON.parse(localStorage.getItem(LS_KEY) ?? 'null') ?? Array(LEVELS.length).fill(0); }
-  catch { return Array(LEVELS.length).fill(0); }
-};
-const saveProg = (p: number[]) => localStorage.setItem(LS_KEY, JSON.stringify(p));
+const LS_BASE = 'linydory_v3';
+const loadProg = (): number[] => sGet<number[]>(LS_BASE, Array(LEVELS.length).fill(0));
+const saveProg = (p: number[]) => sSet(LS_BASE, p);
 
 interface Cell { id: number; t: number; kind: TileKind; hit: boolean; }
 type GridCell = Cell | null;
@@ -316,6 +323,12 @@ export default function LinyDoryGame() {
   const [boosters,    setBoosters]    = useState(loadBoosters);
   const [boosterMode, setBoosterMode] = useState<'hammer'|'bomb'|null>(null);
   const [showShop,    setShowShop]    = useState(false);
+  const [showSettings,setShowSettings]= useState(false);
+  const [shopTab,     setShopTab]     = useState<'coin'|'cash'>('coin');
+  const [cart,        setCart]        = useState<Record<BoosterKind,number>>({hammer:0,bomb:0,shuffle:0});
+  const [pay,         setPay]         = useState<{label:string;cash:number;onDone:()=>void}|null>(null);
+  const [payStage,    setPayStage]    = useState<'confirm'|'processing'|'done'>('confirm');
+  const [account,     setAccount]     = useState<string>(getScope());
 
   const gRef     = useRef<Grid>(grid);
   const busyRef  = useRef(false);
@@ -360,6 +373,19 @@ export default function LinyDoryGame() {
     const refresh = () => setCoins(loadCoins());
     window.addEventListener('coins-updated', refresh);
     return () => window.removeEventListener('coins-updated', refresh);
+  }, []);
+
+  // 로그인(계정 전환)으로 스코프가 바뀌면 계정별 저장 데이터를 다시 불러옴
+  useEffect(() => {
+    const onScope = () => {
+      setAccount(getScope());
+      setProgress(loadProg());
+      setCoins(loadCoins());
+      setBoosters(loadBoosters());
+      setQuests(loadQuests());
+    };
+    window.addEventListener('scope-changed', onScope);
+    return () => window.removeEventListener('scope-changed', onScope);
   }, []);
 
   useEffect(() => {
@@ -567,6 +593,58 @@ export default function LinyDoryGame() {
     scheduleHint();
   }, [phase, sel, push, chain, endGame, clearHint, scheduleHint, inc, boosterMode, useBoosterAt]);
 
+  // ── 시뮬레이션 결제 ──────────────────────────────────
+  const startPay = (label: string, cash: number, onDone: () => void) => {
+    setPay({ label, cash, onDone });
+    setPayStage('confirm');
+  };
+  const runPay = () => {
+    setPayStage('processing');
+    setTimeout(() => {
+      setPayStage('done');
+      pay?.onDone();
+      setTimeout(() => setPay(null), 900);
+    }, 1100);
+  };
+
+  // ── 장바구니(부스터 묶음 현금 결제) ──────────────────
+  const cartCount = cart.hammer + cart.bomb + cart.shuffle;
+  const cartTotal = BOOSTERS.reduce((s, b) => s + cart[b.kind] * b.cash, 0);
+  const setCartQty = (kind: BoosterKind, delta: number) =>
+    setCart(prev => ({ ...prev, [kind]: Math.max(0, Math.min(99, prev[kind] + delta)) }));
+  const checkoutCart = () => {
+    if (cartCount === 0) return;
+    const snapshot = { ...cart };
+    startPay(`아이템 ${cartCount}개`, cartTotal, () => {
+      setBoosters(prev => {
+        const next = {
+          hammer:  prev.hammer  + snapshot.hammer,
+          bomb:    prev.bomb    + snapshot.bomb,
+          shuffle: prev.shuffle + snapshot.shuffle,
+        };
+        saveBoosters(next); return next;
+      });
+      setCart({ hammer: 0, bomb: 0, shuffle: 0 });
+      pop('🎉 결제 완료! 아이템 지급', 'special');
+    });
+  };
+  const buyCoinPack = (coins: number, cash: number) => {
+    startPay(`코인 ${coins.toLocaleString()}개`, cash, () => {
+      addCoins(coins);
+      pop(`🪙 +${coins.toLocaleString()} 충전 완료!`, 'special');
+    });
+  };
+
+  // ── 토스 로그인 ──────────────────────────────────────
+  const handleLogin = async () => {
+    const r = await tossLogin();
+    if (!r.ok) { pop('토스 앱에서만 로그인할 수 있어요', 'special'); return; }
+    const key = await fetchUserKey();
+    if (key) { setScope(key); pop('✅ 로그인 완료! 계정에 저장돼요', 'special'); }
+    else pop('로그인은 됐지만 키를 못 받았어요', 'special');
+  };
+  const handleLogout = () => { setScope('guest'); pop('게스트로 전환했어요', 'special'); };
+
   const lvl      = LEVELS[lvlIdx];
   const isTime   = lvl.mode === 'time';
   const maxCond  = isTime ? (lvl as {sec?:number}).sec ?? 60 : (lvl as {moves?:number}).moves ?? 1;
@@ -582,6 +660,189 @@ export default function LinyDoryGame() {
     ? 'linear-gradient(180deg,#FFA726,#E65100)'
     : 'linear-gradient(180deg,#EF5350,#B71C1C)';
   const curMap = MAPS[lvlIdx];
+
+  const renderModals = () => (
+    <>
+      {/* Shop overlay */}
+      {showShop && (
+        <div style={{ position:'absolute', inset:0, zIndex:40, background:'rgba(0,0,0,0.78)', backdropFilter:'blur(5px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+          <div style={{ width:'100%', maxWidth:360, maxHeight:'88vh', background:'linear-gradient(160deg,#0d1a3a,#1a0d2e)', borderRadius:22, border:'2px solid rgba(255,180,0,0.4)', boxShadow:'0 20px 60px rgba(0,0,0,0.8)', overflow:'hidden', display:'flex', flexDirection:'column' }}>
+            <div style={{ padding:'16px 16px 12px', borderBottom:'1px solid rgba(255,180,0,0.2)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <span style={{ fontSize:16, fontWeight:900, color:'#FFD700', letterSpacing:1 }}>🛒 상점</span>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <span style={{ fontSize:13, fontWeight:900, color:'#FFE566' }}>🪙 {coins.toLocaleString()}</span>
+                <button onClick={() => setShowShop(false)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'rgba(255,255,255,0.6)', lineHeight:1 }}>✕</button>
+              </div>
+            </div>
+            {/* 탭 */}
+            <div style={{ display:'flex', gap:6, padding:'10px 12px 0' }}>
+              {([['coin','🪙 코인으로'],['cash','💳 충전·결제']] as const).map(([k,label]) => (
+                <button key={k} onClick={() => setShopTab(k)}
+                  style={{ flex:1, padding:'8px 0', borderRadius:12, border:'none', cursor:'pointer', fontSize:12, fontWeight:900,
+                    background: shopTab===k ? 'linear-gradient(135deg,#FF8C00,#FFD700)' : 'rgba(255,255,255,0.06)',
+                    color: shopTab===k ? '#3D1C00' : 'rgba(255,255,255,0.55)' }}>{label}</button>
+              ))}
+            </div>
+            <div style={{ padding:12, display:'flex', flexDirection:'column', gap:8, overflowY:'auto' }}>
+              {shopTab === 'coin' ? (
+                <>
+                  {BOOSTERS.map(b => {
+                    const afford = coins >= b.price;
+                    return (
+                      <div key={b.kind} style={{ padding:'10px 12px', borderRadius:14, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', display:'flex', alignItems:'center', gap:10 }}>
+                        <span style={{ fontSize:26 }}>{b.icon}</span>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:13, fontWeight:800, color:'white' }}>{b.name} <span style={{ fontSize:10, color:'rgba(255,255,255,0.45)', fontWeight:600 }}>보유 {boosters[b.kind]}</span></div>
+                          <div style={{ fontSize:10, color:'rgba(255,255,255,0.5)', marginTop:2 }}>{b.desc}</div>
+                        </div>
+                        <button disabled={!afford}
+                          onClick={() => {
+                            if (!spendCoins(b.price)) { pop('🪙 코인이 부족해요. 충전 탭에서 결제하세요', 'special'); setShopTab('cash'); return; }
+                            setBoosters(prev => { const next={...prev,[b.kind]:prev[b.kind]+1}; saveBoosters(next); return next; });
+                            pop(`${b.icon} ${b.name} 구매!`, 'special');
+                          }}
+                          style={{ padding:'8px 12px', borderRadius:999, border:'none', cursor: afford ? 'pointer' : 'default',
+                            background: afford ? 'linear-gradient(135deg,#FF8C00,#FFD700)' : 'rgba(255,255,255,0.12)',
+                            color: afford ? '#3D1C00' : 'rgba(255,255,255,0.4)', fontSize:11, fontWeight:900, whiteSpace:'nowrap' }}>
+                          🪙 {b.price}
+                        </button>
+                      </div>
+                    );
+                  })}
+                  <div style={{ padding:'8px 12px', borderRadius:10, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)', fontSize:10, color:'rgba(255,255,255,0.4)', textAlign:'center', lineHeight:1.5 }}>
+                    코인은 출석·일일 퀘스트로 모을 수 있어요 🎁
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* 코인 충전 패키지 */}
+                  <div style={{ fontSize:11, fontWeight:800, color:'rgba(255,220,100,0.85)', letterSpacing:1, padding:'2px 2px' }}>🪙 코인 충전</div>
+                  {COIN_PACKS.map((p,i) => (
+                    <div key={i} style={{ padding:'10px 12px', borderRadius:14, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', display:'flex', alignItems:'center', gap:10 }}>
+                      <span style={{ fontSize:24 }}>🪙</span>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:13, fontWeight:800, color:'white' }}>{p.coins.toLocaleString()} 코인 {p.bonus && <span style={{ fontSize:10, color:'#FFD700' }}>{p.bonus}</span>}</div>
+                      </div>
+                      <button onClick={() => buyCoinPack(p.coins, p.cash)}
+                        style={{ padding:'8px 12px', borderRadius:999, border:'none', cursor:'pointer', background:'linear-gradient(135deg,#1565C0,#42A5F5)', color:'white', fontSize:11, fontWeight:900, whiteSpace:'nowrap' }}>
+                        ₩{p.cash.toLocaleString()}
+                      </button>
+                    </div>
+                  ))}
+                  {/* 부스터 묶음 결제 (장바구니) */}
+                  <div style={{ fontSize:11, fontWeight:800, color:'rgba(255,220,100,0.85)', letterSpacing:1, padding:'6px 2px 2px' }}>🛍️ 아이템 묶음 결제</div>
+                  {BOOSTERS.map(b => (
+                    <div key={b.kind} style={{ padding:'8px 12px', borderRadius:14, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', display:'flex', alignItems:'center', gap:8 }}>
+                      <span style={{ fontSize:22 }}>{b.icon}</span>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:12, fontWeight:800, color:'white' }}>{b.name}</div>
+                        <div style={{ fontSize:10, color:'rgba(255,255,255,0.45)' }}>개당 ₩{b.cash.toLocaleString()}</div>
+                      </div>
+                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                        <button onClick={() => setCartQty(b.kind,-1)} style={{ width:26, height:26, borderRadius:8, border:'none', cursor:'pointer', background:'rgba(255,255,255,0.12)', color:'white', fontSize:16, fontWeight:900, lineHeight:1 }}>−</button>
+                        <span style={{ minWidth:18, textAlign:'center', fontSize:13, fontWeight:900, color:'white' }}>{cart[b.kind]}</span>
+                        <button onClick={() => setCartQty(b.kind,1)} style={{ width:26, height:26, borderRadius:8, border:'none', cursor:'pointer', background:'rgba(255,180,0,0.85)', color:'#3D1C00', fontSize:16, fontWeight:900, lineHeight:1 }}>+</button>
+                      </div>
+                    </div>
+                  ))}
+                  <button disabled={cartCount===0} onClick={checkoutCart}
+                    style={{ marginTop:4, padding:'13px', borderRadius:14, border:'none', cursor: cartCount? 'pointer':'default',
+                      background: cartCount ? 'linear-gradient(135deg,#FF8C00,#FFD700)' : 'rgba(255,255,255,0.1)',
+                      color: cartCount ? '#3D1C00' : 'rgba(255,255,255,0.4)', fontSize:14, fontWeight:900 }}>
+                    💳 결제하기 {cartCount>0 && `· ${cartCount}개 · ₩${cartTotal.toLocaleString()}`}
+                  </button>
+                  <div style={{ fontSize:9, color:'rgba(255,255,255,0.3)', textAlign:'center', lineHeight:1.5 }}>
+                    * 데모 환경에서는 시뮬레이션 결제로 동작해요
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Settings overlay */}
+      {showSettings && (
+        <div style={{ position:'absolute', inset:0, zIndex:40, background:'rgba(0,0,0,0.78)', backdropFilter:'blur(5px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+          <div style={{ width:'100%', maxWidth:340, background:'linear-gradient(160deg,#0d1a3a,#10101f)', borderRadius:22, border:'2px solid rgba(120,160,255,0.35)', boxShadow:'0 20px 60px rgba(0,0,0,0.8)', overflow:'hidden' }}>
+            <div style={{ padding:'16px 16px 12px', borderBottom:'1px solid rgba(120,160,255,0.2)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <span style={{ fontSize:16, fontWeight:900, color:'#9EC0FF', letterSpacing:1 }}>⚙️ 설정</span>
+              <button onClick={() => setShowSettings(false)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'rgba(255,255,255,0.6)', lineHeight:1 }}>✕</button>
+            </div>
+            <div style={{ padding:14, display:'flex', flexDirection:'column', gap:10 }}>
+              {/* 계정 */}
+              <div style={{ padding:'12px', borderRadius:14, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)' }}>
+                <div style={{ fontSize:11, color:'rgba(255,255,255,0.45)', marginBottom:4 }}>계정</div>
+                <div style={{ fontSize:13, fontWeight:800, color:'white', marginBottom:10 }}>
+                  {account === 'guest' ? '게스트 (로컬 저장)' : `토스 계정 · ${account.slice(0,8)}…`}
+                </div>
+                {account === 'guest'
+                  ? <button onClick={handleLogin} style={{ width:'100%', padding:'11px', borderRadius:12, border:'none', cursor:'pointer', background:'linear-gradient(135deg,#0064FF,#3B8BFF)', color:'white', fontSize:13, fontWeight:900 }}>토스로 로그인</button>
+                  : <button onClick={handleLogout} style={{ width:'100%', padding:'11px', borderRadius:12, border:'1px solid rgba(255,255,255,0.2)', cursor:'pointer', background:'rgba(255,255,255,0.06)', color:'rgba(255,255,255,0.8)', fontSize:13, fontWeight:800 }}>게스트로 전환</button>
+                }
+                <div style={{ fontSize:9, color:'rgba(255,255,255,0.3)', marginTop:8, lineHeight:1.5 }}>
+                  로그인하면 스테이지·코인·아이템이 계정별로 저장돼요. (토스 앱에서 동작)
+                </div>
+              </div>
+              {/* 진행도 요약 */}
+              <div style={{ padding:'12px', borderRadius:14, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', display:'flex', justifyContent:'space-around', textAlign:'center' }}>
+                <div><div style={{ fontSize:18, fontWeight:900, color:'#FFD700' }}>⭐ {progress.reduce((a,b)=>a+b,0)}</div><div style={{ fontSize:9, color:'rgba(255,255,255,0.4)' }}>총 별</div></div>
+                <div><div style={{ fontSize:18, fontWeight:900, color:'#FFE566' }}>🪙 {coins.toLocaleString()}</div><div style={{ fontSize:9, color:'rgba(255,255,255,0.4)' }}>코인</div></div>
+                <div><div style={{ fontSize:18, fontWeight:900, color:'#9EC0FF' }}>🎒 {boosters.hammer+boosters.bomb+boosters.shuffle}</div><div style={{ fontSize:9, color:'rgba(255,255,255,0.4)' }}>아이템</div></div>
+              </div>
+              {/* 데이터 초기화 */}
+              <button onClick={() => {
+                  if (confirm('이 계정의 진행도·코인·아이템을 모두 초기화할까요?')) {
+                    saveProg(Array(LEVELS.length).fill(0)); setProgress(Array(LEVELS.length).fill(0));
+                    saveBoosters({hammer:0,bomb:0,shuffle:0}); setBoosters({hammer:0,bomb:0,shuffle:0});
+                    sSet('linydory_coins_v1', 0); setCoins(0); window.dispatchEvent(new Event('coins-updated'));
+                    pop('진행도를 초기화했어요', 'special'); setShowSettings(false);
+                  }
+                }}
+                style={{ padding:'11px', borderRadius:12, border:'1px solid rgba(255,80,80,0.4)', cursor:'pointer', background:'rgba(255,40,40,0.12)', color:'#FF8888', fontSize:12, fontWeight:800 }}>
+                진행도 초기화
+              </button>
+              <div style={{ fontSize:9, color:'rgba(255,255,255,0.25)', textAlign:'center' }}>리니와도리의 가시소동 · v1.0</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment modal (시뮬레이션) */}
+      {pay && (
+        <div style={{ position:'absolute', inset:0, zIndex:60, background:'rgba(0,0,0,0.82)', backdropFilter:'blur(6px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+          <div style={{ width:'100%', maxWidth:320, background:'linear-gradient(160deg,#101830,#0a0d18)', borderRadius:22, border:'2px solid rgba(0,100,255,0.45)', boxShadow:'0 20px 60px rgba(0,0,0,0.8)', overflow:'hidden' }}>
+            <div style={{ padding:'18px 18px 8px', textAlign:'center' }}>
+              <div style={{ fontSize:13, fontWeight:900, color:'#3B8BFF', letterSpacing:1 }}>toss pay</div>
+            </div>
+            <div style={{ padding:'4px 18px 18px', textAlign:'center' }}>
+              {payStage === 'done' ? (
+                <>
+                  <div style={{ fontSize:44, marginBottom:6 }}>✅</div>
+                  <div style={{ fontSize:16, fontWeight:900, color:'white' }}>결제 완료!</div>
+                </>
+              ) : payStage === 'processing' ? (
+                <>
+                  <div style={{ fontSize:40, marginBottom:6, animation:'splashPulse 0.7s ease infinite' }}>💳</div>
+                  <div style={{ fontSize:14, fontWeight:800, color:'rgba(255,255,255,0.8)' }}>결제 처리 중…</div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize:12, color:'rgba(255,255,255,0.5)', marginBottom:4 }}>{pay.label}</div>
+                  <div style={{ fontSize:30, fontWeight:900, color:'white', marginBottom:14 }}>₩{pay.cash.toLocaleString()}</div>
+                  <div style={{ display:'flex', gap:8 }}>
+                    <button onClick={() => setPay(null)} style={{ flex:1, padding:'12px', borderRadius:12, border:'1px solid rgba(255,255,255,0.2)', cursor:'pointer', background:'rgba(255,255,255,0.06)', color:'rgba(255,255,255,0.8)', fontSize:13, fontWeight:800 }}>취소</button>
+                    <button onClick={runPay} style={{ flex:2, padding:'12px', borderRadius:12, border:'none', cursor:'pointer', background:'linear-gradient(135deg,#0064FF,#3B8BFF)', color:'white', fontSize:14, fontWeight:900 }}>결제하기</button>
+                  </div>
+                  <div style={{ fontSize:9, color:'rgba(255,255,255,0.3)', marginTop:10 }}>시뮬레이션 결제 · 실제 청구되지 않아요</div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
 
   // ── Splash ────────────────────────────────────────────────────────────────────
   if (phase === 'splash') return (
@@ -706,11 +967,10 @@ export default function LinyDoryGame() {
         </div>
         <div style={{ position:'absolute', bottom:0, left:0, right:0, paddingBottom:'var(--sab)', background:'rgba(5,15,5,0.92)', borderTop:'1.5px solid rgba(255,255,255,0.1)', display:'flex', alignItems:'center', justifyContent:'space-around', minHeight:'clamp(56px,8vh,72px)' }}>
           {[
-            {icon:'🗺️',label:'맵',     fn:()=>setPhase('map'), active:false},
-            {icon:'⚔️',label:'배틀',   fn:()=>{},              active:false},
-            {icon:'🏠',label:'홈',     fn:()=>{},              active:true },
-            {icon:'🐰',label:'캐릭터', fn:()=>{},              active:false},
-            {icon:'🏆',label:'랭킹',   fn:()=>{},              active:false},
+            {icon:'🏠',label:'홈',   fn:()=>{},                   active:true },
+            {icon:'🗺️',label:'맵',   fn:()=>setPhase('map'),      active:false},
+            {icon:'🛒',label:'상점', fn:()=>setShowShop(true),    active:false},
+            {icon:'⚙️',label:'설정', fn:()=>setShowSettings(true), active:false},
           ].map((item,i)=>(
             <button key={i} onClick={item.fn} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:2, background:'none', border:'none', cursor:'pointer', padding:'6px 14px' }}>
               <span style={{ fontSize:22, filter:item.active?'drop-shadow(0 0 8px #FFB300)':'none', opacity:item.active?1:0.6 }}>{item.icon}</span>
@@ -718,6 +978,7 @@ export default function LinyDoryGame() {
             </button>
           ))}
         </div>
+        {renderModals()}
       </div>
     );
   }
@@ -987,48 +1248,7 @@ export default function LinyDoryGame() {
         </div>
       )}
 
-      {/* Shop overlay (코인으로 부스터 구매) */}
-      {showShop && (
-        <div style={{ position:'absolute', inset:0, zIndex:40, background:'rgba(0,0,0,0.78)', backdropFilter:'blur(5px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
-          <div style={{ width:'100%', maxWidth:340, background:'linear-gradient(160deg,#0d1a3a,#1a0d2e)', borderRadius:22, border:'2px solid rgba(255,180,0,0.4)', boxShadow:'0 20px 60px rgba(0,0,0,0.8)', overflow:'hidden' }}>
-            <div style={{ padding:'16px 16px 12px', borderBottom:'1px solid rgba(255,180,0,0.2)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-              <span style={{ fontSize:16, fontWeight:900, color:'#FFD700', letterSpacing:1 }}>🛒 아이템 상점</span>
-              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                <span style={{ fontSize:13, fontWeight:900, color:'#FFE566' }}>🪙 {coins.toLocaleString()}</span>
-                <button onClick={() => setShowShop(false)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'rgba(255,255,255,0.6)', lineHeight:1 }}>✕</button>
-              </div>
-            </div>
-            <div style={{ padding:12, display:'flex', flexDirection:'column', gap:8 }}>
-              {BOOSTERS.map(b => {
-                const afford = coins >= b.price;
-                return (
-                  <div key={b.kind} style={{ padding:'10px 12px', borderRadius:14, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', display:'flex', alignItems:'center', gap:10 }}>
-                    <span style={{ fontSize:26 }}>{b.icon}</span>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontSize:13, fontWeight:800, color:'white' }}>{b.name} <span style={{ fontSize:10, color:'rgba(255,255,255,0.45)', fontWeight:600 }}>보유 {boosters[b.kind]}</span></div>
-                      <div style={{ fontSize:10, color:'rgba(255,255,255,0.5)', marginTop:2 }}>{b.desc}</div>
-                    </div>
-                    <button disabled={!afford}
-                      onClick={() => {
-                        if (!spendCoins(b.price)) { pop('🪙 코인이 부족해요', 'special'); return; }
-                        setBoosters(prev => { const next={...prev,[b.kind]:prev[b.kind]+1}; saveBoosters(next); return next; });
-                        pop(`${b.icon} ${b.name} 구매!`, 'special');
-                      }}
-                      style={{ padding:'8px 12px', borderRadius:999, border:'none', cursor: afford ? 'pointer' : 'default',
-                        background: afford ? 'linear-gradient(135deg,#FF8C00,#FFD700)' : 'rgba(255,255,255,0.12)',
-                        color: afford ? '#3D1C00' : 'rgba(255,255,255,0.4)', fontSize:11, fontWeight:900, whiteSpace:'nowrap' }}>
-                      🪙 {b.price}
-                    </button>
-                  </div>
-                );
-              })}
-              <div style={{ padding:'8px 12px', borderRadius:10, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)', fontSize:10, color:'rgba(255,255,255,0.4)', textAlign:'center', lineHeight:1.5 }}>
-                코인은 출석·일일 퀘스트로 모을 수 있어요 🎁
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {renderModals()}
 
       {/* End overlay */}
       {phase==='end' && (
