@@ -4,7 +4,7 @@ import { sGet, sSet, getScope, setScope } from './store';
 import { tossLogin, fetchUserKey } from './toss';
 import { sfx, buzz, primeAudio, isMuted, toggleMuted } from './sfx';
 import { submitScore, loadWeeklyBest, getLeaderboard, type LBEntry } from './leaderboard';
-import { EPISODES, ytThumb, ytEmbed, ytWatch, CHANNEL_URL, type Episode } from './episodes';
+import { CHANNEL_URL } from './episodes';
 
 // 부스터(블럭 제거 아이템) 상점 정보
 // price = 코인 가격, cash = 시뮬레이션 현금 결제 가격(원)
@@ -445,8 +445,6 @@ export default function LinyDoryGame() {
   const [continuesUsed, setContinuesUsed] = useState(0);
   const [showRanking, setShowRanking] = useState(false);
   const [ranking, setRanking]     = useState<LBEntry[]>([]);
-  const [showEpisodes, setShowEpisodes] = useState(false);
-  const [playingEp, setPlayingEp] = useState<Episode | null>(null);
   const [coins,    setCoins]      = useState(loadCoins);
   const [boosters,    setBoosters]    = useState(loadBoosters);
   const [boosterMode, setBoosterMode] = useState<'hammer'|'bomb'|null>(null);
@@ -1010,72 +1008,6 @@ export default function LinyDoryGame() {
         </div>
       )}
 
-      {/* 애니메이션 에피소드 */}
-      {showEpisodes && (
-        <div style={{ position:'absolute', inset:0, zIndex:58, background:'rgba(0,0,0,0.85)', backdropFilter:'blur(5px)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
-          <div style={{ width:'100%', maxWidth:380, maxHeight:'90vh', background:'linear-gradient(160deg,#10131f,#1a0d2e)', borderRadius:22, border:'2px solid rgba(255,80,80,0.4)', boxShadow:'0 20px 60px rgba(0,0,0,0.8)', overflow:'hidden', display:'flex', flexDirection:'column' }}>
-            <div style={{ padding:'14px 16px 12px', borderBottom:'1px solid rgba(255,255,255,0.12)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-              <span style={{ fontSize:16, fontWeight:900, color:'#FF6B6B', letterSpacing:0.5 }}>📺 리니와도리 애니</span>
-              <button onClick={() => { setShowEpisodes(false); setPlayingEp(null); }} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'rgba(255,255,255,0.6)', lineHeight:1 }}>✕</button>
-            </div>
-
-            {playingEp ? (
-              /* 플레이어 화면 */
-              <div style={{ display:'flex', flexDirection:'column', overflowY:'auto' }}>
-                <div style={{ position:'relative', width: playingEp.short ? 'auto' : '100%', height: playingEp.short ? '60vh' : undefined, aspectRatio: playingEp.short ? '9/16' : '16/9', margin: playingEp.short ? '0 auto' : undefined, background:'#000' }}>
-                  {playingEp.videoId ? (
-                    <iframe
-                      title={playingEp.title}
-                      src={ytEmbed(playingEp.videoId)}
-                      style={{ position:'absolute', inset:0, width:'100%', height:'100%', border:'none' }}
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                      allowFullScreen
-                    />
-                  ) : (
-                    <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', color:'rgba(255,255,255,0.6)', fontSize:13, fontWeight:700 }}>곧 공개 예정이에요 🎬</div>
-                  )}
-                </div>
-                <div style={{ padding:'12px 16px 16px' }}>
-                  <div style={{ fontSize:14, fontWeight:900, color:'white' }}>{playingEp.ep}화 · {playingEp.title}</div>
-                  {playingEp.desc && <div style={{ fontSize:12, color:'rgba(255,255,255,0.6)', marginTop:4, lineHeight:1.5 }}>{playingEp.desc}</div>}
-                  <div style={{ display:'flex', gap:8, marginTop:14 }}>
-                    <button onClick={() => setPlayingEp(null)} style={{ flex:1, padding:'11px', borderRadius:12, border:'1px solid rgba(255,255,255,0.2)', cursor:'pointer', background:'rgba(255,255,255,0.06)', color:'rgba(255,255,255,0.85)', fontSize:13, fontWeight:800 }}>← 목록</button>
-                    {playingEp.videoId && (
-                      <a href={ytWatch(playingEp.videoId)} target="_blank" rel="noreferrer" style={{ flex:1, padding:'11px', borderRadius:12, textAlign:'center', textDecoration:'none', background:'linear-gradient(135deg,#FF0000,#CC0000)', color:'white', fontSize:13, fontWeight:900 }}>유튜브에서 열기 ▶</a>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              /* 에피소드 목록 */
-              <div style={{ padding:12, display:'flex', flexDirection:'column', gap:10, overflowY:'auto' }}>
-                {EPISODES.map(epi => (
-                  <button key={epi.ep} onClick={() => { sfx.click(); setPlayingEp(epi); }}
-                    style={{ display:'flex', gap:10, padding:8, borderRadius:14, border:'1px solid rgba(255,255,255,0.1)', background:'rgba(255,255,255,0.05)', cursor:'pointer', textAlign:'left', alignItems:'center' }}>
-                    <div style={{ position:'relative', width:112, flexShrink:0, aspectRatio:'16/9', borderRadius:10, overflow:'hidden', background:'linear-gradient(135deg,#2a2a3a,#1a1a2a)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                      {epi.videoId
-                        ? <img src={ytThumb(epi.videoId)} alt="" style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover' }}/>
-                        : <span style={{ fontSize:24 }}>🎬</span>}
-                      <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:26, color:'white', textShadow:'0 2px 6px rgba(0,0,0,0.8)' }}>{epi.videoId ? '▶' : ''}</span>
-                      <span style={{ position:'absolute', top:3, left:3, fontSize:9, fontWeight:900, color:'white', background:'rgba(0,0,0,0.65)', borderRadius:6, padding:'1px 5px' }}>{epi.ep}화</span>
-                    </div>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontSize:13, fontWeight:800, color:'white', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{epi.title}</div>
-                      {epi.desc && <div style={{ fontSize:11, color:'rgba(255,255,255,0.5)', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{epi.desc}</div>}
-                      <div style={{ fontSize:10, fontWeight:800, color: epi.videoId ? '#FF6B6B' : 'rgba(255,255,255,0.35)', marginTop:4 }}>{epi.videoId ? '▶ 재생하기' : '곧 공개'}</div>
-                    </div>
-                  </button>
-                ))}
-                <a href={CHANNEL_URL} target="_blank" rel="noreferrer" style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'11px', borderRadius:12, textDecoration:'none', background:'linear-gradient(135deg,#FF0000,#CC0000)', color:'white', fontSize:13, fontWeight:900 }}>
-                  ▶ 유튜브 채널 전체 보기
-                </a>
-                <div style={{ fontSize:10, color:'rgba(255,255,255,0.35)', textAlign:'center', lineHeight:1.5, padding:'4px 0' }}>새 에피소드가 계속 추가돼요 🌟</div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* Tutorial overlay (첫 실행 / 설정에서 다시 보기) */}
       {showTutorial && (() => {
         const step = TUTORIAL_STEPS[tutStep];
@@ -1439,7 +1371,7 @@ export default function LinyDoryGame() {
           {[
             {icon:'🏠',label:'홈',   fn:()=>{},                   active:true },
             {icon:'🗺️',label:'맵',   fn:()=>setPhase('map'),      active:false},
-            {icon:'📺',label:'애니', fn:()=>{ setPlayingEp(null); setShowEpisodes(true); }, active:false},
+            {icon:'📺',label:'유튜브', fn:()=>{ sfx.click(); window.open(CHANNEL_URL, '_blank', 'noopener'); }, active:false},
             {icon:'🛒',label:'상점', fn:()=>setShowShop(true),    active:false},
             {icon:'⚙️',label:'설정', fn:()=>setShowSettings(true), active:false},
           ].map((item,i)=>(
