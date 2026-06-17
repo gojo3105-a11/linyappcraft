@@ -747,10 +747,12 @@ export default function LinyDoryGame() {
       resolvingRef.current = false;
     }
     if (phaseRef.current === 'play') {
+      // 별 3개(목표 점수) 달성 → 즉시 스테이지 클리어
+      if (scoreRef.current >= LEVELS[lvlRef.current].goal[2]) { endGame(); return; }
       if (LEVELS[lvlRef.current].mode === 'moves' && movesRef.current <= 0) { outOfResource(); return; }
       scheduleHint();
     }
-  }, [push, inc, pop, outOfResource, scheduleHint, spawnFlames, kickScreen]);
+  }, [push, inc, pop, endGame, outOfResource, scheduleHint, spawnFlames, kickScreen]);
 
   // 두 칸 교환 시도 — 유효하면 즉시 커밋하고 리졸버를 가동(입력 잠금 없음)
   const trySwap = useCallback((sr: number, sc: number, r: number, c: number) => {
