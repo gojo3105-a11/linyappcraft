@@ -454,6 +454,20 @@ const GAME_CSS = `
     0%   { transform:translateY(-30px) rotate(0deg);   opacity:1; }
     100% { transform:translateY(420px) rotate(620deg); opacity:0; }
   }
+  @keyframes lifeFlyAway {
+    0%   { opacity:1; transform:translate(0,0) scale(1) rotate(0deg); }
+    25%  { opacity:1; transform:translate(2px,-8px) scale(1.6) rotate(8deg); }
+    100% { opacity:0; transform:translate(40vw,-30px) scale(0.5) rotate(40deg); }
+  }
+  @keyframes lifeChipPulse {
+    0%,100% { transform:scale(1); }
+    30%      { transform:scale(1.18); box-shadow:0 0 14px rgba(255,90,130,0.9); }
+  }
+  @keyframes lifeMinusUp {
+    0%   { opacity:0; transform:translateY(0) scale(0.8); }
+    25%  { opacity:1; transform:translateY(-6px) scale(1.1); }
+    100% { opacity:0; transform:translateY(-34px) scale(1); }
+  }
 `;
 
 export default function LinyDoryGame() {
@@ -483,6 +497,7 @@ export default function LinyDoryGame() {
   const [tutorialPlay, setTutorialPlay] = useState(false); // 실제 플레이 가이드 진행 중
   const [tutMatches, setTutMatches] = useState(0);
   const [elapsed, setElapsed]     = useState(0); // 플레이 경과 시간(초)
+  const [lifeFly, setLifeFly]     = useState(false); // 하트 소모 시 날아가는 임팩트
   const [continueOffer, setContinueOffer] = useState(false);
   const [continuesUsed, setContinuesUsed] = useState(0);
   const [showRanking, setShowRanking] = useState(false);
@@ -779,8 +794,10 @@ export default function LinyDoryGame() {
       setShowShop(true);
       return;
     }
-    setLives(loadLives());
-    startLevel(idx);
+    setLives(loadLives());        // 좌측 상단 하트 숫자 즉시 감소
+    setLifeFly(true);             // 하트가 날아가는 임팩트
+    buzz(18);
+    setTimeout(() => { setLifeFly(false); startLevel(idx); }, 480);
   }, [startLevel, pop]);
 
   // 연쇄 리졸버 — 항상 최신 보드(gRef)를 읽어 매치를 해소한다.
@@ -1508,17 +1525,22 @@ export default function LinyDoryGame() {
     const totalStars = progress.reduce((a, b) => a + b, 0);
     const curIdx = progress.findIndex(p=>p<3)===-1 ? LEVELS.length-1 : progress.findIndex(p=>p<3);
     return (
-      <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100vh', userSelect:'none', background:'linear-gradient(180deg,#1565C0 0%,#0D47A1 55%,#0A2E6E 100%)', overflow:'hidden' }}>
+      <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100vh', userSelect:'none', background:`linear-gradient(180deg, rgba(10,26,72,0.55) 0%, rgba(8,20,60,0.82) 55%, rgba(6,16,48,0.94) 100%), url(${BASE}characters/mapbg.png) center top / cover no-repeat`, overflow:'hidden' }}>
         <style>{GAME_CSS}</style>
         {/* 상단바: 하트 / 코인 / 랭킹 */}
         <div style={{ flexShrink:0, padding:'calc(var(--sat) + clamp(10px,2.5vh,16px)) clamp(10px,3vw,16px) 4px', display:'flex', alignItems:'center', gap:'clamp(5px,1.5vw,8px)' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(0,0,0,0.4)', borderRadius:999, padding:'4px 10px 4px 6px', border:'1.5px solid rgba(255,120,150,0.5)' }}>
+          <div style={{ position:'relative', display:'flex', alignItems:'center', gap:5, background:'rgba(0,0,0,0.4)', borderRadius:999, padding:'4px 10px 4px 6px', border:'1.5px solid rgba(255,120,150,0.5)', animation: lifeFly ? 'lifeChipPulse 0.5s ease' : undefined }}>
             <img src={`${BASE}characters/life.png`} alt="하트" style={{ width:22, height:22, borderRadius:'50%', objectFit:'cover' }}/>
             <span style={{ fontSize:13, fontWeight:900, color:'white' }}>{lives}</span>
             <span style={{ fontSize:10, color:'rgba(255,255,255,0.5)', fontWeight:700 }}>/{LIVES_MAX}</span>
             {lives < LIVES_MAX && lifeTimer > 0 && (
               <span style={{ fontSize:10, fontWeight:700, color:'#9EE6A0', marginLeft:2 }}>{Math.floor(lifeTimer/60)}:{String(lifeTimer%60).padStart(2,'0')}</span>
             )}
+            {/* 하트 소모 임팩트: 날아가는 하트 + -1 */}
+            {lifeFly && (<>
+              <img src={`${BASE}characters/life.png`} alt="" style={{ position:'absolute', left:4, top:3, width:24, height:24, borderRadius:'50%', objectFit:'cover', pointerEvents:'none', zIndex:5, animation:'lifeFlyAway 0.5s ease-out forwards', filter:'drop-shadow(0 0 6px rgba(255,90,130,0.9))' }}/>
+              <span style={{ position:'absolute', left:30, top:-2, fontSize:13, fontWeight:900, color:'#FF6B8A', pointerEvents:'none', zIndex:5, textShadow:'0 1px 3px rgba(0,0,0,0.6)', animation:'lifeMinusUp 0.6s ease-out forwards' }}>-1</span>
+            </>)}
           </div>
           <div style={{ flex:1 }}/>
           <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(0,0,0,0.4)', borderRadius:999, padding:'5px 10px', border:'1.5px solid rgba(255,180,0,0.35)' }}>
