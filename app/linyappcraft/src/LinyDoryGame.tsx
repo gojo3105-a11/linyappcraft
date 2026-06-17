@@ -46,43 +46,57 @@ function makeMap(heights: readonly number[]): (0|1)[][] {
     [...heights].map(h => (r >= ROWS - h ? 1 : 0) as 0|1)
   );
 }
+// 문자열 아트로 자유로운 보드 모양 정의 ('#' = 칸, '.' = 구멍)
+function M(rows: readonly string[]): (0|1)[][] {
+  return rows.map(row => Array.from(row, ch => (ch === '#' ? 1 : 0) as 0|1));
+}
 
+// 다양한 보드 구조 (스테이지별로 모양이 달라짐)
 const MAPS = [
-  makeMap([7,7,7,7,7,7,7]),
-  makeMap([4,5,6,7,6,5,4]),
-  makeMap([7,6,5,4,5,6,7]),
-  makeMap([2,3,4,5,6,7,7]),
-  makeMap([7,7,2,2,2,7,7]),
-  makeMap([3,7,3,7,3,7,3]),
-  makeMap([7,5,3,1,3,5,7]),
-  makeMap([4,5,7,7,7,5,4]),
-  makeMap([7,7,4,2,4,7,7]),
-  makeMap([5,3,6,7,6,3,5]),
+  makeMap([7,7,7,7,7,7,7]),                 // 1 가득
+  makeMap([4,5,6,7,6,5,4]),                 // 2 언덕
+  makeMap([7,6,5,4,5,6,7]),                 // 3 골짜기
+  M(['...#...','..###..','.#####.','#######','.#####.','..###..','...#...']), // 4 다이아
+  makeMap([7,7,3,2,3,7,7]),                 // 5 협곡
+  M(['..###..','..###..','#######','#######','#######','..###..','..###..']), // 6 플러스
+  makeMap([3,5,7,7,7,5,3]),                 // 7 돔
+  M(['#######','.#####.','..###..','...#...','..###..','.#####.','#######']), // 8 모래시계
+  makeMap([7,4,7,4,7,4,7]),                 // 9 빗
+  M(['##...##','##...##','##...##','#######','##...##','##...##','##...##']), // 10 H
+  makeMap([1,3,5,7,5,3,1]),                 // 11 피라미드
+  M(['#######','#######','##...##','##...##','##...##','#######','#######']), // 12 액자
+  makeMap([6,3,6,3,6,3,6]),                 // 13 지그재그
+  M(['##...##','.##.##.','..###..','...#...','..###..','.##.##.','##...##']), // 14 X자
+  M(['.##.##.','#######','#######','#######','.#####.','..###..','...#...']), // 15 하트
 ] as const;
 
-// 스테이지가 올라갈수록 난이도 상승:
-//  - 블럭 종류(types) 증가 → 매치 난이도 ↑
-//  - 이동 횟수(moves) 제한 / 목표 점수(goal) 상승
-// 모든 스테이지는 이동 횟수 모드(시간 제한 없음)로 통일.
+// 스테이지가 올라갈수록 난이도 상승: 블럭 종류↑ / 목표 점수↑
 const LEVELS: { mode: 'time' | 'moves'; sec?: number; moves?: number; types: number; goal: readonly [number, number, number] }[] = [
   { mode: 'moves', moves: 30, types: 4, goal: [400,  1000,  2000] },
   { mode: 'moves', moves: 30, types: 4, goal: [600,  1500,  3000] },
   { mode: 'moves', moves: 28, types: 5, goal: [800,  2000,  4000] },
   { mode: 'moves', moves: 28, types: 5, goal: [1100, 2800,  5500] },
-  { mode: 'moves', moves: 27, types: 6, goal: [1500, 3600,  7000] },
-  { mode: 'moves', moves: 27, types: 6, goal: [1900, 4500,  9000] },
-  { mode: 'moves', moves: 27, types: 7, goal: [2400, 5500, 11000] },
-  { mode: 'moves', moves: 28, types: 7, goal: [3000, 7000, 14000] },
-  { mode: 'moves', moves: 30, types: 8, goal: [3800, 8500, 17000] },
-  { mode: 'moves', moves: 32, types: 9, goal: [4800, 11000, 22000] },
+  { mode: 'moves', moves: 28, types: 5, goal: [1400, 3400,  6800] },
+  { mode: 'moves', moves: 27, types: 6, goal: [1700, 4200,  8200] },
+  { mode: 'moves', moves: 27, types: 6, goal: [2100, 5000, 10000] },
+  { mode: 'moves', moves: 27, types: 6, goal: [2500, 6000, 12000] },
+  { mode: 'moves', moves: 27, types: 7, goal: [3000, 7000, 14000] },
+  { mode: 'moves', moves: 28, types: 7, goal: [3500, 8000, 16000] },
+  { mode: 'moves', moves: 28, types: 7, goal: [4000, 9000, 18000] },
+  { mode: 'moves', moves: 30, types: 8, goal: [4600, 10000, 20000] },
+  { mode: 'moves', moves: 30, types: 8, goal: [5200, 11500, 23000] },
+  { mode: 'moves', moves: 32, types: 9, goal: [6000, 13000, 26000] },
+  { mode: 'moves', moves: 34, types: 9, goal: [7000, 15000, 30000] },
 ];
 
-// 스테이지 인덱스 → 난이도 등급(표시용)
-const difficultyOf = (idx: number): { label: string; stars: number; color: string } =>
-  idx <= 2 ? { label: '쉬움',   stars: 1, color: '#66BB6A' }
-  : idx <= 5 ? { label: '보통',   stars: 2, color: '#FFB300' }
-  : idx <= 8 ? { label: '어려움', stars: 3, color: '#FF7043' }
-  :            { label: '최고',   stars: 4, color: '#EF5350' };
+// 스테이지 난이도 등급(블럭 종류 기준 — 표시용)
+const difficultyOf = (idx: number): { label: string; stars: number; color: string } => {
+  const t = LEVELS[idx]?.types ?? 4;
+  if (t <= 4) return { label: '쉬움',   stars: 1, color: '#66BB6A' };
+  if (t <= 5) return { label: '보통',   stars: 2, color: '#FFB300' };
+  if (t <= 7) return { label: '어려움', stars: 3, color: '#FF7043' };
+  return { label: '최고', stars: 4, color: '#EF5350' };
+};
 
 // 별 등급별 클리어 보상 코인(0/1/2/3별). 기록 갱신 시 전액, 재도전(갱신 없음)은 25%만.
 const CLEAR_COINS = [0, 60, 140, 300] as const;
@@ -94,12 +108,18 @@ const CONTINUE_COSTS = [200, 400, 800] as const;
 const CONTINUE_TIME = 15;   // 시간 모드: +15초
 const CONTINUE_MOVES = 5;   // 이동 모드: +5수
 
-const MAP_POS = [[0,0],[1,0],[2,0],[2,1],[1,1],[0,1],[0,2],[1,2],[2,2],[1,3]];
-const COL_X = [18, 50, 82];
-const ROW_Y = [84, 62, 40, 18];
+// 맵 화면 — 세로로 스크롤되는 지그재그 길 배치
+const MAP_X = [50, 76, 50, 24];        // 스테이지 가로 위치(%) 지그재그
+const MAP_ROW_GAP = 104;               // 스테이지 간 세로 간격(px)
+const mapNodeX = (i: number) => MAP_X[i % MAP_X.length];
+const mapNodeY = (i: number) => i * MAP_ROW_GAP + 60;
+const MAP_HEIGHT = () => LEVELS.length * MAP_ROW_GAP + 90;
 
 const LS_BASE = 'linydory_v3';
-const loadProg = (): number[] => sGet<number[]>(LS_BASE, Array(LEVELS.length).fill(0));
+const loadProg = (): number[] => {
+  const saved = sGet<number[]>(LS_BASE, []);
+  return Array.from({ length: LEVELS.length }, (_, i) => saved[i] ?? 0);
+};
 const saveProg = (p: number[]) => sSet(LS_BASE, p);
 
 const TUT_BASE = 'linydory_tutorial_v1';
@@ -476,9 +496,18 @@ export default function LinyDoryGame() {
   const dragRef      = useRef<{r:number;c:number;x:number;y:number;moved:boolean}|null>(null);
   const continuesUsedRef   = useRef(0);  // 이번 판 이어하기 사용 횟수
   const pausedRef          = useRef(false); // 이어하기 제안 중 입력/타이머 정지
+  const mapScrollRef       = useRef<HTMLDivElement>(null); // 맵 스크롤 컨테이너
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { boostersRef.current = boosters; }, [boosters]);
+  // 맵 화면 진입 시 현재(잠금 해제된 마지막) 스테이지가 보이도록 스크롤
+  useEffect(() => {
+    if (phase === 'map' && mapScrollRef.current) {
+      const idx = progress.findIndex(s => s < 3);
+      const cur = idx === -1 ? LEVELS.length - 1 : idx;
+      mapScrollRef.current.scrollTop = Math.max(0, mapNodeY(cur) - 220);
+    }
+  }, [phase, progress]);
 
   const scheduleHint = useCallback(() => {
     if (hintTmr.current) clearTimeout(hintTmr.current);
@@ -1396,26 +1425,29 @@ export default function LinyDoryGame() {
             <span>⭐</span><span style={{ color:'white', fontWeight:700, fontSize:14 }}>{totalStars}/{LEVELS.length*3}</span>
           </div>
         </div>
-        <div style={{ flex:1, position:'relative', margin:'0 16px 16px' }}>
-          <div style={{ width:'100%', height:'100%', position:'relative', borderRadius:16, overflow:'hidden', background:'rgba(0,0,60,0.25)', border:'2px solid rgba(255,255,255,0.1)' }}>
+        <div style={{ fontSize:11, color:'rgba(255,255,255,0.55)', textAlign:'center', padding:'0 0 6px' }}>클리어한 스테이지는 언제든 다시 플레이할 수 있어요 · 별 3개를 모으면 다음이 열려요 🔓</div>
+        <div ref={mapScrollRef} style={{ flex:1, overflowY:'auto', margin:'0 12px 12px', borderRadius:16, background:'rgba(0,0,60,0.25)', border:'2px solid rgba(255,255,255,0.1)' }}>
+          <div style={{ position:'relative', width:'100%', height: MAP_HEIGHT() }}>
             <svg style={{ position:'absolute', inset:0, width:'100%', height:'100%', zIndex:1 }}>
-              {MAP_POS.slice(0,-1).map(([col,row],i)=>{
-                const [nc,nr]=MAP_POS[i+1]; const done=progress[i]>0;
-                return <line key={i} x1={`${COL_X[col]}%`} y1={`${ROW_Y[row]}%`} x2={`${COL_X[nc]}%`} y2={`${ROW_Y[nr]}%`} stroke={done?'#FFB300':'rgba(255,255,255,0.18)'} strokeWidth="3" strokeDasharray={done?'0':'8,5'} strokeLinecap="round"/>;
+              {LEVELS.slice(0,-1).map((_,i)=>{
+                const done = progress[i] >= 3;
+                return <line key={i} x1={`${mapNodeX(i)}%`} y1={mapNodeY(i)} x2={`${mapNodeX(i+1)}%`} y2={mapNodeY(i+1)} stroke={done?'#FFB300':'rgba(255,255,255,0.18)'} strokeWidth="4" strokeDasharray={done?'0':'8,6'} strokeLinecap="round"/>;
               })}
             </svg>
             {LEVELS.map((_,i)=>{
-              const [col,row]=MAP_POS[i]; const unlocked=isUnlocked(i); const s=progress[i];
-              const modeIcon=LEVELS[i].mode==='time'?'⏱':'🎯';
+              const unlocked=isUnlocked(i); const s=progress[i]??0; const isCur = i === (progress.findIndex(p=>p<3)===-1?LEVELS.length-1:progress.findIndex(p=>p<3));
+              const diff = difficultyOf(i);
               return (
                 <button key={i} onClick={()=>unlocked&&startLevel(i)} disabled={!unlocked}
-                  style={{ position:'absolute', width:60, height:60, left:`calc(${COL_X[col]}% - 30px)`, top:`calc(${ROW_Y[row]}% - 30px)`, zIndex:2, borderRadius:'50%', cursor:unlocked?'pointer':'default', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
-                    background:!unlocked?'rgba(10,10,40,0.8)':s===3?'linear-gradient(135deg,#FF6F00,#FFB300)':s===2?'linear-gradient(135deg,#6A1B9A,#CE93D8)':'linear-gradient(135deg,#0D47A1,#1976D2)',
-                    border:unlocked?'3px solid rgba(255,255,255,0.55)':'2px solid rgba(255,255,255,0.12)', boxShadow:unlocked?'0 4px 16px rgba(0,0,0,0.5)':'none', opacity:unlocked?1:0.45 }}>
+                  style={{ position:'absolute', width:64, height:64, left:`calc(${mapNodeX(i)}% - 32px)`, top:mapNodeY(i)-32, zIndex:2, borderRadius:'50%', cursor:unlocked?'pointer':'default', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+                    background:!unlocked?'rgba(10,10,40,0.8)':s===3?'linear-gradient(135deg,#FF6F00,#FFB300)':s>=1?'linear-gradient(135deg,#6A1B9A,#CE93D8)':'linear-gradient(135deg,#0D47A1,#1976D2)',
+                    border: isCur&&unlocked?'3px solid #FFE566':unlocked?'3px solid rgba(255,255,255,0.55)':'2px solid rgba(255,255,255,0.12)',
+                    boxShadow:isCur&&unlocked?'0 0 18px rgba(255,220,80,0.9), 0 4px 16px rgba(0,0,0,0.5)':unlocked?'0 4px 16px rgba(0,0,0,0.5)':'none', opacity:unlocked?1:0.5 }}>
                   {unlocked ? (<>
-                    <div style={{ display:'flex', alignItems:'center', gap:1 }}><span style={{ fontSize:7 }}>{modeIcon}</span><span style={{ color:'white', fontWeight:900, fontSize:15 }}>{i+1}</span></div>
-                    <div style={{ display:'flex' }}>{[1,2,3].map(n=><span key={n} style={{ fontSize:8, opacity:n<=s?1:0.2 }}>⭐</span>)}</div>
-                  </>) : <span style={{ fontSize:20 }}>🔒</span>}
+                    <span style={{ color:'white', fontWeight:900, fontSize:17, lineHeight:1 }}>{i+1}</span>
+                    <div style={{ display:'flex', marginTop:1 }}>{[1,2,3].map(n=><span key={n} style={{ fontSize:8, opacity:n<=s?1:0.25 }}>⭐</span>)}</div>
+                    <span style={{ fontSize:7, fontWeight:800, color:diff.color, lineHeight:1 }}>{diff.label}</span>
+                  </>) : <span style={{ fontSize:22 }}>🔒</span>}
                 </button>
               );
             })}
