@@ -40,7 +40,11 @@ const TILES = [
   { img: BLK(9), bg: 'linear-gradient(145deg,#9FA8DA,#283593)', glow: '#5C6BC0' }, // 9 (인디고)
 ] as const;
 
-type TileKind = 'normal' | 'lightning' | 'bomb';
+// 특수 블럭 종류: 가로 1줄 / 세로 1줄 / 주변 폭탄 / 전체 제거
+type TileKind = 'normal' | 'row' | 'col' | 'bomb' | 'rainbow';
+const SPECIAL_ICON: Record<string, string> = { row:'↔', col:'↕', bomb:'💣', rainbow:'🌈' };
+const SPECIAL_COLOR: Record<string, string> = { row:'#4FC3F7', col:'#7E57C2', bomb:'#FF7043', rainbow:'#EC407A' };
+const SPECIAL_LABEL: Record<string, string> = { row:'↔ 가로 한 줄!', col:'↕ 세로 한 줄!', bomb:'💣 폭탄!', rainbow:'🌈 전체 제거!' };
 
 function makeMap(heights: readonly number[]): (0|1)[][] {
   return Array.from({ length: ROWS }, (_, r) =>
@@ -273,14 +277,17 @@ function expandSpecials(hits: Set<string>, g: Grid) {
       const [r, c] = key.split(',').map(Number);
       const cell = g[r]?.[c];
       if (!cell) return;
-      if (cell.kind === 'lightning') {
+      if (cell.kind === 'row') {            // 가로 한 줄 제거
         for (let x=0; x<COLS; x++) if (g[r]?.[x]) { const k=`${r},${x}`; if (!hits.has(k)) { hits.add(k); changed=true; } }
+      } else if (cell.kind === 'col') {     // 세로 한 줄 제거
         for (let x=0; x<ROWS; x++) if (g[x]?.[c]) { const k=`${x},${c}`; if (!hits.has(k)) { hits.add(k); changed=true; } }
-      } else if (cell.kind === 'bomb') {
+      } else if (cell.kind === 'bomb') {    // 주변 3×3 제거
         for (let dr=-1; dr<=1; dr++) for (let dc=-1; dc<=1; dc++) {
           const nr=r+dr, nc=c+dc;
           if (nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&g[nr]?.[nc]) { const k=`${nr},${nc}`; if (!hits.has(k)) { hits.add(k); changed=true; } }
         }
+      } else if (cell.kind === 'rainbow') { // 전체 제거
+        for (let y=0; y<ROWS; y++) for (let x=0; x<COLS; x++) if (g[y]?.[x]) { const k=`${y},${x}`; if (!hits.has(k)) { hits.add(k); changed=true; } }
       }
     });
   }
@@ -321,7 +328,17 @@ function buildCycle(g: Grid, mkSpecials: boolean, swapTo?: [number,number]): { h
     const [tr,tc] = pos; const key = `${tr},${tc}`;
     hits.delete(key);
     const cell = g[tr][tc];
-    if (cell) newSpec.set(key, mk(cell.t, len>=5?'bomb':'lightning'));
+    // 터트린 블럭 수/모양에 따라 특수 블럭 종류 결정
+    //  4개 직선 → 가로/세로 한 줄, 4개 정사각형/5개 → 폭탄, 6개 이상 → 전체 제거
+    let kind: TileKind;
+    if (len >= 6) kind = 'rainbow';
+    else if (len === 5) kind = 'bomb';
+    else { // len 4
+      const oneRow = comp.every(([cr]) => cr === comp[0][0]);
+      const oneCol = comp.every(([,cc]) => cc === comp[0][1]);
+      kind = oneRow ? 'row' : oneCol ? 'col' : 'bomb';
+    }
+    if (cell) newSpec.set(key, mk(cell.t, kind));
   }
   if (!found) return null;
   expandSpecials(hits, g);
@@ -465,6 +482,7 @@ export default function LinyDoryGame() {
   const [tutStep, setTutStep]     = useState(0);
   const [tutorialPlay, setTutorialPlay] = useState(false); // 실제 플레이 가이드 진행 중
   const [tutMatches, setTutMatches] = useState(0);
+  const [elapsed, setElapsed]     = useState(0); // 플레이 경과 시간(초)
   const [continueOffer, setContinueOffer] = useState(false);
   const [continuesUsed, setContinuesUsed] = useState(0);
   const [showRanking, setShowRanking] = useState(false);
@@ -571,6 +589,13 @@ export default function LinyDoryGame() {
     window.addEventListener('coins-updated', refresh);
     return () => window.removeEventListener('coins-updated', refresh);
   }, []);
+
+  // 플레이 경과 시간(스톱워치) — 진행 중(일시정지 아님)일 때 1초마다 증가
+  useEffect(() => {
+    if (phase !== 'play') return;
+    const id = setInterval(() => { if (!pausedRef.current) setElapsed(e => e + 1); }, 1000);
+    return () => clearInterval(id);
+  }, [phase]);
 
   // 하트 갱신(이벤트) + 자동 충전 카운트다운(1초마다)
   useEffect(() => {
@@ -721,6 +746,7 @@ export default function LinyDoryGame() {
     continuesUsedRef.current=0; pausedRef.current=false;
     sessionBlocksRef.current=0; sessionSpecialsRef.current=0;
     tutorialPlayRef.current=false; setTutorialPlay(false); setTutMatches(0); tutMatchesRef.current=0;
+    setElapsed(0);
     setFlames([]); setScreenShake(false); setConfetti([]); setCoinsEarned(0);
     setContinuesUsed(0); setContinueOffer(false); setBlocksPopped(0);
     primeAudio();
@@ -784,9 +810,9 @@ export default function LinyDoryGame() {
           setBlocksPopped(n => n + res.hits.size);
           sessionBlocksRef.current += res.hits.size;
           sessionSpecialsRef.current += res.newSpec.size;
-          // 폭탄이 터지면 불길 효과 + 화면 흔들림
-          const bombHit = [...res.hits].some(k => { const [r,c]=k.split(',').map(Number); return g[r][c]?.kind==='bomb'; });
-          if (bombHit) { spawnFlames(res.hits); kickScreen(); sfx.explode(); }
+          // 폭탄/전체 제거가 터지면 불길 효과 + 화면 흔들림
+          const bigHit = [...res.hits].some(k => { const [r,c]=k.split(',').map(Number); const kd=g[r][c]?.kind; return kd==='bomb'||kd==='rainbow'; });
+          if (bigHit) { spawnFlames(res.hits); kickScreen(); sfx.explode(); }
           const spHits = [...res.hits].filter(k => { const [r,c]=k.split(',').map(Number); return g[r][c]?.kind!=='normal'; }).length;
           const pts = res.hits.size*100*combo + spHits*200;
           inc(pts);
@@ -796,7 +822,7 @@ export default function LinyDoryGame() {
           if (res.newSpec.size > 0) {
             const k = [...res.newSpec.values()][0].kind;
             sfx.special();
-            pop(k==='bomb' ? '💣 BOMB 생성!' : '⚡ LIGHTNING 생성!', 'special');
+            pop(`${SPECIAL_ICON[k] ?? '✨'} 특수 블럭 생성!`, 'special');
           } else if (combo >= 2) {
             sfx.combo(combo);
             pop(`${combo}x COMBO! +${pts.toLocaleString()}`, 'combo');
@@ -847,14 +873,16 @@ export default function LinyDoryGame() {
     [sw[sr][sc], sw[r][c]] = [sw[r][c], sw[sr][sc]];
     const srcSpec = sw[r][c]?.kind !== 'normal';
     const dstSpec = sw[sr][sc]?.kind !== 'normal';
-    // 매치도 없고 특수 블럭도 아니면 → 잠깐 바꿨다가 제자리로 원위치 (헛스왑도 이동 1회로 차감)
-    if (!hasAnyMatch(sw) && !srcSpec && !dstSpec) {
+    const miss = !hasAnyMatch(sw) && !srcSpec && !dstSpec;
+    clearHint();
+    // 인접 스왑은 헛스왑 포함 항상 이동 1회 소모 (한 곳에서만 차감)
+    if (LEVELS[lvlRef.current].mode === 'moves') {
+      movesRef.current = Math.max(0, movesRef.current-1);
+      setMovesLeft(movesRef.current);
+    }
+    // 매치도 없고 특수 블럭도 아니면 → 잠깐 바꿨다가 제자리로 원위치
+    if (miss) {
       sfx.invalid();
-      clearHint();
-      if (LEVELS[lvlRef.current].mode === 'moves') {
-        movesRef.current = Math.max(0, movesRef.current-1);
-        setMovesLeft(movesRef.current);
-      }
       push(sw);
       setTimeout(() => {
         if (gRef.current === sw) push(g);
@@ -863,11 +891,6 @@ export default function LinyDoryGame() {
       return;
     }
     sfx.swap(); buzz(8);
-    clearHint();
-    if (LEVELS[lvlRef.current].mode === 'moves') {
-      movesRef.current = Math.max(0, movesRef.current-1);
-      setMovesLeft(movesRef.current);
-    }
     // 특수 블럭이 관여하면 매치 여부와 무관하게 항상 즉시 발동
     if (srcSpec || dstSpec) {
       const hits = new Set<string>();
@@ -878,7 +901,8 @@ export default function LinyDoryGame() {
       inc(hits.size*120);
       setBlocksPopped(n => n + hits.size); sessionBlocksRef.current += hits.size;
       spawnFlames(hits); kickScreen(); sfx.explode(); buzz(25);
-      pop((srcSpec ? sw[r][c]?.kind : sw[sr][sc]?.kind) === 'bomb' ? '💣 BOOM!' : '⚡ ZAP!', 'special');
+      const dk = (srcSpec ? sw[r][c]?.kind : sw[sr][sc]?.kind) ?? 'bomb';
+      pop(SPECIAL_LABEL[dk] ?? '💥 발동!', 'special');
     }
     lastSwapRef.current = [r,c];
     dirtyRef.current = true;
@@ -1612,6 +1636,11 @@ export default function LinyDoryGame() {
             ))}
           </div>
         </div>
+        {/* 경과 타이머 (별 왼쪽) */}
+        <div style={{ display:'flex', alignItems:'center', gap:3, flexShrink:0, background:'#f1f3f5', borderRadius:999, padding:'4px 9px', alignSelf:'flex-start' }}>
+          <Icon name="clock" size={13} color="#6b7280" />
+          <span style={{ fontSize:12, fontWeight:900, color:'#444', fontVariantNumeric:'tabular-nums' }}>{Math.floor(elapsed/60)}:{String(elapsed%60).padStart(2,'0')}</span>
+        </div>
         {/* Stars + back button */}
         <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4, flexShrink:0 }}>
           <div style={{ display:'flex' }}>
@@ -1766,14 +1795,14 @@ export default function LinyDoryGame() {
                       : isHint
                       ? '2.5px solid #FFE566'
                       : isSpecial
-                      ? `2.5px solid ${cell.kind==='lightning'?'#FFE566':'#FF7043'}`
+                      ? `2.5px solid ${SPECIAL_COLOR[cell.kind] ?? '#FF7043'}`
                       : '2px solid rgba(255,255,255,0.5)',
                     boxShadow: isSel
                       ? `0 0 0 3px rgba(255,255,255,0.35), 0 0 18px white, 0 4px 10px rgba(0,0,0,0.4), inset 0 -4px 8px rgba(0,0,0,0.2), inset 0 4px 8px rgba(255,255,255,0.35)`
                       : isHint
                       ? `0 0 18px rgba(255,230,0,0.9), 0 3px 8px rgba(0,0,0,0.35), inset 0 -3px 6px rgba(0,0,0,0.15)`
                       : isSpecial
-                      ? `0 0 12px ${cell.kind==='lightning'?'#FFE56699':'#FF704399'}, 0 3px 8px rgba(0,0,0,0.35), inset 0 -3px 6px rgba(0,0,0,0.15), inset 0 3px 6px rgba(255,255,255,0.3)`
+                      ? `0 0 13px ${SPECIAL_COLOR[cell.kind] ?? '#FF7043'}, 0 3px 8px rgba(0,0,0,0.35), inset 0 -3px 6px rgba(0,0,0,0.15), inset 0 3px 6px rgba(255,255,255,0.3)`
                       : `0 3px 8px rgba(0,0,0,0.35), inset 0 -3px 6px rgba(0,0,0,0.15), inset 0 3px 6px rgba(255,255,255,0.3)`,
                     transform: cell.hit ? undefined : isSel ? 'scale(1.15)' : 'scale(1)',
                     opacity: cell.hit ? undefined : 1,
@@ -1788,7 +1817,7 @@ export default function LinyDoryGame() {
                   }}>
                   {/* 4개 이상 매치로 생성된 특수 블럭은 캐릭터 이미지 대신 전용 아이콘으로 교체 */}
                   {isSpecial ? (
-                    <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'clamp(24px,7vw,34px)', lineHeight:1, filter:'drop-shadow(0 2px 4px rgba(0,0,0,0.7))', zIndex:2 }}>{cell.kind==='lightning'?'⚡':'💣'}</span>
+                    <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize: (cell.kind==='row'||cell.kind==='col')?'clamp(28px,8vw,40px)':'clamp(24px,7vw,34px)', fontWeight:900, color:'white', lineHeight:1, filter:'drop-shadow(0 2px 4px rgba(0,0,0,0.8))', zIndex:2 }}>{SPECIAL_ICON[cell.kind] ?? '💥'}</span>
                   ) : (
                     <img src={tile.img} alt="" style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'center' }}/>
                   )}

@@ -1,7 +1,7 @@
 // 세련된 라인/필 SVG 아이콘 세트 (시스템 UI용)
 type IconName =
   | 'home' | 'map' | 'tv' | 'shop' | 'gear' | 'trophy'
-  | 'coin' | 'heart' | 'play' | 'close' | 'back' | 'bolt' | 'list';
+  | 'coin' | 'heart' | 'play' | 'close' | 'back' | 'bolt' | 'list' | 'clock';
 
 export function Icon({ name, size = 24, color = 'currentColor' }: { name: IconName; size?: number; color?: string }) {
   const s = {
@@ -32,6 +32,8 @@ export function Icon({ name, size = 24, color = 'currentColor' }: { name: IconNa
       return (<svg width={size} height={size} viewBox="0 0 24 24"><path d="M13 2 4 13.5h6L11 22l9-11.5h-6L13 2z" fill={color}/></svg>);
     case 'list':
       return (<svg {...s}><path d="M8 6h12M8 12h12M8 18h12"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>);
+    case 'clock':
+      return (<svg {...s}><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>);
     case 'close':
       return (<svg {...s}><path d="M6 6l12 12M18 6 6 18"/></svg>);
     case 'back':
