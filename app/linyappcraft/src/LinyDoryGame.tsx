@@ -426,10 +426,18 @@ const GAME_CSS = `
     50%      { transform:scale(1.15); }
   }
   @keyframes popOut {
-    0%   { transform:scale(1) rotate(0deg);   opacity:1; }
-    40%  { transform:scale(1.28) rotate(7deg); opacity:1; }
-    70%  { transform:scale(0.7) rotate(-6deg); opacity:0.7; }
-    100% { transform:scale(0) rotate(-16deg); opacity:0; }
+    0%   { transform:scale(1) rotate(0deg);    opacity:1; }
+    30%  { transform:scale(1.5) rotate(12deg); opacity:1; }
+    55%  { transform:scale(0.85) rotate(-10deg); opacity:0.9; }
+    100% { transform:scale(0) rotate(-28deg);  opacity:0; }
+  }
+  @keyframes popFlash {
+    0%   { transform:scale(0.5); opacity:0.95; }
+    100% { transform:scale(2.4); opacity:0; }
+  }
+  @keyframes shardFly {
+    0%   { transform:translate(0,0) scale(1); opacity:1; }
+    100% { transform:translate(var(--sx), var(--sy)) scale(0.3); opacity:0; }
   }
   @keyframes tileShake {
     0%,100% { transform:translateX(0); }
@@ -684,6 +692,8 @@ export default function LinyDoryGame() {
     // 승리/패배 사운드 & 색종이
     if (s > 0) {
       sfx.win(); buzz(40);
+      // 별이 하나씩 켜질 때마다 '딩' 소리
+      for (let i = 0; i < s; i++) setTimeout(() => { sfx.ding(i); buzz(18); }, 350 + i * 450);
       const palette = ['#FFD700','#FF6F00','#42A5F5','#66BB6A','#E040FB','#FF5252'];
       setConfetti(Array.from({ length: 26 }, (_, i) => ({
         id: i, left: Math.random()*100, delay: Math.random()*0.5,
@@ -1865,6 +1875,8 @@ export default function LinyDoryGame() {
                   <div style={{ position:'absolute', top:0, left:'5%', right:'5%', height:'48%', borderRadius:'0 0 50% 50%', background:'linear-gradient(180deg,rgba(255,255,255,0.62) 0%,rgba(255,255,255,0.05) 100%)', pointerEvents:'none', zIndex:1 }}/>
                   <div style={{ position:'absolute', bottom:0, left:0, right:0, height:'28%', borderRadius:'0 0 50% 50%', background:'linear-gradient(0deg,rgba(0,0,0,0.2) 0%,transparent 100%)', pointerEvents:'none', zIndex:1 }}/>
                   {isSel && <div style={{ position:'absolute', inset:0, background:'rgba(255,255,255,0.2)', borderRadius:'50%', zIndex:2 }}/>}
+                  {/* 터질 때 강한 임팩트: 흰 섬광 */}
+                  {cell.hit && <div style={{ position:'absolute', inset:'-20%', borderRadius:'50%', zIndex:4, pointerEvents:'none', background:`radial-gradient(circle, #fff 0%, ${tile.glow} 45%, transparent 70%)`, animation:'popFlash 0.32s ease-out forwards' }}/>}
                 </button>
               );
             })}
@@ -1943,12 +1955,14 @@ export default function LinyDoryGame() {
           ) : (
             <h2 style={{ fontSize:'clamp(22px,6vw,30px)', fontWeight:900, color:'white', margin:0 }}>게임 종료! 🏆</h2>
           )}
-          <div style={{ display:'flex', gap:'clamp(8px,2.5vw,12px)', fontSize:'clamp(32px,10vw,48px)' }}>
+          <div style={{ display:'flex', gap:'clamp(10px,3vw,18px)', fontSize:'clamp(48px,15vw,72px)' }}>
             {[1,2,3].map(s=>(
               <span key={s} style={{
                 display:'inline-block',
-                filter: s<=endStars ? 'drop-shadow(0 0 14px #FFD700) drop-shadow(0 0 6px #FF8C00)' : 'grayscale(1) opacity(0.25)',
-                animation: s<=endStars ? `starPop 0.5s ${(s-1)*0.18}s cubic-bezier(0.34,1.56,0.64,1) both` : undefined,
+                filter: s<=endStars ? 'drop-shadow(0 0 18px #FFD700) drop-shadow(0 0 8px #FF8C00)' : 'grayscale(1) opacity(0.22)',
+                // 클리어 시 별이 하나씩 큼직하게 노란색으로 등장
+                animation: s<=endStars ? `starPop 0.55s ${0.35 + (s-1)*0.45}s cubic-bezier(0.34,1.56,0.64,1) both` : undefined,
+                opacity: s<=endStars ? undefined : 0.22,
               }}>⭐</span>
             ))}
           </div>

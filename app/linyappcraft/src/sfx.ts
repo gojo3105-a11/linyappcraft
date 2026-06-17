@@ -43,6 +43,21 @@ function tone(freq: number, dur: number, type: OscillatorType = 'sine', vol = 0.
   osc.stop(t0 + dur + 0.03);
 }
 
+// 짧은 노이즈 버스트(팡/폭발용)
+function noise(dur: number, vol: number, when = 0, freq = 1100, q = 0.8) {
+  const c = ac(); if (!c) return;
+  const t0 = c.currentTime + when;
+  const n = Math.max(1, Math.floor(c.sampleRate * dur));
+  const buf = c.createBuffer(1, n, c.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  const src = c.createBufferSource(); src.buffer = buf;
+  const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q;
+  const g = c.createGain(); g.gain.value = vol;
+  src.connect(f).connect(g).connect(c.destination);
+  src.start(t0);
+}
+
 // 짧은 모바일 진동(있을 때만)
 export function buzz(ms = 12) {
   if (muted) return;
@@ -95,10 +110,17 @@ export function stopBgm() {
 export const sfx = {
   swap()        { tone(520, 0.06, 'sine', 0.10); },
   invalid()     { tone(200, 0.10, 'square', 0.10, 0, 130); },
-  pop(combo = 1){ tone(440 + Math.min(combo, 8) * 80, 0.11, 'triangle', 0.16); },
+  // 귀여운 "팡!" — 살짝 떨어지는 블립 + 반짝 + 톡 터지는 노이즈
+  pop(combo = 1){
+    const base = 680 + Math.min(combo, 10) * 60;
+    tone(base, 0.10, 'sine', 0.20, 0, base * 0.55);
+    tone(base * 1.8, 0.05, 'triangle', 0.10, 0.0);
+    noise(0.06, 0.10, 0, 1600, 0.7);
+  },
   combo(n: number) { const f = 520 + Math.min(n, 10) * 60; tone(f, 0.13, 'triangle', 0.2); tone(f * 1.5, 0.13, 'sine', 0.12, 0.03); },
-  special()     { tone(300, 0.16, 'sawtooth', 0.16); tone(660, 0.20, 'square', 0.12, 0.05); },
-  explode()     { tone(180, 0.32, 'square', 0.22, 0, 55); tone(90, 0.34, 'sawtooth', 0.16, 0.02, 40); },
+  special()     { tone(300, 0.16, 'sawtooth', 0.16); tone(660, 0.20, 'square', 0.12, 0.05); noise(0.1, 0.12, 0, 2000, 0.5); },
+  explode()     { tone(160, 0.34, 'square', 0.24, 0, 50); tone(80, 0.36, 'sawtooth', 0.18, 0.02, 38); noise(0.22, 0.22, 0, 600, 0.6); },
+  ding(i = 0)   { tone(880 + i * 220, 0.16, 'triangle', 0.22, 0); tone(1320 + i * 260, 0.18, 'sine', 0.12, 0.04); },
   coin()        { tone(880, 0.07, 'square', 0.14); tone(1320, 0.10, 'square', 0.13, 0.06); },
   win()         { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.20, 'triangle', 0.2, i * 0.12)); },
   lose()        { [392, 330, 262].forEach((f, i) => tone(f, 0.24, 'sine', 0.18, i * 0.13)); },
