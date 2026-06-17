@@ -750,7 +750,13 @@ export default function LinyDoryGame() {
     [sw[sr][sc], sw[r][c]] = [sw[r][c], sw[sr][sc]];
     const srcSpec = sw[r][c]?.kind !== 'normal';
     const dstSpec = sw[sr][sc]?.kind !== 'normal';
-    // 매치가 안 돼도 이동은 항상 허용하고, 이동 횟수는 무조건 1 차감한다.
+    // 매치도 없고 특수 블럭도 아니면 → 잠깐 바꿨다가 제자리로 원위치(이동 횟수 차감 안 함)
+    if (!hasAnyMatch(sw) && !srcSpec && !dstSpec) {
+      sfx.invalid();
+      push(sw);
+      setTimeout(() => { if (gRef.current === sw) push(g); }, 220);
+      return;
+    }
     sfx.swap(); buzz(8);
     clearHint();
     if (LEVELS[lvlRef.current].mode === 'moves') {
