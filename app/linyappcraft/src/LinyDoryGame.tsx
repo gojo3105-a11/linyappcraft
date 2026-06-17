@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { loadCoins, spendCoins, addCoins, loadBoosters, saveBoosters, loadLives, spendLife, addLives, nextLifeMs, LIVES_MAX, questAddGameCleared, questUpdateMaxCombo, questAddSpecials, questAddBlocks, questClaim, loadQuests, QUESTS, type QuestSave, type BoosterKind } from './quest';
 import { sGet, sSet, getScope, setScope } from './store';
 import { tossLogin, fetchUserKey } from './toss';
-import { sfx, buzz, primeAudio, isMuted, toggleMuted } from './sfx';
+import { sfx, buzz, primeAudio, isMuted, toggleMuted, startBgm, stopBgm } from './sfx';
 import { submitScore, loadWeeklyBest, getLeaderboard, type LBEntry } from './leaderboard';
 import { CHANNEL_URL } from './episodes';
 import { Icon } from './icons';
@@ -613,6 +613,20 @@ export default function LinyDoryGame() {
     window.addEventListener('lives-updated', refresh);
     const id = setInterval(refresh, 1000);
     return () => { window.removeEventListener('lives-updated', refresh); clearInterval(id); };
+  }, []);
+
+  // 메인 화면 BGM: 메인일 때 재생, 벗어나면 정지
+  useEffect(() => {
+    if (phase === 'main' && !muted) startBgm();
+    else stopBgm();
+    return () => stopBgm();
+  }, [phase, muted]);
+
+  // 오디오 잠금 해제(첫 제스처) — 메인이면 BGM 시작
+  useEffect(() => {
+    const unlock = () => { primeAudio(); if (phaseRef.current === 'main' && !isMuted()) startBgm(); };
+    window.addEventListener('pointerdown', unlock);
+    return () => window.removeEventListener('pointerdown', unlock);
   }, []);
 
   // 로그인(계정 전환)으로 스코프가 바뀌면 계정별 저장 데이터를 다시 불러옴
@@ -1422,7 +1436,7 @@ export default function LinyDoryGame() {
                 <div><div style={{ fontSize:18, fontWeight:900, color:'#9EC0FF' }}>🎒 {boosters.hammer+boosters.bomb+boosters.shuffle}</div><div style={{ fontSize:9, color:'rgba(255,255,255,0.4)' }}>아이템</div></div>
               </div>
               {/* 사운드 on/off */}
-              <button onClick={() => { const m = toggleMuted(); setMutedState(m); if (!m) sfx.click(); }}
+              <button onClick={() => { const m = toggleMuted(); setMutedState(m); if (!m) { sfx.click(); primeAudio(); if (phaseRef.current==='main') startBgm(); } else stopBgm(); }}
                 style={{ padding:'11px', borderRadius:12, border:'1px solid rgba(120,160,255,0.35)', cursor:'pointer', background:'rgba(120,160,255,0.12)', color:'#9EC0FF', fontSize:12, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
                 <span>{muted ? '🔇 소리 꺼짐' : '🔊 소리 켜짐'}</span>
                 <span style={{ fontSize:10, opacity:0.7 }}>{muted ? '탭하면 켜기' : '탭하면 끄기'}</span>
@@ -1823,14 +1837,14 @@ export default function LinyDoryGame() {
                       ? '2.5px solid #FFE566'
                       : isSpecial
                       ? `2.5px solid ${SPECIAL_COLOR[cell.kind] ?? '#FF7043'}`
-                      : '2px solid rgba(255,255,255,0.5)',
+                      : `3px solid ${tile.glow}`,
                     boxShadow: isSel
                       ? `0 0 0 3px rgba(255,255,255,0.35), 0 0 18px white, 0 4px 10px rgba(0,0,0,0.4), inset 0 -4px 8px rgba(0,0,0,0.2), inset 0 4px 8px rgba(255,255,255,0.35)`
                       : isHint
                       ? `0 0 18px rgba(255,230,0,0.9), 0 3px 8px rgba(0,0,0,0.35), inset 0 -3px 6px rgba(0,0,0,0.15)`
                       : isSpecial
                       ? `0 0 13px ${SPECIAL_COLOR[cell.kind] ?? '#FF7043'}, 0 3px 8px rgba(0,0,0,0.35), inset 0 -3px 6px rgba(0,0,0,0.15), inset 0 3px 6px rgba(255,255,255,0.3)`
-                      : `0 3px 8px rgba(0,0,0,0.35), inset 0 -3px 6px rgba(0,0,0,0.15), inset 0 3px 6px rgba(255,255,255,0.3)`,
+                      : `0 0 0 1.5px rgba(255,255,255,0.45), 0 0 8px ${tile.glow}99, 0 3px 8px rgba(0,0,0,0.35), inset 0 -3px 6px rgba(0,0,0,0.15), inset 0 3px 6px rgba(255,255,255,0.3)`,
                     transform: cell.hit ? undefined : isSel ? 'scale(1.15)' : 'scale(1)',
                     opacity: cell.hit ? undefined : 1,
                     transition: 'transform 0.12s ease',
