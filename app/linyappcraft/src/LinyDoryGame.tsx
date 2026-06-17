@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { loadCoins, spendCoins, addCoins, loadBoosters, saveBoosters, type BoosterKind } from './quest';
+import { loadCoins, spendCoins, addCoins, loadBoosters, saveBoosters, loadLives, spendLife, addLives, nextLifeMs, LIVES_MAX, type BoosterKind } from './quest';
 import { sGet, sSet, getScope, setScope } from './store';
 import { tossLogin, fetchUserKey } from './toss';
 import { sfx, buzz, primeAudio, isMuted, toggleMuted } from './sfx';
@@ -468,6 +468,8 @@ export default function LinyDoryGame() {
   const [showRanking, setShowRanking] = useState(false);
   const [ranking, setRanking]     = useState<LBEntry[]>([]);
   const [coins,    setCoins]      = useState(loadCoins);
+  const [lives,    setLives]      = useState(loadLives);
+  const [lifeTimer, setLifeTimer] = useState(0); // 다음 하트 충전까지(초)
   const [boosters,    setBoosters]    = useState(loadBoosters);
   const [boosterMode, setBoosterMode] = useState<'hammer'|'bomb'|null>(null);
   const [showShop,    setShowShop]    = useState(false);
@@ -559,6 +561,15 @@ export default function LinyDoryGame() {
     const refresh = () => setCoins(loadCoins());
     window.addEventListener('coins-updated', refresh);
     return () => window.removeEventListener('coins-updated', refresh);
+  }, []);
+
+  // 하트 갱신(이벤트) + 자동 충전 카운트다운(1초마다)
+  useEffect(() => {
+    const refresh = () => { setLives(loadLives()); setLifeTimer(Math.ceil(nextLifeMs()/1000)); };
+    refresh();
+    window.addEventListener('lives-updated', refresh);
+    const id = setInterval(refresh, 1000);
+    return () => { window.removeEventListener('lives-updated', refresh); clearInterval(id); };
   }, []);
 
   // 로그인(계정 전환)으로 스코프가 바뀌면 계정별 저장 데이터를 다시 불러옴
@@ -705,6 +716,18 @@ export default function LinyDoryGame() {
     setHintPair(null);
     hintTmr.current = setTimeout(() => setHintPair(findHint(gRef.current)), 2500);
   }, []);
+
+  // 하트 1개를 소모하고 스테이지 시작 (하트 없으면 상점 안내)
+  const tryStartLevel = useCallback((idx: number) => {
+    if (!spendLife()) {
+      setLives(loadLives());
+      pop('💔 하트가 부족해요! 충전을 기다리거나 상점에서 받으세요', 'special');
+      setShowShop(true);
+      return;
+    }
+    setLives(loadLives());
+    startLevel(idx);
+  }, [startLevel, pop]);
 
   // 연쇄 리졸버 — 항상 최신 보드(gRef)를 읽어 매치를 해소한다.
   // 입력을 잠그지 않으므로 블럭이 터지는 동안에도 새 스왑/부스터가 커밋되면 같은 세션에서 함께 처리된다.
@@ -1141,6 +1164,25 @@ export default function LinyDoryGame() {
             <div style={{ padding:12, display:'flex', flexDirection:'column', gap:8, overflowY:'auto' }}>
               {shopTab === 'coin' ? (
                 <>
+                  {/* 하트 충전 */}
+                  <div style={{ padding:'10px 12px', borderRadius:14, background:'rgba(255,120,150,0.1)', border:'1px solid rgba(255,120,150,0.3)', display:'flex', alignItems:'center', gap:10 }}>
+                    <img src={`${BASE}characters/life.png`} alt="" style={{ width:30, height:30, borderRadius:'50%', objectFit:'cover' }}/>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:800, color:'white' }}>하트 5개 <span style={{ fontSize:10, color:'rgba(255,255,255,0.45)', fontWeight:600 }}>보유 {lives}/{LIVES_MAX}</span></div>
+                      <div style={{ fontSize:10, color:'rgba(255,255,255,0.5)', marginTop:2 }}>게임 플레이에 필요한 하트를 채워요</div>
+                    </div>
+                    <button disabled={coins < 250 || lives >= LIVES_MAX}
+                      onClick={() => {
+                        if (lives >= LIVES_MAX) { pop('하트가 이미 가득 찼어요', 'special'); return; }
+                        if (!spendCoins(250)) { pop('🪙 코인이 부족해요', 'special'); setShopTab('cash'); return; }
+                        addLives(5); setLives(loadLives()); pop('💗 하트 +5!', 'special');
+                      }}
+                      style={{ padding:'8px 12px', borderRadius:999, border:'none', cursor: (coins>=250&&lives<LIVES_MAX)?'pointer':'default',
+                        background: (coins>=250&&lives<LIVES_MAX) ? 'linear-gradient(135deg,#FF5C8A,#C2185B)' : 'rgba(255,255,255,0.12)',
+                        color: (coins>=250&&lives<LIVES_MAX) ? 'white' : 'rgba(255,255,255,0.4)', fontSize:11, fontWeight:900, whiteSpace:'nowrap' }}>
+                      🪙 250
+                    </button>
+                  </div>
                   {BOOSTERS.map(b => {
                     const afford = coins >= b.price;
                     return (
@@ -1184,6 +1226,19 @@ export default function LinyDoryGame() {
                       </button>
                     </div>
                   ))}
+                  {/* 하트 충전 (현금) */}
+                  <div style={{ fontSize:11, fontWeight:800, color:'rgba(255,160,190,0.9)', letterSpacing:1, padding:'6px 2px 2px' }}>💗 하트 충전</div>
+                  <div style={{ padding:'10px 12px', borderRadius:14, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', display:'flex', alignItems:'center', gap:10 }}>
+                    <img src={`${BASE}characters/life.png`} alt="" style={{ width:28, height:28, borderRadius:'50%', objectFit:'cover' }}/>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:800, color:'white' }}>하트 가득 채우기 (15)</div>
+                      <div style={{ fontSize:10, color:'rgba(255,255,255,0.45)' }}>지금 바로 최대치로</div>
+                    </div>
+                    <button onClick={() => startPay('하트 가득 채우기', 1500, () => { addLives(LIVES_MAX); setLives(loadLives()); pop('💗 하트 가득 충전!', 'special'); })}
+                      style={{ padding:'8px 12px', borderRadius:999, border:'none', cursor:'pointer', background:'linear-gradient(135deg,#FF5C8A,#C2185B)', color:'white', fontSize:11, fontWeight:900, whiteSpace:'nowrap' }}>
+                      ₩1,500
+                    </button>
+                  </div>
                   {/* 부스터 묶음 결제 (장바구니) */}
                   <div style={{ fontSize:11, fontWeight:800, color:'rgba(255,220,100,0.85)', letterSpacing:1, padding:'6px 2px 2px' }}>🛍️ 아이템 묶음 결제</div>
                   {BOOSTERS.map(b => (
@@ -1324,6 +1379,14 @@ export default function LinyDoryGame() {
           <div style={{ height:'100%', width:`${loadPct}%`, borderRadius:999, background:'linear-gradient(90deg,#2E7D32,#43A047,#66BB6A)', transition:'width 0.08s linear' }}/>
         </div>
         <p style={{ margin:0, fontSize:'clamp(11px,3vw,13px)', fontWeight:700, color:'white', opacity:0.75 }}>{loadPct < 100 ? `로딩 중... ${loadPct}%` : '준비 완료! ✓'}</p>
+        {/* 전체이용가 등급 표시 */}
+        <div style={{ display:'flex', alignItems:'center', gap:7, marginTop:2 }}>
+          <div style={{ width:34, height:34, borderRadius:'50%', background:'#2E9E4F', border:'2px solid white', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', lineHeight:1, boxShadow:'0 2px 8px rgba(0,0,0,0.4)' }}>
+            <span style={{ fontSize:11, fontWeight:900, color:'white' }}>전체</span>
+            <span style={{ fontSize:6.5, fontWeight:700, color:'white', letterSpacing:0.5 }}>이용가</span>
+          </div>
+          <span style={{ fontSize:10, color:'white', opacity:0.7, fontWeight:700 }}>전체이용가 · 누구나 즐길 수 있어요</span>
+        </div>
         <p style={{ margin:0, fontSize:'clamp(10px,2.5vw,12px)', color:'white', opacity:0.35, letterSpacing:2 }}>리니와 도리 크래프트</p>
       </div>
     </div>
@@ -1345,10 +1408,15 @@ export default function LinyDoryGame() {
         <div style={{ position:'absolute', top:0, left:0, right:0, height:120, background:'linear-gradient(180deg,rgba(5,15,5,0.85) 0%,transparent 100%)' }}/>
         <div style={{ position:'absolute', bottom:0, left:0, right:0, height:'clamp(180px,40vh,260px)', background:'linear-gradient(0deg,rgba(5,15,5,0.97) 0%,rgba(5,15,5,0.65) 65%,transparent 100%)' }}/>
         <div style={{ position:'absolute', top:0, left:0, right:0, padding:'calc(var(--sat) + clamp(10px,2.5vh,16px)) clamp(10px,3vw,16px) 0', display:'flex', alignItems:'center', gap:'clamp(5px,1.5vw,8px)' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(0,0,0,0.55)', borderRadius:999, padding:'5px 10px', border:'1.5px solid rgba(255,80,80,0.4)' }}>
-            <Icon name="heart" size={15} color="#FF5C6C" />
-            <span style={{ fontSize:13, fontWeight:900, color:'white' }}>5</span>
-            <span style={{ fontSize:10, color:'rgba(255,255,255,0.45)', fontWeight:700 }}>/5</span>
+          <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(0,0,0,0.55)', borderRadius:999, padding:'4px 10px 4px 6px', border:'1.5px solid rgba(255,120,150,0.5)' }}>
+            <img src={`${BASE}characters/life.png`} alt="하트" style={{ width:22, height:22, borderRadius:'50%', objectFit:'cover' }}/>
+            <span style={{ fontSize:13, fontWeight:900, color:'white' }}>{lives}</span>
+            <span style={{ fontSize:10, color:'rgba(255,255,255,0.45)', fontWeight:700 }}>/{LIVES_MAX}</span>
+            {lives < LIVES_MAX && lifeTimer > 0 && (
+              <span style={{ fontSize:10, fontWeight:700, color:'#9EE6A0', marginLeft:2 }}>
+                {Math.floor(lifeTimer/60)}:{String(lifeTimer%60).padStart(2,'0')}
+              </span>
+            )}
           </div>
           <div style={{ flex:1 }}/>
           <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(0,0,0,0.55)', borderRadius:999, padding:'5px 10px', border:'1.5px solid rgba(255,180,0,0.35)' }}>
@@ -1384,7 +1452,7 @@ export default function LinyDoryGame() {
             </span>
             <span style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.6)', background:'rgba(0,0,0,0.4)', padding:'3px 10px', borderRadius:999, border:'1px solid rgba(255,255,255,0.15)' }}>⭐ {totalStars}/{LEVELS.length*3}</span>
           </div>
-          <button onClick={() => startLevel(stageIdx)}
+          <button onClick={() => tryStartLevel(stageIdx)}
             style={{ width:'100%', padding:'15px 0', borderRadius:999, background:'linear-gradient(180deg,#42A5F5 0%,#1565C0 100%)', border:'none', cursor:'pointer', boxShadow:'0 6px 0 #0D3B80,0 10px 28px rgba(0,80,200,0.55)', color:'white', fontWeight:900, fontSize:22, letterSpacing:3, display:'flex', alignItems:'center', justifyContent:'center', gap:10 }}
             onTouchStart={e=>(e.currentTarget.style.transform='scale(0.97)')} onTouchEnd={e=>(e.currentTarget.style.transform='scale(1)')}>
             <span style={{ fontSize:24 }}>🎮</span> STAGE {stageIdx+1} <span style={{ fontSize:20 }}>▶</span>
@@ -1436,7 +1504,7 @@ export default function LinyDoryGame() {
               const unlocked=isUnlocked(i); const s=progress[i]??0; const isCur = i === (progress.findIndex(p=>p<3)===-1?LEVELS.length-1:progress.findIndex(p=>p<3));
               const diff = difficultyOf(i);
               return (
-                <button key={i} onClick={()=>unlocked&&startLevel(i)} disabled={!unlocked}
+                <button key={i} onClick={()=>unlocked&&tryStartLevel(i)} disabled={!unlocked}
                   style={{ position:'absolute', width:64, height:64, left:`calc(${mapNodeX(i)}% - 32px)`, top:mapNodeY(i)-32, zIndex:2, borderRadius:'50%', cursor:unlocked?'pointer':'default', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
                     background:!unlocked?'rgba(10,10,40,0.8)':s===3?'linear-gradient(135deg,#FF6F00,#FFB300)':s>=1?'linear-gradient(135deg,#6A1B9A,#CE93D8)':'linear-gradient(135deg,#0D47A1,#1976D2)',
                     border: isCur&&unlocked?'3px solid #FFE566':unlocked?'3px solid rgba(255,255,255,0.55)':'2px solid rgba(255,255,255,0.12)',
@@ -1788,11 +1856,11 @@ export default function LinyDoryGame() {
               : endStars<3 && <div style={{ fontSize:'clamp(11px,3vw,12px)', color:'#FFD7A0', marginTop:4, opacity:0.9 }}>⭐⭐⭐ 별 3개를 모아야 다음 스테이지로!</div>}
           </div>
           <div style={{ display:'flex', gap:'clamp(8px,2.5vw,12px)' }}>
-            <button onClick={()=>startLevel(lvlIdx)} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background: endStars<3 ? 'linear-gradient(135deg,#FF6F00,#FFD700)' : 'linear-gradient(135deg,#1565C0,#42A5F5)', boxShadow: endStars<3 ? '0 4px 0 #B84800' : '0 4px 0 #0D3B80', border:'none', cursor:'pointer' }}>
+            <button onClick={()=>tryStartLevel(lvlIdx)} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background: endStars<3 ? 'linear-gradient(135deg,#FF6F00,#FFD700)' : 'linear-gradient(135deg,#1565C0,#42A5F5)', boxShadow: endStars<3 ? '0 4px 0 #B84800' : '0 4px 0 #0D3B80', border:'none', cursor:'pointer' }}>
               {endStars<3 ? '다시 도전! 🔥' : '다시하기 🔄'}
             </button>
             {endStars===3 && lvlIdx<LEVELS.length-1
-              ? <button onClick={()=>{ sfx.click(); startLevel(lvlIdx+1); }} style={{ padding:'clamp(10px,2.5vh,12px) clamp(20px,5.5vw,28px)', borderRadius:999, fontWeight:900, fontSize:'clamp(14px,4vw,17px)', color:'white', background:'linear-gradient(135deg,#FF6F00,#FFB300)', border:'2px solid rgba(255,255,255,0.7)', animation:'luckyGlow 0.9s ease infinite', cursor:'pointer' }}>다음 스테이지 ▶</button>
+              ? <button onClick={()=>{ sfx.click(); tryStartLevel(lvlIdx+1); }} style={{ padding:'clamp(10px,2.5vh,12px) clamp(20px,5.5vw,28px)', borderRadius:999, fontWeight:900, fontSize:'clamp(14px,4vw,17px)', color:'white', background:'linear-gradient(135deg,#FF6F00,#FFB300)', border:'2px solid rgba(255,255,255,0.7)', animation:'luckyGlow 0.9s ease infinite', cursor:'pointer' }}>다음 스테이지 ▶</button>
               : <button onClick={()=>setPhase('map')} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background:'linear-gradient(135deg,#607D8B,#455A64)', boxShadow:'0 4px 0 #2C3940', border:'none', cursor:'pointer' }}>맵으로 🗺️</button>
             }
           </div>

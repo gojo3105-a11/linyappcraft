@@ -3,6 +3,51 @@ import { sGet, sSet } from './store';
 const QUEST_BASE = 'daily_quests_v1';
 const COINS_BASE = 'linydory_coins_v1';
 const BOOST_BASE = 'linydory_boosters_v1';
+const LIVES_BASE = 'linydory_lives_v1';
+
+// ── 하트(플레이 가능 횟수) ─────────────────────────────
+export const LIVES_MAX = 15;
+const LIVES_REGEN_MS = 10 * 60 * 1000; // 10분당 1개 자동 충전
+interface LivesSave { lives: number; ts: number }
+
+function readLives(): LivesSave {
+  const d = sGet<LivesSave | null>(LIVES_BASE, null);
+  if (!d || typeof d.lives !== 'number') return { lives: LIVES_MAX, ts: Date.now() };
+  if (d.lives >= LIVES_MAX) return { lives: LIVES_MAX, ts: Date.now() };
+  const gained = Math.floor((Date.now() - d.ts) / LIVES_REGEN_MS);
+  if (gained <= 0) return d;
+  const lives = Math.min(LIVES_MAX, d.lives + gained);
+  const ts = lives >= LIVES_MAX ? Date.now() : d.ts + gained * LIVES_REGEN_MS;
+  const next = { lives, ts };
+  sSet(LIVES_BASE, next);
+  return next;
+}
+
+export function loadLives(): number { return readLives().lives; }
+
+// 다음 1개 충전까지 남은 ms (가득 차면 0)
+export function nextLifeMs(): number {
+  const st = readLives();
+  if (st.lives >= LIVES_MAX) return 0;
+  return Math.max(0, st.ts + LIVES_REGEN_MS - Date.now());
+}
+
+export function spendLife(): boolean {
+  const st = readLives();
+  if (st.lives <= 0) return false;
+  const wasFull = st.lives >= LIVES_MAX;
+  sSet(LIVES_BASE, { lives: st.lives - 1, ts: wasFull ? Date.now() : st.ts });
+  window.dispatchEvent(new Event('lives-updated'));
+  return true;
+}
+
+export function addLives(n: number): number {
+  const st = readLives();
+  const lives = Math.min(LIVES_MAX, st.lives + n);
+  sSet(LIVES_BASE, { lives, ts: st.ts });
+  window.dispatchEvent(new Event('lives-updated'));
+  return lives;
+}
 
 export type QuestKey = 'clear1' | 'clear3' | 'combo5' | 'special5' | 'blocks200';
 export type Difficulty = '쉬움' | '보통' | '어려움';
