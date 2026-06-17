@@ -750,11 +750,19 @@ export default function LinyDoryGame() {
     [sw[sr][sc], sw[r][c]] = [sw[r][c], sw[sr][sc]];
     const srcSpec = sw[r][c]?.kind !== 'normal';
     const dstSpec = sw[sr][sc]?.kind !== 'normal';
-    // 매치도 없고 특수 블럭도 아니면 → 잠깐 바꿨다가 제자리로 원위치(이동 횟수 차감 안 함)
+    // 매치도 없고 특수 블럭도 아니면 → 잠깐 바꿨다가 제자리로 원위치 (헛스왑도 이동 1회로 차감)
     if (!hasAnyMatch(sw) && !srcSpec && !dstSpec) {
       sfx.invalid();
+      clearHint();
+      if (LEVELS[lvlRef.current].mode === 'moves') {
+        movesRef.current = Math.max(0, movesRef.current-1);
+        setMovesLeft(movesRef.current);
+      }
       push(sw);
-      setTimeout(() => { if (gRef.current === sw) push(g); }, 220);
+      setTimeout(() => {
+        if (gRef.current === sw) push(g);
+        if (phaseRef.current === 'play' && LEVELS[lvlRef.current].mode === 'moves' && movesRef.current <= 0) outOfResource();
+      }, 220);
       return;
     }
     sfx.swap(); buzz(8);
@@ -779,7 +787,7 @@ export default function LinyDoryGame() {
     dirtyRef.current = true;
     push(sw);
     resolve();
-  }, [clearHint, inc, pop, push, resolve, spawnFlames, kickScreen]);
+  }, [clearHint, inc, pop, push, resolve, spawnFlames, kickScreen, outOfResource]);
 
   // 부스터(망치/폭탄) 발동 — 선택한 칸에 효과 적용 (입력 잠금 없음)
   const triggerBooster = useCallback((kind: 'hammer'|'bomb', r: number, c: number) => {
