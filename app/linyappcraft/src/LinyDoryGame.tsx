@@ -4,7 +4,7 @@ import { sGet, sSet, getScope, setScope } from './store';
 import { tossLogin, fetchUserKey } from './toss';
 import { sfx, buzz, primeAudio, isMuted, toggleMuted } from './sfx';
 import { submitScore, loadWeeklyBest, getLeaderboard, type LBEntry } from './leaderboard';
-import { EPISODES, ytThumb, ytEmbed, ytWatch, type Episode } from './episodes';
+import { EPISODES, ytThumb, ytEmbed, ytWatch, CHANNEL_URL, type Episode } from './episodes';
 
 // 부스터(블럭 제거 아이템) 상점 정보
 // price = 코인 가격, cash = 시뮬레이션 현금 결제 가격(원)
@@ -1022,7 +1022,7 @@ export default function LinyDoryGame() {
             {playingEp ? (
               /* 플레이어 화면 */
               <div style={{ display:'flex', flexDirection:'column', overflowY:'auto' }}>
-                <div style={{ position:'relative', width:'100%', aspectRatio:'16/9', background:'#000' }}>
+                <div style={{ position:'relative', width: playingEp.short ? 'auto' : '100%', height: playingEp.short ? '60vh' : undefined, aspectRatio: playingEp.short ? '9/16' : '16/9', margin: playingEp.short ? '0 auto' : undefined, background:'#000' }}>
                   {playingEp.videoId ? (
                     <iframe
                       title={playingEp.title}
@@ -1066,6 +1066,9 @@ export default function LinyDoryGame() {
                     </div>
                   </button>
                 ))}
+                <a href={CHANNEL_URL} target="_blank" rel="noreferrer" style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'11px', borderRadius:12, textDecoration:'none', background:'linear-gradient(135deg,#FF0000,#CC0000)', color:'white', fontSize:13, fontWeight:900 }}>
+                  ▶ 유튜브 채널 전체 보기
+                </a>
                 <div style={{ fontSize:10, color:'rgba(255,255,255,0.35)', textAlign:'center', lineHeight:1.5, padding:'4px 0' }}>새 에피소드가 계속 추가돼요 🌟</div>
               </div>
             )}
