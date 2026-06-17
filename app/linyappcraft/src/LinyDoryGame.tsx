@@ -25,14 +25,15 @@ const ROWS = 7;
 const COLS = 7;
 
 const BASE = import.meta.env.BASE_URL;
-const CHAR = (n: string) => `${BASE}characters/KakaoTalk_20260610_202544565${n}.png`;
+// 블럭 캐릭터 아이콘 (public/characters/block{n}.png)
+const BLK = (n: number) => `${BASE}characters/block${n}.png`;
 const TILES = [
-  { img: CHAR(''),     bg: 'linear-gradient(145deg,#FFD54F,#FF8F00)', glow: '#FFB300' },
-  { img: CHAR('_01'), bg: 'linear-gradient(145deg,#64B5F6,#1565C0)', glow: '#42A5F5' },
-  { img: CHAR('_02'), bg: 'linear-gradient(145deg,#AED581,#33691E)', glow: '#7CB342' },
-  { img: CHAR('_03'), bg: 'linear-gradient(145deg,#F48FB1,#880E4F)', glow: '#E91E63' },
-  { img: CHAR('_04'), bg: 'linear-gradient(145deg,#CE93D8,#6A1B9A)', glow: '#AB47BC' },
-  { img: CHAR('_05'), bg: 'linear-gradient(145deg,#80CBC4,#004D40)', glow: '#26A69A' },
+  { img: BLK(1), bg: 'linear-gradient(145deg,#FFD54F,#FF8F00)', glow: '#FFB300' }, // 금발 행복
+  { img: BLK(2), bg: 'linear-gradient(145deg,#64B5F6,#1565C0)', glow: '#42A5F5' }, // 정장 시크
+  { img: BLK(3), bg: 'linear-gradient(145deg,#F48FB1,#AD1457)', glow: '#EC407A' }, // 핑크 홀로그램
+  { img: BLK(4), bg: 'linear-gradient(145deg,#80DEEA,#00838F)', glow: '#26C6DA' }, // 번개 놀람
+  { img: BLK(5), bg: 'linear-gradient(145deg,#AED581,#33691E)', glow: '#7CB342' }, // 우는 고슴도치
+  { img: BLK(6), bg: 'linear-gradient(145deg,#CE93D8,#6A1B9A)', glow: '#AB47BC' }, // 동글안경 행복
 ] as const;
 
 type TileKind = 'normal' | 'lightning' | 'bomb';
@@ -1580,7 +1581,7 @@ export default function LinyDoryGame() {
                   {isSpecial ? (
                     <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'clamp(24px,7vw,34px)', lineHeight:1, filter:'drop-shadow(0 2px 4px rgba(0,0,0,0.7))', zIndex:2 }}>{cell.kind==='lightning'?'⚡':'💣'}</span>
                   ) : (
-                    <img src={tile.img} alt="" style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'center 8%' }}/>
+                    <img src={tile.img} alt="" style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'center' }}/>
                   )}
                   <div style={{ position:'absolute', top:0, left:'5%', right:'5%', height:'48%', borderRadius:'0 0 50% 50%', background:'linear-gradient(180deg,rgba(255,255,255,0.62) 0%,rgba(255,255,255,0.05) 100%)', pointerEvents:'none', zIndex:1 }}/>
                   <div style={{ position:'absolute', bottom:0, left:0, right:0, height:'28%', borderRadius:'0 0 50% 50%', background:'linear-gradient(0deg,rgba(0,0,0,0.2) 0%,transparent 100%)', pointerEvents:'none', zIndex:1 }}/>
