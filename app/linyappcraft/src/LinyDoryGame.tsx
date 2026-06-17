@@ -463,6 +463,8 @@ export default function LinyDoryGame() {
   const [nearMiss, setNearMiss]   = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutStep, setTutStep]     = useState(0);
+  const [tutorialPlay, setTutorialPlay] = useState(false); // 실제 플레이 가이드 진행 중
+  const [tutMatches, setTutMatches] = useState(0);
   const [continueOffer, setContinueOffer] = useState(false);
   const [continuesUsed, setContinuesUsed] = useState(0);
   const [showRanking, setShowRanking] = useState(false);
@@ -503,6 +505,9 @@ export default function LinyDoryGame() {
   const pausedRef          = useRef(false); // 이어하기 제안 중 입력/타이머 정지
   const sessionBlocksRef   = useRef(0);  // 퀘스트 집계: 이번 판 터트린 블럭
   const sessionSpecialsRef = useRef(0);  // 퀘스트 집계: 이번 판 만든 특수 블럭
+  const tutorialPlayRef    = useRef(false); // 가이드 플레이 중 여부(리졸버에서 참조)
+  const tutMatchesRef      = useRef(0);
+  const TUT_GOAL_MATCHES   = 5;
   const mapScrollRef       = useRef<HTMLDivElement>(null); // 맵 스크롤 컨테이너
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
@@ -715,6 +720,7 @@ export default function LinyDoryGame() {
     lastSwapRef.current=null; dragRef.current=null;
     continuesUsedRef.current=0; pausedRef.current=false;
     sessionBlocksRef.current=0; sessionSpecialsRef.current=0;
+    tutorialPlayRef.current=false; setTutorialPlay(false); setTutMatches(0); tutMatchesRef.current=0;
     setFlames([]); setScreenShake(false); setConfetti([]); setCoinsEarned(0);
     setContinuesUsed(0); setContinueOffer(false); setBlocksPopped(0);
     primeAudio();
@@ -728,6 +734,16 @@ export default function LinyDoryGame() {
     setHintPair(null);
     hintTmr.current = setTimeout(() => setHintPair(findHint(gRef.current)), 2500);
   }, []);
+
+  // 튜토리얼을 실제 플레이로 진행 — 1스테이지를 하트 소모 없이 시작하고 코칭 오버레이 표시
+  const startTutorialPlay = useCallback(() => {
+    saveTutorialDone();
+    setShowTutorial(false);
+    setTutMatches(0); tutMatchesRef.current = 0;
+    startLevel(0);
+    tutorialPlayRef.current = true; setTutorialPlay(true);
+    setTimeout(() => setHintPair(findHint(gRef.current)), 700); // 곧바로 힌트(반짝임) 표시
+  }, [startLevel]);
 
   // 하트 1개를 소모하고 스테이지 시작 (하트 없으면 상점 안내)
   const tryStartLevel = useCallback((idx: number) => {
@@ -785,6 +801,15 @@ export default function LinyDoryGame() {
             sfx.combo(combo);
             pop(`${combo}x COMBO! +${pts.toLocaleString()}`, 'combo');
             if (combo >= 5) questUpdateMaxCombo(combo);
+          }
+          // 가이드 플레이: 플레이어가 직접 만든 매치 수 카운트 → 목표 달성 시 튜토리얼 종료
+          if (tutorialPlayRef.current && combo === 1) {
+            tutMatchesRef.current++;
+            setTutMatches(tutMatchesRef.current);
+            if (tutMatchesRef.current >= TUT_GOAL_MATCHES) {
+              tutorialPlayRef.current = false; setTutorialPlay(false);
+              pop('🎉 튜토리얼 완료! 이제 자유롭게 즐겨보세요', 'special');
+            }
           }
           await wait(280);
           push(applyFall(gRef.current, LEVELS[lvlRef.current].types, mapRef.current));
@@ -1193,8 +1218,8 @@ export default function LinyDoryGame() {
                 {tutStep > 0 && (
                   <button onClick={() => setTutStep(s => Math.max(0, s-1))} style={{ flex:1, padding:'12px', borderRadius:12, border:'1px solid rgba(255,255,255,0.2)', cursor:'pointer', background:'rgba(255,255,255,0.06)', color:'rgba(255,255,255,0.8)', fontSize:13, fontWeight:800 }}>이전</button>
                 )}
-                <button onClick={() => last ? closeTutorial() : setTutStep(s => s+1)} style={{ flex:2, padding:'12px', borderRadius:12, border:'none', cursor:'pointer', background:'linear-gradient(135deg,#FF8C00,#FFD700)', color:'#3D1C00', fontSize:14, fontWeight:900 }}>
-                  {last ? '시작하기 🎮' : '다음 ▶'}
+                <button onClick={() => last ? startTutorialPlay() : setTutStep(s => s+1)} style={{ flex:2, padding:'12px', borderRadius:12, border:'none', cursor:'pointer', background:'linear-gradient(135deg,#FF8C00,#FFD700)', color:'#3D1C00', fontSize:14, fontWeight:900 }}>
+                  {last ? '직접 해보기 🎮' : '다음 ▶'}
                 </button>
               </div>
             </div>
@@ -1624,6 +1649,24 @@ export default function LinyDoryGame() {
           {hintPair && (
             <div style={{ fontSize:9, fontWeight:800, color:'rgba(255,220,0,0.9)', textShadow:'0 1px 4px rgba(0,0,0,0.6)', letterSpacing:1, animation:'splashPulse 1s ease infinite', paddingTop:2 }}>💡 HINT</div>
           )}
+        </div>
+      )}
+
+      {/* 튜토리얼 코칭 배너 (실제 플레이 가이드) */}
+      {phase==='play' && tutorialPlay && (
+        <div style={{ position:'absolute', top:'calc(var(--sat) + 92px)', left:0, right:0, zIndex:26, display:'flex', flexDirection:'column', alignItems:'center', gap:6, padding:'0 16px', pointerEvents:'none' }}>
+          <div style={{ maxWidth:340, padding:'10px 16px', borderRadius:16, background:'linear-gradient(135deg,#1565C0,#0D47A1)', border:'2px solid #FFE566', boxShadow:'0 6px 20px rgba(0,0,0,0.5)', color:'white', fontSize:13, fontWeight:800, textAlign:'center', lineHeight:1.45, animation:'splashPulse 1.4s ease infinite' }}>
+            {tutMatches===0 ? '👆 반짝이는 두 블럭을 드래그해 같은 친구 3개를 맞춰보세요!'
+              : tutMatches===1 ? '잘했어요! ✨ 계속 3개 이상 맞춰볼까요?'
+              : tutMatches===2 ? '한 번에 4개를 맞추면 ⚡특수 블럭이 생겨요!'
+              : '거의 다 왔어요! 목표 점수를 향해 🎯'}
+            <div style={{ marginTop:6, display:'flex', justifyContent:'center', gap:4 }}>
+              {Array.from({length:TUT_GOAL_MATCHES}).map((_,i)=>(
+                <span key={i} style={{ width:8, height:8, borderRadius:'50%', background: i<tutMatches ? '#FFE566' : 'rgba(255,255,255,0.3)' }}/>
+              ))}
+            </div>
+          </div>
+          <button onClick={()=>{ tutorialPlayRef.current=false; setTutorialPlay(false); }} style={{ pointerEvents:'auto', background:'rgba(0,0,0,0.5)', border:'1px solid rgba(255,255,255,0.3)', color:'rgba(255,255,255,0.85)', fontSize:11, fontWeight:800, borderRadius:999, padding:'4px 12px', cursor:'pointer' }}>튜토리얼 건너뛰기</button>
         </div>
       )}
 
