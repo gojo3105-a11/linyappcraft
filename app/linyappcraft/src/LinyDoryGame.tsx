@@ -1710,7 +1710,14 @@ export default function LinyDoryGame() {
           {confetti.map(p => (
             <span key={p.id} style={{ position:'absolute', top:0, left:`${p.left}%`, fontSize:18, color:p.color, pointerEvents:'none', animation:`confettiFall ${1.6+p.delay}s ease-in ${p.delay}s forwards` }}>{p.e}</span>
           ))}
-          {nearMiss ? (
+          {endStars===3 ? (
+            <div style={{ textAlign:'center' }}>
+              <div style={{ fontSize:'clamp(13px,3.6vw,16px)', fontWeight:900, letterSpacing:2, color:'#FFE566', marginBottom:2 }}>STAGE {lvlIdx+1}</div>
+              <div style={{ fontSize:'clamp(30px,8.5vw,44px)', fontWeight:900, color:'#FFD700', WebkitTextStroke:'1.5px #FF8C00', textShadow:'0 4px 0 rgba(0,0,0,0.4), 0 0 28px rgba(255,200,0,0.9)', animation:'starPop 0.55s cubic-bezier(0.34,1.56,0.64,1) both' }}>
+                {lvlIdx===LEVELS.length-1 ? '🏆 올 클리어! 🏆' : '🎉 클리어! 🎉'}
+              </div>
+            </div>
+          ) : nearMiss ? (
             <div style={{ textAlign:'center', animation:'nearMissShake 0.5s ease 0.2s' }}>
               <div style={{ fontSize:'clamp(26px,7vw,34px)', fontWeight:900, color:'#FFD700', animation:'splashPulse 0.8s ease infinite' }}>😱 아깝다!</div>
               <div style={{ fontSize:'clamp(12px,3.2vw,14px)', color:'rgba(255,240,100,0.9)', marginTop:2 }}>조금만 더 하면 별을 딸 수 있어요!</div>
@@ -1759,7 +1766,7 @@ export default function LinyDoryGame() {
               {endStars<3 ? '다시 도전! 🔥' : '다시하기 🔄'}
             </button>
             {endStars===3 && lvlIdx<LEVELS.length-1
-              ? <button onClick={()=>startLevel(lvlIdx+1)} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background:'linear-gradient(135deg,#FF6F00,#FFB300)', boxShadow:'0 4px 0 #B84800', border:'none', cursor:'pointer' }}>다음 스테이지 ▶</button>
+              ? <button onClick={()=>{ sfx.click(); startLevel(lvlIdx+1); }} style={{ padding:'clamp(10px,2.5vh,12px) clamp(20px,5.5vw,28px)', borderRadius:999, fontWeight:900, fontSize:'clamp(14px,4vw,17px)', color:'white', background:'linear-gradient(135deg,#FF6F00,#FFB300)', border:'2px solid rgba(255,255,255,0.7)', animation:'luckyGlow 0.9s ease infinite', cursor:'pointer' }}>다음 스테이지 ▶</button>
               : <button onClick={()=>setPhase('map')} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background:'linear-gradient(135deg,#607D8B,#455A64)', boxShadow:'0 4px 0 #2C3940', border:'none', cursor:'pointer' }}>맵으로 🗺️</button>
             }
           </div>
