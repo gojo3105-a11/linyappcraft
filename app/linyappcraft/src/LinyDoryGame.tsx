@@ -110,7 +110,6 @@ const FIRST_CLEAR_BONUS = 100;
 // 이어하기 — 코인으로 시간/이동 추가 (한 판 최대 3회, 비용 점증)
 const MAX_CONTINUES = 3;
 const CONTINUE_COSTS = [200, 400, 800] as const;
-const CONTINUE_TIME = 15;   // 시간 모드: +15초
 const CONTINUE_MOVES = 5;   // 이동 모드: +5수
 
 // 맵 화면 — 세로로 스크롤되는 지그재그 길 배치
@@ -496,8 +495,10 @@ export default function LinyDoryGame() {
   const [tutStep, setTutStep]     = useState(0);
   const [tutorialPlay, setTutorialPlay] = useState(false); // 실제 플레이 가이드 진행 중
   const [tutMatches, setTutMatches] = useState(0);
-  const [elapsed, setElapsed]     = useState(0); // 플레이 경과 시간(초)
+  const [timeLeft, setTimeLeft]   = useState(60); // 제한 시간(초) — 60에서 카운트다운
   const [lifeFly, setLifeFly]     = useState(false); // 하트 소모 시 날아가는 임팩트
+  const [lifeLossToast, setLifeLossToast] = useState(false); // 스테이지 시작 시 하트 감소 강조(3초)
+  const STAGE_TIME = 60;
   const [continueOffer, setContinueOffer] = useState(false);
   const [continuesUsed, setContinuesUsed] = useState(0);
   const [showRanking, setShowRanking] = useState(false);
@@ -605,13 +606,6 @@ export default function LinyDoryGame() {
     return () => window.removeEventListener('coins-updated', refresh);
   }, []);
 
-  // 플레이 경과 시간(스톱워치) — 진행 중(일시정지 아님)일 때 1초마다 증가
-  useEffect(() => {
-    if (phase !== 'play') return;
-    const id = setInterval(() => { if (!pausedRef.current) setElapsed(e => e + 1); }, 1000);
-    return () => clearInterval(id);
-  }, [phase]);
-
   // 하트 갱신(이벤트) + 자동 충전 카운트다운(1초마다)
   useEffect(() => {
     const refresh = () => { setLives(loadLives()); setLifeTimer(Math.ceil(nextLifeMs()/1000)); };
@@ -704,8 +698,9 @@ export default function LinyDoryGame() {
     if (!spendCoins(cost)) { pop('🪙 코인이 부족해요!', 'special'); setShowShop(true); return; }
     setCoins(loadCoins());
     continuesUsedRef.current++; setContinuesUsed(c => c+1);
-    if (LEVELS[lvlRef.current].mode === 'time') setTime(t => t + CONTINUE_TIME);
-    else { movesRef.current += CONTINUE_MOVES; setMovesLeft(movesRef.current); }
+    // 이동·시간 모두 보충 (어느 쪽이 떨어졌든 재개 가능하도록)
+    movesRef.current += CONTINUE_MOVES; setMovesLeft(movesRef.current);
+    setTimeLeft(t => Math.max(t, 30));
     setContinueOffer(false);
     pausedRef.current = false;
     sfx.coin(); pop('▶ 이어서 도전!', 'special');
@@ -718,12 +713,12 @@ export default function LinyDoryGame() {
     endGame();
   }, [endGame]);
 
+  // 제한 시간 — 진행 중(일시정지 아님)일 때 60초에서 1초씩 감소, 0이 되면 종료/이어하기 제안
   useEffect(() => {
     if (phase !== 'play') return;
-    if (LEVELS[lvlRef.current].mode !== 'time') return;
     const id = setInterval(() => {
       if (pausedRef.current) return;            // 이어하기 제안 중엔 멈춤
-      setTime(t => { if (t<=1) { outOfResource(); return 0; } return t-1; });
+      setTimeLeft(t => { if (t<=1) { outOfResource(); return 0; } return t-1; });
     }, 1000);
     return () => clearInterval(id);
   }, [phase, outOfResource]);
@@ -761,7 +756,7 @@ export default function LinyDoryGame() {
     continuesUsedRef.current=0; pausedRef.current=false;
     sessionBlocksRef.current=0; sessionSpecialsRef.current=0;
     tutorialPlayRef.current=false; setTutorialPlay(false); setTutMatches(0); tutMatchesRef.current=0;
-    setElapsed(0);
+    setTimeLeft(STAGE_TIME);
     setFlames([]); setScreenShake(false); setConfetti([]); setCoinsEarned(0);
     setContinuesUsed(0); setContinueOffer(false); setBlocksPopped(0);
     primeAudio();
@@ -796,8 +791,10 @@ export default function LinyDoryGame() {
     }
     setLives(loadLives());        // 좌측 상단 하트 숫자 즉시 감소
     setLifeFly(true);             // 하트가 날아가는 임팩트
+    setLifeLossToast(true);       // 하트 감소 강조(플레이 화면에서 3초)
     buzz(18);
     setTimeout(() => { setLifeFly(false); startLevel(idx); }, 480);
+    setTimeout(() => setLifeLossToast(false), 3000);
   }, [startLevel, pop]);
 
   // 연쇄 리졸버 — 항상 최신 보드(gRef)를 읽어 매치를 해소한다.
@@ -1077,7 +1074,7 @@ export default function LinyDoryGame() {
       {/* 이어하기 제안 (시간/이동 소진) */}
       {continueOffer && (() => {
         const cost = CONTINUE_COSTS[Math.min(continuesUsed, MAX_CONTINUES-1)];
-        const timeMode = LEVELS[lvlRef.current].mode === 'time';
+        const timeMode = timeLeft <= 0;   // 시간 소진으로 멈췄는지
         const afford = coins >= cost;
         return (
           <div style={{ position:'absolute', inset:0, zIndex:65, background:'rgba(8,8,40,0.86)', backdropFilter:'blur(6px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
@@ -1086,7 +1083,7 @@ export default function LinyDoryGame() {
                 <div style={{ fontSize:46, animation:'splashPulse 1s ease infinite' }}>{timeMode ? '⏳' : '🎯'}</div>
                 <div style={{ fontSize:18, fontWeight:900, color:'white', marginTop:6 }}>{timeMode ? '시간이 다 됐어요!' : '이동을 다 썼어요!'}</div>
                 <div style={{ fontSize:13, color:'rgba(255,255,255,0.7)', marginTop:6, lineHeight:1.5 }}>
-                  코인으로 <b style={{ color:'#FFE566' }}>{timeMode ? `+${CONTINUE_TIME}초` : `+${CONTINUE_MOVES}수`}</b> 추가하고<br/>이어서 도전할 수 있어요!
+                  코인으로 <b style={{ color:'#FFE566' }}>+{CONTINUE_MOVES}수 · +시간</b> 받고<br/>이어서 도전할 수 있어요!
                 </div>
                 <div style={{ fontSize:12, color:'rgba(255,255,255,0.55)', marginTop:8 }}>
                   현재 <b style={{ color:'white' }}>{score.toLocaleString()}</b> / 목표 <b style={{ color:'#FFD700' }}>{lvl.goal[0].toLocaleString()}</b>
@@ -1655,10 +1652,10 @@ export default function LinyDoryGame() {
             ))}
           </div>
         </div>
-        {/* 경과 타이머 (별 왼쪽) */}
-        <div style={{ display:'flex', alignItems:'center', gap:3, flexShrink:0, background:'#f1f3f5', borderRadius:999, padding:'4px 9px', alignSelf:'flex-start' }}>
-          <Icon name="clock" size={13} color="#6b7280" />
-          <span style={{ fontSize:12, fontWeight:900, color:'#444', fontVariantNumeric:'tabular-nums' }}>{Math.floor(elapsed/60)}:{String(elapsed%60).padStart(2,'0')}</span>
+        {/* 제한 시간 타이머 (별 왼쪽) — 60초 카운트다운 */}
+        <div style={{ display:'flex', alignItems:'center', gap:3, flexShrink:0, background: timeLeft<=10 ? '#FFE3E3' : '#f1f3f5', borderRadius:999, padding:'4px 9px', alignSelf:'flex-start', animation: timeLeft<=10 ? 'pulseWarn 0.6s ease infinite' : undefined }}>
+          <Icon name="clock" size={13} color={timeLeft<=10 ? '#E03131' : '#6b7280'} />
+          <span style={{ fontSize:12, fontWeight:900, color: timeLeft<=10 ? '#E03131' : '#444', fontVariantNumeric:'tabular-nums' }}>{Math.floor(timeLeft/60)}:{String(timeLeft%60).padStart(2,'0')}</span>
         </div>
         {/* Stars + back button */}
         <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4, flexShrink:0 }}>
@@ -1697,6 +1694,17 @@ export default function LinyDoryGame() {
           {hintPair && (
             <div style={{ fontSize:9, fontWeight:800, color:'rgba(255,220,0,0.9)', textShadow:'0 1px 4px rgba(0,0,0,0.6)', letterSpacing:1, animation:'splashPulse 1s ease infinite', paddingTop:2 }}>💡 HINT</div>
           )}
+        </div>
+      )}
+
+      {/* 하트 감소 강조 토스트 (스테이지 시작 시 3초) */}
+      {phase==='play' && lifeLossToast && (
+        <div style={{ position:'absolute', top:'calc(var(--sat) + 78px)', left:0, right:0, zIndex:27, display:'flex', justifyContent:'center', pointerEvents:'none' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 16px', borderRadius:999, background:'linear-gradient(135deg,#C2185B,#FF5C8A)', border:'2px solid white', boxShadow:'0 6px 20px rgba(194,24,91,0.6)', animation:'comboIn 0.4s cubic-bezier(0.34,1.56,0.64,1) both' }}>
+            <img src={`${BASE}characters/life.png`} alt="" style={{ width:24, height:24, borderRadius:'50%', objectFit:'cover' }}/>
+            <span style={{ fontSize:14, fontWeight:900, color:'white' }}>하트 −1</span>
+            <span style={{ fontSize:12, fontWeight:800, color:'rgba(255,255,255,0.85)' }}>· 남은 {lives}/{LIVES_MAX}</span>
+          </div>
         </div>
       )}
 
