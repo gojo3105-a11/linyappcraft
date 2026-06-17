@@ -435,6 +435,11 @@ const GAME_CSS = `
     0%   { transform:scale(0.5); opacity:0.95; }
     100% { transform:scale(2.4); opacity:0; }
   }
+  @keyframes sparkConverge {
+    0%   { opacity:0; transform:translate(-50%,-50%) scale(2.6) rotate(-30deg); }
+    45%  { opacity:1; transform:translate(-50%,-50%) scale(1.1) rotate(0deg); }
+    100% { opacity:0; transform:translate(-50%,-50%) scale(0.5) rotate(20deg); }
+  }
   @keyframes shardFly {
     0%   { transform:translate(0,0) scale(1); opacity:1; }
     100% { transform:translate(var(--sx), var(--sy)) scale(0.3); opacity:0; }
@@ -490,6 +495,7 @@ export default function LinyDoryGame() {
   const [popup, setPopup]         = useState<string|null>(null);
   const [popKind, setPopKind]     = useState<'combo'|'special'>('combo');
   const [flames, setFlames]       = useState<{id:number;r:number;c:number}[]>([]);
+  const [sparks, setSparks]       = useState<{id:number;r:number;c:number}[]>([]);
   const [blocksPopped, setBlocksPopped] = useState(0);
   const [screenShake, setScreenShake] = useState(false);
   const [confetti, setConfetti]   = useState<{id:number;left:number;delay:number;color:string;e:string}[]>([]);
@@ -608,6 +614,15 @@ export default function LinyDoryGame() {
     setTimeout(() => setFlames(p => p.filter(f => !ids.has(f.id))), 600);
   }, []);
 
+  // 빛이 블럭으로 모여드는 스파클 효과(보너스 연출용)
+  const spawnSparks = useCallback((keys: Iterable<string>) => {
+    const arr = [...keys].map(k => { const [r,c]=k.split(',').map(Number); return { id: ++_fid, r, c }; });
+    if (!arr.length) return;
+    setSparks(p => [...p.slice(-30), ...arr]);
+    const ids = new Set(arr.map(a => a.id));
+    setTimeout(() => setSparks(p => p.filter(f => !ids.has(f.id))), 450);
+  }, []);
+
   useEffect(() => {
     const refresh = () => setCoins(loadCoins());
     window.addEventListener('coins-updated', refresh);
@@ -706,6 +721,32 @@ export default function LinyDoryGame() {
     setPhase('end');
   }, [clearHint, progress]);
 
+  // 클리어 피날레 — 남은 이동 횟수가 빛처럼 날아와 블럭을 터트려 점수에 합산
+  const runFinale = useCallback(async () => {
+    resolvingRef.current = true;
+    const leftover = Math.max(0, movesRef.current);
+    movesRef.current = 0; setMovesLeft(0);
+    let bonus = Math.min(leftover, 20);
+    if (leftover > 0) { pop(`🎉 남은 ${leftover}수 보너스!`, 'special'); sfx.special(); }
+    while (bonus > 0 && phaseRef.current === 'play') {
+      const g = gRef.current;
+      const cells: [number,number][] = [];
+      for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) { const cc=g[r][c]; if (cc && !cc.hit) cells.push([r,c]); }
+      if (!cells.length) break;
+      const [r,c] = cells[Math.floor(Math.random()*cells.length)];
+      spawnSparks([`${r},${c}`]);            // 빛이 블럭으로 모임
+      await wait(70);
+      const ng = g.map(row => row.map(x => x ? {...x} : null));
+      if (ng[r][c]) ng[r][c]!.hit = true;
+      push(ng); inc(300); sfx.pop(4); spawnFlames([`${r},${c}`]); buzz(8);
+      bonus--;
+      await wait(95);
+    }
+    await wait(250);
+    resolvingRef.current = false;
+    endGame();
+  }, [push, inc, pop, endGame, spawnFlames, spawnSparks]);
+
   // 시간/이동이 다 떨어졌을 때 — 이어하기 제안 가능하면 일시정지하고 제안, 아니면 종료
   const outOfResource = useCallback(() => {
     if (continuesUsedRef.current < MAX_CONTINUES) {
@@ -781,7 +822,7 @@ export default function LinyDoryGame() {
     sessionBlocksRef.current=0; sessionSpecialsRef.current=0;
     tutorialPlayRef.current=false; setTutorialPlay(false); setTutMatches(0); tutMatchesRef.current=0;
     setTimeLeft(STAGE_TIME);
-    setFlames([]); setScreenShake(false); setConfetti([]); setCoinsEarned(0);
+    setFlames([]); setSparks([]); setScreenShake(false); setConfetti([]); setCoinsEarned(0);
     setContinuesUsed(0); setContinueOffer(false); setBlocksPopped(0);
     primeAudio();
     const mv = (lvl as {moves?:number}).moves ?? 0; movesRef.current=mv;
@@ -894,11 +935,14 @@ export default function LinyDoryGame() {
     }
     if (phaseRef.current === 'play') {
       // 별 3개(목표 점수) 달성 → 즉시 스테이지 클리어
-      if (scoreRef.current >= LEVELS[lvlRef.current].goal[2]) { endGame(); return; }
+      if (scoreRef.current >= LEVELS[lvlRef.current].goal[2]) {
+        if (!tutorialPlayRef.current && movesRef.current > 0) { runFinale(); return; }
+        endGame(); return;
+      }
       if (LEVELS[lvlRef.current].mode === 'moves' && movesRef.current <= 0) { outOfResource(); return; }
       scheduleHint();
     }
-  }, [push, inc, pop, endGame, outOfResource, scheduleHint, spawnFlames, kickScreen]);
+  }, [push, inc, pop, endGame, outOfResource, scheduleHint, spawnFlames, kickScreen, runFinale]);
 
   // 두 칸 교환 시도 — 유효하면 즉시 커밋하고 리졸버를 가동(입력 잠금 없음)
   const trySwap = useCallback((sr: number, sc: number, r: number, c: number) => {
@@ -1810,6 +1854,19 @@ export default function LinyDoryGame() {
                 filter:'drop-shadow(0 0 7px rgba(255,110,0,0.95)) drop-shadow(0 0 3px rgba(255,210,0,0.9))',
                 animation:'flameBurst 0.6s ease-out forwards',
               }}>🔥</span>
+            ))}
+            {sparks.map(f => (
+              <span key={f.id} style={{
+                position:'absolute',
+                left:`${((f.c+0.5)/COLS)*100}%`,
+                top:`${((f.r+0.5)/ROWS)*100}%`,
+                fontSize:'clamp(22px,6vw,32px)',
+                lineHeight:1,
+                pointerEvents:'none',
+                zIndex:7,
+                filter:'drop-shadow(0 0 8px rgba(255,255,180,1)) drop-shadow(0 0 4px rgba(255,230,120,1))',
+                animation:'sparkConverge 0.45s ease-out forwards',
+              }}>✨</span>
             ))}
             {Array.from({ length: ROWS * COLS }, (_, idx) => {
               const row = Math.floor(idx / COLS);
