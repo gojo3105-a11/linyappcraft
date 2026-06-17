@@ -28,12 +28,15 @@ const BASE = import.meta.env.BASE_URL;
 // 블럭 캐릭터 아이콘 (public/characters/block{n}.png)
 const BLK = (n: number) => `${BASE}characters/block${n}.png`;
 const TILES = [
-  { img: BLK(1), bg: 'linear-gradient(145deg,#FFD54F,#FF8F00)', glow: '#FFB300' }, // 금발 행복
-  { img: BLK(2), bg: 'linear-gradient(145deg,#64B5F6,#1565C0)', glow: '#42A5F5' }, // 정장 시크
-  { img: BLK(3), bg: 'linear-gradient(145deg,#F48FB1,#AD1457)', glow: '#EC407A' }, // 핑크 홀로그램
-  { img: BLK(4), bg: 'linear-gradient(145deg,#80DEEA,#00838F)', glow: '#26C6DA' }, // 번개 놀람
-  { img: BLK(5), bg: 'linear-gradient(145deg,#AED581,#33691E)', glow: '#7CB342' }, // 우는 고슴도치
-  { img: BLK(6), bg: 'linear-gradient(145deg,#CE93D8,#6A1B9A)', glow: '#AB47BC' }, // 동글안경 행복
+  { img: BLK(1), bg: 'linear-gradient(145deg,#FFD54F,#FF8F00)', glow: '#FFB300' }, // 1 금발 행복(골드)
+  { img: BLK(2), bg: 'linear-gradient(145deg,#64B5F6,#1565C0)', glow: '#42A5F5' }, // 2 정장 시크(블루)
+  { img: BLK(3), bg: 'linear-gradient(145deg,#F48FB1,#AD1457)', glow: '#EC407A' }, // 3 핑크 홀로그램(핑크)
+  { img: BLK(4), bg: 'linear-gradient(145deg,#80DEEA,#00838F)', glow: '#26C6DA' }, // 4 번개 놀람(시안)
+  { img: BLK(5), bg: 'linear-gradient(145deg,#AED581,#33691E)', glow: '#7CB342' }, // 5 우는 고슴도치(그린)
+  { img: BLK(6), bg: 'linear-gradient(145deg,#CE93D8,#6A1B9A)', glow: '#AB47BC' }, // 6 동글안경 행복(퍼플)
+  { img: BLK(7), bg: 'linear-gradient(145deg,#FF8A65,#BF360C)', glow: '#FF7043' }, // 7 (코랄/레드)
+  { img: BLK(8), bg: 'linear-gradient(145deg,#DCE775,#9E9D24)', glow: '#CDDC39' }, // 8 (라임)
+  { img: BLK(9), bg: 'linear-gradient(145deg,#9FA8DA,#283593)', glow: '#5C6BC0' }, // 9 (인디고)
 ] as const;
 
 type TileKind = 'normal' | 'lightning' | 'bomb';
@@ -64,14 +67,14 @@ const MAPS = [
 const LEVELS: { mode: 'time' | 'moves'; sec?: number; moves?: number; types: number; goal: readonly [number, number, number] }[] = [
   { mode: 'moves', moves: 30, types: 4, goal: [400,  1000,  2000] },
   { mode: 'moves', moves: 30, types: 4, goal: [600,  1500,  3000] },
-  { mode: 'moves', moves: 28, types: 4, goal: [800,  2000,  4000] },
+  { mode: 'moves', moves: 28, types: 5, goal: [800,  2000,  4000] },
   { mode: 'moves', moves: 28, types: 5, goal: [1100, 2800,  5500] },
-  { mode: 'moves', moves: 26, types: 5, goal: [1500, 3600,  7000] },
-  { mode: 'moves', moves: 26, types: 5, goal: [1900, 4500,  9000] },
-  { mode: 'moves', moves: 25, types: 6, goal: [2400, 5500, 11000] },
-  { mode: 'moves', moves: 25, types: 6, goal: [3000, 7000, 14000] },
-  { mode: 'moves', moves: 24, types: 6, goal: [3800, 8500, 17000] },
-  { mode: 'moves', moves: 24, types: 6, goal: [4800, 11000, 22000] },
+  { mode: 'moves', moves: 27, types: 6, goal: [1500, 3600,  7000] },
+  { mode: 'moves', moves: 27, types: 6, goal: [1900, 4500,  9000] },
+  { mode: 'moves', moves: 27, types: 7, goal: [2400, 5500, 11000] },
+  { mode: 'moves', moves: 28, types: 7, goal: [3000, 7000, 14000] },
+  { mode: 'moves', moves: 30, types: 8, goal: [3800, 8500, 17000] },
+  { mode: 'moves', moves: 32, types: 9, goal: [4800, 11000, 22000] },
 ];
 
 // 스테이지 인덱스 → 난이도 등급(표시용)
