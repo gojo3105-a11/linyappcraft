@@ -57,19 +57,19 @@ const MAPS = [
 
 // 스테이지가 올라갈수록 난이도 상승:
 //  - 블럭 종류(types) 증가 → 매치 난이도 ↑
-//  - 제한 시간/이동 횟수 감소
-//  - 목표 점수(goal) 상승
-const LEVELS = [
-  { mode: 'time'  as const, sec: 75,   types: 4, goal: [400,  1000,  2000] as const },
-  { mode: 'time'  as const, sec: 65,   types: 4, goal: [600,  1500,  3000] as const },
-  { mode: 'moves' as const, moves: 28, types: 4, goal: [800,  2000,  4000] as const },
-  { mode: 'time'  as const, sec: 60,   types: 5, goal: [1100, 2800,  5500] as const },
-  { mode: 'moves' as const, moves: 25, types: 5, goal: [1500, 3600,  7000] as const },
-  { mode: 'time'  as const, sec: 52,   types: 5, goal: [1900, 4500,  9000] as const },
-  { mode: 'moves' as const, moves: 22, types: 6, goal: [2400, 5500, 11000] as const },
-  { mode: 'time'  as const, sec: 46,   types: 6, goal: [3000, 7000, 14000] as const },
-  { mode: 'moves' as const, moves: 20, types: 6, goal: [3800, 8500, 17000] as const },
-  { mode: 'time'  as const, sec: 40,   types: 6, goal: [4800, 11000, 22000] as const },
+//  - 이동 횟수(moves) 제한 / 목표 점수(goal) 상승
+// 모든 스테이지는 이동 횟수 모드(시간 제한 없음)로 통일.
+const LEVELS: { mode: 'time' | 'moves'; sec?: number; moves?: number; types: number; goal: readonly [number, number, number] }[] = [
+  { mode: 'moves', moves: 30, types: 4, goal: [400,  1000,  2000] },
+  { mode: 'moves', moves: 30, types: 4, goal: [600,  1500,  3000] },
+  { mode: 'moves', moves: 28, types: 4, goal: [800,  2000,  4000] },
+  { mode: 'moves', moves: 28, types: 5, goal: [1100, 2800,  5500] },
+  { mode: 'moves', moves: 26, types: 5, goal: [1500, 3600,  7000] },
+  { mode: 'moves', moves: 26, types: 5, goal: [1900, 4500,  9000] },
+  { mode: 'moves', moves: 25, types: 6, goal: [2400, 5500, 11000] },
+  { mode: 'moves', moves: 25, types: 6, goal: [3000, 7000, 14000] },
+  { mode: 'moves', moves: 24, types: 6, goal: [3800, 8500, 17000] },
+  { mode: 'moves', moves: 24, types: 6, goal: [4800, 11000, 22000] },
 ];
 
 // 스테이지 인덱스 → 난이도 등급(표시용)
@@ -1488,23 +1488,21 @@ export default function LinyDoryGame() {
         </div>
       </div>
 
-      {/* 목표 점수(별 3개) · 남은 터트릴 블럭 수 표시 */}
+      {/* 목표 점수 · 현재 점수 표시 */}
       {(() => {
-        const goal3 = lvl.goal[2];                 // 별 3개 목표 점수
+        const goal3 = lvl.goal[2];                 // 별 3개(클리어) 목표 점수
         const goalDone = score >= goal3;
-        // 남은 점수를 블럭 개수로 환산(블럭당 기본 100점) — 목표까지 대략 더 터트릴 블럭 수
-        const blocksLeft = Math.max(0, Math.ceil((goal3 - score) / 100));
         return (
           <div style={{ flexShrink:0, position:'relative', zIndex:10, display:'flex', justifyContent:'center', gap:8, margin:'6px 10px 0' }}>
             <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(255,255,255,0.88)', borderRadius:999, padding:'4px 12px', boxShadow:'0 2px 6px rgba(0,0,0,0.18)' }}>
               <span style={{ fontSize:12 }}>🎯</span>
               <span style={{ fontSize:11, fontWeight:800, color:'#888' }}>목표 ⭐⭐⭐</span>
-              <span style={{ fontSize:13, fontWeight:900, color: goalDone ? '#2E9E4F' : '#FF6F00' }}>{goalDone ? '달성!' : goal3.toLocaleString()}</span>
+              <span style={{ fontSize:13, fontWeight:900, color:'#FF6F00' }}>{goal3.toLocaleString()}</span>
             </div>
             <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(255,255,255,0.88)', borderRadius:999, padding:'4px 12px', boxShadow:'0 2px 6px rgba(0,0,0,0.18)' }}>
-              <span style={{ fontSize:12 }}>🧱</span>
-              <span style={{ fontSize:11, fontWeight:800, color:'#888' }}>남은 블럭</span>
-              <span style={{ fontSize:13, fontWeight:900, color: blocksLeft===0 ? '#2E9E4F' : '#1565C0' }}>{blocksLeft===0 ? '완료!' : `~${blocksLeft.toLocaleString()}`}</span>
+              <span style={{ fontSize:12 }}>📊</span>
+              <span style={{ fontSize:11, fontWeight:800, color:'#888' }}>현재</span>
+              <span style={{ fontSize:13, fontWeight:900, color: goalDone ? '#2E9E4F' : '#1565C0' }}>{score.toLocaleString()}</span>
             </div>
           </div>
         );
