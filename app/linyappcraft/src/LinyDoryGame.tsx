@@ -779,8 +779,9 @@ export default function LinyDoryGame() {
       movesRef.current = Math.max(0, movesRef.current-1);
       setMovesLeft(movesRef.current);
     }
-    // 특수 블럭을 일반 블럭과 바꾸면 즉시 발동(주변 표시)
-    if (!matched && (srcSpec || dstSpec)) {
+    // 특수 블럭이 관여하면 매치 여부와 무관하게 항상 즉시 발동
+    // (다른 특수 블럭이 터지는 중이라도 — 보류 중인 hit 칸 때문에 매치로 오판돼 이동만 되던 버그 수정)
+    if (srcSpec || dstSpec) {
       const hits = new Set<string>();
       if (srcSpec) hits.add(`${r},${c}`);
       if (dstSpec) hits.add(`${sr},${sc}`);
