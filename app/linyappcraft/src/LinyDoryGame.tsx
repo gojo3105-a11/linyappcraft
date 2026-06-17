@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { questAddGameCleared, questUpdateMaxCombo, questAddSpecials, questAddBlocks, questClaim, loadQuests, loadCoins, spendCoins, addCoins, loadBoosters, saveBoosters, QUESTS, type BoosterKind, type QuestSave } from './quest';
+import { loadCoins, spendCoins, addCoins, loadBoosters, saveBoosters, type BoosterKind } from './quest';
 import { sGet, sSet, getScope, setScope } from './store';
 import { tossLogin, fetchUserKey } from './toss';
 import { sfx, buzz, primeAudio, isMuted, toggleMuted } from './sfx';
@@ -426,7 +426,6 @@ export default function LinyDoryGame() {
   const [movesLeft, setMovesLeft] = useState(0);
   const [popup, setPopup]         = useState<string|null>(null);
   const [popKind, setPopKind]     = useState<'combo'|'special'>('combo');
-  const [shakeCells, setShakeCells] = useState<string[]>([]);
   const [flames, setFlames]       = useState<{id:number;r:number;c:number}[]>([]);
   const [blocksPopped, setBlocksPopped] = useState(0);
   const [screenShake, setScreenShake] = useState(false);
@@ -437,8 +436,6 @@ export default function LinyDoryGame() {
   const [hintPair, setHintPair]   = useState<[[number,number],[number,number]]|null>(null);
   const [isLucky,  setIsLucky]    = useState(false);
   const [nearMiss, setNearMiss]   = useState(false);
-  const [quests,   setQuests]     = useState<QuestSave>(loadQuests);
-  const [showQuests, setShowQuests] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutStep, setTutStep]     = useState(0);
   const [continueOffer, setContinueOffer] = useState(false);
@@ -473,8 +470,6 @@ export default function LinyDoryGame() {
   const phaseRef     = useRef<Phase>(phase);
   const boostersRef  = useRef(boosters);
   const dragRef      = useRef<{r:number;c:number;x:number;y:number;moved:boolean}|null>(null);
-  const sessionBlocksRef   = useRef(0);  // 이번 판에 터트린 블럭 수(퀘스트 집계용)
-  const sessionSpecialsRef = useRef(0);  // 이번 판에 만든 특수 블럭 수
   const continuesUsedRef   = useRef(0);  // 이번 판 이어하기 사용 횟수
   const pausedRef          = useRef(false); // 이어하기 제안 중 입력/타이머 정지
 
@@ -539,7 +534,6 @@ export default function LinyDoryGame() {
       setProgress(loadProg());
       setCoins(loadCoins());
       setBoosters(loadBoosters());
-      setQuests(loadQuests());
     };
     window.addEventListener('scope-changed', onScope);
     return () => window.removeEventListener('scope-changed', onScope);
@@ -571,11 +565,6 @@ export default function LinyDoryGame() {
     const s = calcStars(scoreRef.current, LEVELS[li].goal);
     const goal0 = LEVELS[li].goal[0];
     setNearMiss(s === 0 && scoreRef.current >= goal0 * 0.72 && scoreRef.current < goal0);
-    // 이번 판에 누적된 블럭/특수 블럭 집계를 일일 퀘스트에 반영
-    questAddBlocks(sessionBlocksRef.current);   sessionBlocksRef.current = 0;
-    questAddSpecials(sessionSpecialsRef.current); sessionSpecialsRef.current = 0;
-    if (s > 0) questAddGameCleared();
-    setQuests(loadQuests());
     // 클리어 보상 코인 — 기록 갱신이면 전액, 재도전이면 25%
     const prevStars = progress[li] ?? 0;
     let earned = CLEAR_COINS[s];
@@ -668,14 +657,13 @@ export default function LinyDoryGame() {
     gRef.current=g; scoreRef.current=0; lvlRef.current=idx;
     resolvingRef.current=false; dirtyRef.current=false; comboRef.current=0;
     lastSwapRef.current=null; dragRef.current=null;
-    sessionBlocksRef.current=0; sessionSpecialsRef.current=0;
     continuesUsedRef.current=0; pausedRef.current=false;
     setFlames([]); setScreenShake(false); setConfetti([]); setCoinsEarned(0);
     setContinuesUsed(0); setContinueOffer(false); setBlocksPopped(0);
     primeAudio();
     const mv = (lvl as {moves?:number}).moves ?? 0; movesRef.current=mv;
     setLvlIdx(idx); setGrid(g); setScore(0); setTime((lvl as {sec?:number}).sec ?? 0);
-    setMovesLeft(mv); setSel(null); setShakeCells([]); setPopup(null); setFloats([]);
+    setMovesLeft(mv); setSel(null); setPopup(null); setFloats([]);
     setNearMiss(false); setIsLucky(false); luckyRef.current = false;
     setBoosterMode(null);
     setPhase('play');
@@ -708,9 +696,6 @@ export default function LinyDoryGame() {
           comboRef.current++;
           const combo = comboRef.current;
           push(res.nextG);
-          // 퀘스트 집계: 터트린 블럭 수 / 만든 특수 블럭 수
-          sessionBlocksRef.current   += res.hits.size;
-          sessionSpecialsRef.current += res.newSpec.size;
           setBlocksPopped(n => n + res.hits.size);
           // 폭탄이 터지면 불길 효과 + 화면 흔들림
           const bombHit = [...res.hits].some(k => { const [r,c]=k.split(',').map(Number); return g[r][c]?.kind==='bomb'; });
@@ -728,7 +713,6 @@ export default function LinyDoryGame() {
           } else if (combo >= 2) {
             sfx.combo(combo);
             pop(`${combo}x COMBO! +${pts.toLocaleString()}`, 'combo');
-            if (combo >= 5) setQuests(questUpdateMaxCombo(combo));
           }
           await wait(280);
           push(applyFall(gRef.current, LEVELS[lvlRef.current].types, mapRef.current));
@@ -766,14 +750,7 @@ export default function LinyDoryGame() {
     [sw[sr][sc], sw[r][c]] = [sw[r][c], sw[sr][sc]];
     const srcSpec = sw[r][c]?.kind !== 'normal';
     const dstSpec = sw[sr][sc]?.kind !== 'normal';
-    const matched = hasAnyMatch(sw);
-    if (!matched && !srcSpec && !dstSpec) {
-      // 무효 스왑 — 커밋하지 않고 흔들림 피드백만
-      sfx.invalid();
-      setShakeCells([`${sr},${sc}`, `${r},${c}`]);
-      setTimeout(() => setShakeCells([]), 300);
-      return;
-    }
+    // 매치가 안 돼도 이동은 항상 허용하고, 이동 횟수는 무조건 1 차감한다.
     sfx.swap(); buzz(8);
     clearHint();
     if (LEVELS[lvlRef.current].mode === 'moves') {
@@ -781,7 +758,6 @@ export default function LinyDoryGame() {
       setMovesLeft(movesRef.current);
     }
     // 특수 블럭이 관여하면 매치 여부와 무관하게 항상 즉시 발동
-    // (다른 특수 블럭이 터지는 중이라도 — 보류 중인 hit 칸 때문에 매치로 오판돼 이동만 되던 버그 수정)
     if (srcSpec || dstSpec) {
       const hits = new Set<string>();
       if (srcSpec) hits.add(`${r},${c}`);
@@ -789,7 +765,6 @@ export default function LinyDoryGame() {
       expandSpecials(hits, sw);
       hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell=sw[rr][cc]; if(cell) cell.hit=true; });
       inc(hits.size*120);
-      sessionBlocksRef.current += hits.size;
       setBlocksPopped(n => n + hits.size);
       spawnFlames(hits); kickScreen(); sfx.explode(); buzz(25);
       pop((srcSpec ? sw[r][c]?.kind : sw[sr][sc]?.kind) === 'bomb' ? '💣 BOOM!' : '⚡ ZAP!', 'special');
@@ -820,7 +795,6 @@ export default function LinyDoryGame() {
     expandSpecials(hits, sw);
     hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell2=sw[rr][cc]; if(cell2) cell2.hit=true; });
     inc(hits.size*80);
-    sessionBlocksRef.current += hits.size;
     setBlocksPopped(n => n + hits.size);
     spawnFlames(hits); kickScreen(); sfx.explode(); buzz(25); // 아이템 사용 시 불길 효과
     pop(kind==='bomb' ? '💣 폭탄 발동!' : '🔨 망치 발동!', 'special');
@@ -1281,60 +1255,10 @@ export default function LinyDoryGame() {
           <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(0,0,0,0.55)', borderRadius:999, padding:'5px 10px', border:'1.5px solid rgba(255,180,0,0.35)' }}>
             <span style={{ fontSize:14 }}>🪙</span><span style={{ fontSize:13, fontWeight:900, color:'#FFE566' }}>{coins.toLocaleString()}</span>
           </div>
-          <button onClick={() => { setQuests(loadQuests()); setShowQuests(true); }} style={{ position:'relative', width:34, height:34, borderRadius:'50%', background:'rgba(0,0,0,0.55)', border:'1.5px solid rgba(255,180,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, cursor:'pointer' }}>
-            📋
-            {(() => { const cnt = QUESTS.filter(qd => qd.metric(quests) >= qd.target && !quests.claimed[qd.key]).length; return cnt > 0 ? <span style={{ position:'absolute', top:-4, right:-4, width:14, height:14, borderRadius:'50%', background:'#FF3030', border:'1.5px solid white', fontSize:9, fontWeight:900, color:'white', display:'flex', alignItems:'center', justifyContent:'center', animation:'questBadge 1s ease infinite' }}>{cnt}</span> : null; })()}
-          </button>
           <button onClick={() => { sfx.click(); setRanking(getLeaderboard(loadWeeklyBest())); setShowRanking(true); }} style={{ width:34, height:34, borderRadius:'50%', background:'rgba(0,0,0,0.55)', border:'1.5px solid rgba(120,160,255,0.45)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, cursor:'pointer' }}>
             🏆
           </button>
         </div>
-
-        {/* Quest Panel Overlay */}
-        {showQuests && (
-          <div style={{ position:'absolute', inset:0, zIndex:50, background:'rgba(0,0,0,0.75)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
-            <div style={{ width:'100%', maxWidth:340, background:'linear-gradient(160deg,#0d1a0d,#1a1a0d)', borderRadius:20, border:'2px solid rgba(255,180,0,0.35)', boxShadow:'0 20px 60px rgba(0,0,0,0.8)', overflow:'hidden' }}>
-              <div style={{ padding:'16px 16px 12px', borderBottom:'1px solid rgba(255,180,0,0.2)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                <span style={{ fontSize:16, fontWeight:900, color:'#FFD700', letterSpacing:1 }}>📋 일일 퀘스트</span>
-                <button onClick={() => setShowQuests(false)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'rgba(255,255,255,0.6)', lineHeight:1 }}>✕</button>
-              </div>
-              <div style={{ padding:12, display:'flex', flexDirection:'column', gap:8, maxHeight:'68vh', overflowY:'auto' }}>
-                {QUESTS.map(qd => {
-                  const current = qd.metric(quests);
-                  const claimed = quests.claimed[qd.key];
-                  const done = current >= qd.target;
-                  const diffColor = qd.difficulty==='쉬움' ? '#66BB6A' : qd.difficulty==='보통' ? '#FFB300' : '#EF5350';
-                  return (
-                    <div key={qd.key} style={{ padding:'10px 12px', borderRadius:12, background: claimed ? 'rgba(255,255,255,0.04)' : done ? 'rgba(255,180,0,0.1)' : 'rgba(255,255,255,0.05)', border: `1px solid ${claimed ? 'rgba(255,255,255,0.1)' : done ? 'rgba(255,180,0,0.4)' : 'rgba(255,255,255,0.1)'}`, display:'flex', alignItems:'center', gap:10 }}>
-                      <span style={{ fontSize:20, opacity: claimed ? 0.4 : 1 }}>{qd.icon}</span>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                          <span style={{ fontSize:12, fontWeight:800, color: claimed ? 'rgba(255,255,255,0.35)' : 'white' }}>{qd.label}</span>
-                          <span style={{ fontSize:8, fontWeight:900, color:diffColor, border:`1px solid ${diffColor}`, borderRadius:999, padding:'1px 5px', opacity: claimed?0.4:1 }}>{qd.difficulty}</span>
-                        </div>
-                        <div style={{ fontSize:10, color:'rgba(255,255,255,0.45)', marginTop:2 }}>
-                          {claimed ? '완료 ✓' : `${Math.min(current, qd.target)} / ${qd.target}`} · 🪙 {qd.reward.toLocaleString()}
-                        </div>
-                        {!claimed && <div style={{ marginTop:4, height:4, borderRadius:999, background:'rgba(255,255,255,0.1)', overflow:'hidden' }}>
-                          <div style={{ height:'100%', borderRadius:999, background:'linear-gradient(90deg,#FF8C00,#FFD700)', width:`${Math.min((current/qd.target)*100,100)}%`, transition:'width 0.3s' }}/>
-                        </div>}
-                      </div>
-                      {done && !claimed && (
-                        <button onClick={() => { const r = questClaim(qd.key); if (r.success) { setQuests(loadQuests()); pop(`${r.reward} 수령!`, 'special'); } }} style={{ padding:'6px 10px', borderRadius:999, background:'linear-gradient(135deg,#FF8C00,#FFD700)', border:'none', cursor:'pointer', fontSize:10, fontWeight:900, color:'#3D1C00', whiteSpace:'nowrap' }}>
-                          수령 🪙{qd.reward.toLocaleString()}
-                        </button>
-                      )}
-                      {claimed && <span style={{ fontSize:18, opacity:0.5 }}>✅</span>}
-                    </div>
-                  );
-                })}
-                <div style={{ padding:'8px 12px', borderRadius:10, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)', fontSize:10, color:'rgba(255,255,255,0.35)', textAlign:'center' }}>
-                  🪙 모은 코인: <span style={{ color:'#FFE566', fontWeight:800 }}>{coins.toLocaleString()}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
         <div style={{ position:'absolute', bottom:'calc(var(--sab) + clamp(60px,10vh,80px))', left:0, right:0, display:'flex', flexDirection:'column', alignItems:'center', gap:'clamp(10px,2.5vh,16px)', padding:'0 clamp(16px,5vw,32px)' }}>
           <div style={{ display:'flex', alignItems:'flex-end', gap:10 }}>
@@ -1605,7 +1529,6 @@ export default function LinyDoryGame() {
                 (hintPair[1][0]===row && hintPair[1][1]===col)
               );
 
-              const isShake = shakeCells.includes(`${row},${col}`);
               return (
                 <button key={cell.id}
                   onPointerDown={(e)=>onTilePointerDown(e,row,col)}
@@ -1632,11 +1555,9 @@ export default function LinyDoryGame() {
                     opacity: cell.hit ? undefined : 1,
                     transition: 'transform 0.12s ease',
                     cursor: 'pointer',
-                    // 터질 때 자연스럽게 부풀었다 사라지는 효과(popOut), 무효 스왑은 흔들림(tileShake)
+                    // 터질 때 자연스럽게 부풀었다 사라지는 효과(popOut)
                     animation: cell.hit
                       ? 'popOut 0.28s ease-out forwards'
-                      : isShake
-                      ? 'tileShake 0.3s ease'
                       : isHint && !isSel
                       ? 'hintGlow 0.75s ease infinite'
                       : undefined,
