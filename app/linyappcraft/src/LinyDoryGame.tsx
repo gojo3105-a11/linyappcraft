@@ -5,6 +5,7 @@ import { tossLogin, fetchUserKey } from './toss';
 import { sfx, buzz, primeAudio, isMuted, toggleMuted } from './sfx';
 import { submitScore, loadWeeklyBest, getLeaderboard, type LBEntry } from './leaderboard';
 import { CHANNEL_URL } from './episodes';
+import { Icon } from './icons';
 
 // 부스터(블럭 제거 아이템) 상점 정보
 // price = 코인 가격, cash = 시뮬레이션 현금 결제 가격(원)
@@ -1344,20 +1345,17 @@ export default function LinyDoryGame() {
         <div style={{ position:'absolute', top:0, left:0, right:0, height:120, background:'linear-gradient(180deg,rgba(5,15,5,0.85) 0%,transparent 100%)' }}/>
         <div style={{ position:'absolute', bottom:0, left:0, right:0, height:'clamp(180px,40vh,260px)', background:'linear-gradient(0deg,rgba(5,15,5,0.97) 0%,rgba(5,15,5,0.65) 65%,transparent 100%)' }}/>
         <div style={{ position:'absolute', top:0, left:0, right:0, padding:'calc(var(--sat) + clamp(10px,2.5vh,16px)) clamp(10px,3vw,16px) 0', display:'flex', alignItems:'center', gap:'clamp(5px,1.5vw,8px)' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:4, background:'rgba(0,0,0,0.55)', borderRadius:999, padding:'5px 10px', border:'1.5px solid rgba(255,80,80,0.4)' }}>
-            <span style={{ fontSize:14 }}>❤️</span>
+          <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(0,0,0,0.55)', borderRadius:999, padding:'5px 10px', border:'1.5px solid rgba(255,80,80,0.4)' }}>
+            <Icon name="heart" size={15} color="#FF5C6C" />
             <span style={{ fontSize:13, fontWeight:900, color:'white' }}>5</span>
             <span style={{ fontSize:10, color:'rgba(255,255,255,0.45)', fontWeight:700 }}>/5</span>
           </div>
-          <div style={{ display:'flex', alignItems:'center', gap:3, background:'rgba(0,0,0,0.55)', borderRadius:999, padding:'5px 10px', border:'1.5px solid rgba(100,200,100,0.35)' }}>
-            <span style={{ fontSize:11, fontWeight:800, color:'#66BB6A' }}>⏰ 충전완료</span>
-          </div>
           <div style={{ flex:1 }}/>
           <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(0,0,0,0.55)', borderRadius:999, padding:'5px 10px', border:'1.5px solid rgba(255,180,0,0.35)' }}>
-            <span style={{ fontSize:14 }}>🪙</span><span style={{ fontSize:13, fontWeight:900, color:'#FFE566' }}>{coins.toLocaleString()}</span>
+            <Icon name="coin" size={16} color="#FFCA28" /><span style={{ fontSize:13, fontWeight:900, color:'#FFE566' }}>{coins.toLocaleString()}</span>
           </div>
-          <button onClick={() => { sfx.click(); setRanking(getLeaderboard(loadWeeklyBest())); setShowRanking(true); }} style={{ width:34, height:34, borderRadius:'50%', background:'rgba(0,0,0,0.55)', border:'1.5px solid rgba(120,160,255,0.45)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, cursor:'pointer' }}>
-            🏆
+          <button onClick={() => { sfx.click(); setRanking(getLeaderboard(loadWeeklyBest())); setShowRanking(true); }} style={{ width:34, height:34, borderRadius:'50%', background:'rgba(0,0,0,0.55)', border:'1.5px solid rgba(120,160,255,0.45)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}>
+            <Icon name="trophy" size={17} color="#9EC0FF" />
           </button>
         </div>
 
@@ -1393,15 +1391,15 @@ export default function LinyDoryGame() {
           </button>
         </div>
         <div style={{ position:'absolute', bottom:0, left:0, right:0, paddingBottom:'var(--sab)', background:'rgba(5,15,5,0.92)', borderTop:'1.5px solid rgba(255,255,255,0.1)', display:'flex', alignItems:'center', justifyContent:'space-around', minHeight:'clamp(56px,8vh,72px)' }}>
-          {[
-            {icon:'🏠',label:'홈',   fn:()=>{},                   active:true },
-            {icon:'🗺️',label:'맵',   fn:()=>setPhase('map'),      active:false},
-            {icon:'📺',label:'유튜브', fn:()=>{ sfx.click(); window.open(CHANNEL_URL, '_blank', 'noopener'); }, active:false},
-            {icon:'🛒',label:'상점', fn:()=>setShowShop(true),    active:false},
-            {icon:'⚙️',label:'설정', fn:()=>setShowSettings(true), active:false},
-          ].map((item,i)=>(
-            <button key={i} onClick={item.fn} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:2, background:'none', border:'none', cursor:'pointer', padding:'6px 10px' }}>
-              <span style={{ fontSize:22, filter:item.active?'drop-shadow(0 0 8px #FFB300)':'none', opacity:item.active?1:0.6 }}>{item.icon}</span>
+          {([
+            {icon:'home'   as const, label:'홈',   fn:()=>{},                   active:true },
+            {icon:'map'    as const, label:'맵',   fn:()=>setPhase('map'),      active:false},
+            {icon:'tv'     as const, label:'유튜브', fn:()=>{ sfx.click(); window.open(CHANNEL_URL, '_blank', 'noopener'); }, active:false},
+            {icon:'shop'   as const, label:'상점', fn:()=>setShowShop(true),    active:false},
+            {icon:'gear'   as const, label:'설정', fn:()=>setShowSettings(true), active:false},
+          ]).map((item,i)=>(
+            <button key={i} onClick={item.fn} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3, background:'none', border:'none', cursor:'pointer', padding:'6px 10px', filter:item.active?'drop-shadow(0 0 6px rgba(255,179,0,0.6))':'none' }}>
+              <Icon name={item.icon} size={23} color={item.active?'#FFB300':'rgba(255,255,255,0.55)'} />
               <span style={{ fontSize:10, fontWeight:700, color:item.active?'#FFB300':'rgba(255,255,255,0.45)' }}>{item.label}</span>
             </button>
           ))}
@@ -1419,7 +1417,7 @@ export default function LinyDoryGame() {
       <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100vh', userSelect:'none', background:'linear-gradient(180deg,#1565C0 0%,#0D47A1 60%,#0A2E6E 100%)', overflow:'hidden' }}>
         <style>{GAME_CSS}</style>
         <div style={{ flexShrink:0, padding:'calc(var(--sat) + clamp(10px,2.5vh,16px)) clamp(12px,4vw,16px) clamp(6px,1.5vh,10px)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-          <button onClick={()=>setPhase('main')} style={{ padding:'6px 12px', borderRadius:999, color:'white', fontSize:14, fontWeight:700, background:'rgba(0,0,0,0.3)', border:'1px solid rgba(255,255,255,0.2)', cursor:'pointer' }}>← 홈</button>
+          <button onClick={()=>setPhase('main')} style={{ display:'flex', alignItems:'center', gap:4, padding:'6px 12px', borderRadius:999, color:'white', fontSize:14, fontWeight:700, background:'rgba(0,0,0,0.3)', border:'1px solid rgba(255,255,255,0.2)', cursor:'pointer' }}><Icon name="back" size={16} color="white" /> 홈</button>
           <span style={{ fontSize:15, fontWeight:900, letterSpacing:1, color:'#FFE566', WebkitTextStroke:'0.5px #FFA500', whiteSpace:'nowrap' }}>리니와도리의 가시소동</span>
           <div style={{ display:'flex', alignItems:'center', gap:4, padding:'6px 12px', borderRadius:999, background:'rgba(0,0,0,0.3)', border:'1px solid rgba(255,255,255,0.2)' }}>
             <span>⭐</span><span style={{ color:'white', fontWeight:700, fontSize:14 }}>{totalStars}/{LEVELS.length*3}</span>
@@ -1517,7 +1515,7 @@ export default function LinyDoryGame() {
               <span key={s} style={{ fontSize:15, filter:s<=curStars?'drop-shadow(0 0 5px #FFD700)':'grayscale(1) opacity(0.3)', transition:'filter 0.3s, transform 0.3s', transform:s<=curStars?'scale(1.1)':'scale(1)' }}>⭐</span>
             ))}
           </div>
-          <button onClick={()=>setPhase('main')} style={{ background:'none', border:'none', cursor:'pointer', fontSize:17, padding:0, lineHeight:1 }}>⚙️</button>
+          <button onClick={()=>setPhase('main')} style={{ background:'none', border:'none', cursor:'pointer', padding:0, lineHeight:1, display:'flex' }}><Icon name="home" size={18} color="#9aa0a6" /></button>
         </div>
       </div>
 
