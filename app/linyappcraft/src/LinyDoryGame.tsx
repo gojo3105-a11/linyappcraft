@@ -892,20 +892,17 @@ export default function LinyDoryGame() {
     const dstSpec = sw[sr][sc]?.kind !== 'normal';
     const miss = !hasAnyMatch(sw) && !srcSpec && !dstSpec;
     clearHint();
-    // 인접 스왑은 헛스왑 포함 항상 이동 1회 소모 (한 곳에서만 차감)
-    if (LEVELS[lvlRef.current].mode === 'moves') {
-      movesRef.current = Math.max(0, movesRef.current-1);
-      setMovesLeft(movesRef.current);
-    }
-    // 매치도 없고 특수 블럭도 아니면 → 잠깐 바꿨다가 제자리로 원위치
+    // 매치도 없고 특수 블럭도 아니면 → 잠깐 바꿨다가 제자리로 원위치 (헛스왑은 이동 차감 안 함)
     if (miss) {
       sfx.invalid();
       push(sw);
-      setTimeout(() => {
-        if (gRef.current === sw) push(g);
-        if (phaseRef.current === 'play' && LEVELS[lvlRef.current].mode === 'moves' && movesRef.current <= 0) outOfResource();
-      }, 220);
+      setTimeout(() => { if (gRef.current === sw) push(g); }, 220);
       return;
+    }
+    // 유효한 스왑(매치/특수 발동)만 이동 1회 소모
+    if (LEVELS[lvlRef.current].mode === 'moves') {
+      movesRef.current = Math.max(0, movesRef.current-1);
+      setMovesLeft(movesRef.current);
     }
     sfx.swap(); buzz(8);
     // 특수 블럭이 관여하면 매치 여부와 무관하게 항상 즉시 발동
@@ -925,7 +922,7 @@ export default function LinyDoryGame() {
     dirtyRef.current = true;
     push(sw);
     resolve();
-  }, [clearHint, inc, pop, push, resolve, spawnFlames, kickScreen, outOfResource]);
+  }, [clearHint, inc, pop, push, resolve, spawnFlames, kickScreen]);
 
   // 부스터(망치/폭탄) 발동 — 선택한 칸에 효과 적용 (입력 잠금 없음)
   const triggerBooster = useCallback((kind: 'hammer'|'bomb', r: number, c: number) => {
