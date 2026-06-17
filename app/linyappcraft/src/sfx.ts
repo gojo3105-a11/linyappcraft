@@ -7,7 +7,7 @@ let muted = sGet<boolean>(MUTE_BASE, false);
 let ctx: AudioContext | null = null;
 
 export const isMuted = () => muted;
-export function setMuted(m: boolean) { muted = m; sSet(MUTE_BASE, m); }
+export function setMuted(m: boolean) { muted = m; sSet(MUTE_BASE, m); if (m) stopBgm(); }
 export function toggleMuted(): boolean { setMuted(!muted); return muted; }
 
 type WinAudioContext = typeof AudioContext;
@@ -47,6 +47,49 @@ function tone(freq: number, dur: number, type: OscillatorType = 'sine', vol = 0.
 export function buzz(ms = 12) {
   if (muted) return;
   try { if ('vibrate' in navigator) navigator.vibrate(ms); } catch { /* noop */ }
+}
+
+// ── 배경음악(BGM) — Web Audio로 합성한 가벼운 루프 ──────────
+let bgmTimer: ReturnType<typeof setInterval> | null = null;
+let bgmStep = 0;
+// C장조 펜타토닉 계열의 밝은 루프(16스텝)
+const BGM_NOTES = [
+  523.25, 659.25, 783.99, 659.25, 587.33, 698.46, 880.00, 698.46,
+  523.25, 659.25, 783.99, 1046.5, 880.00, 783.99, 659.25, 587.33,
+];
+
+export function isBgmOn() { return bgmTimer !== null; }
+
+export function startBgm() {
+  if (muted || bgmTimer) return;
+  if (!ac()) return; // 컨텍스트 준비 안되면(제스처 전) 시작 보류
+  bgmStep = 0;
+  bgmTimer = setInterval(() => {
+    const c = ac(); if (!c) return;
+    const t0 = c.currentTime;
+    const f = BGM_NOTES[bgmStep % BGM_NOTES.length];
+    bgmStep++;
+    // 멜로디 음
+    const osc = c.createOscillator(); const g = c.createGain();
+    osc.type = 'triangle'; osc.frequency.value = f;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.05, t0 + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.34);
+    osc.connect(g).connect(c.destination); osc.start(t0); osc.stop(t0 + 0.4);
+    // 4스텝마다 베이스
+    if (bgmStep % 4 === 1) {
+      const b = c.createOscillator(); const bg = c.createGain();
+      b.type = 'sine'; b.frequency.value = f / 2;
+      bg.gain.setValueAtTime(0.0001, t0);
+      bg.gain.exponentialRampToValueAtTime(0.04, t0 + 0.04);
+      bg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.55);
+      b.connect(bg).connect(c.destination); b.start(t0); b.stop(t0 + 0.6);
+    }
+  }, 370);
+}
+
+export function stopBgm() {
+  if (bgmTimer) { clearInterval(bgmTimer); bgmTimer = null; }
 }
 
 export const sfx = {
