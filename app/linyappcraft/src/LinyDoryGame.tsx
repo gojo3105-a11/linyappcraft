@@ -108,11 +108,11 @@ const saveTutorialDone = () => sSet(TUT_BASE, true);
 
 // 시작 튜토리얼 단계
 const TUTORIAL_STEPS = [
-  { icon: '👋', title: '리니와 도리의 가시소동!', desc: '같은 동물 블럭 3개 이상을 맞춰 터트리는 퍼즐 게임이에요.' },
-  { icon: '👆', title: '드래그로 이동', desc: '블럭을 원하는 방향으로 끌어(스와이프) 옆 블럭과 자리를 바꿔요. 탭으로 선택해도 돼요.' },
-  { icon: '⚡', title: '특수 블럭', desc: '4개 이상 한 번에 터트리면 ⚡(라이트닝), 5개 이상이면 💣(폭탄) 특수 블럭이 생겨요. 2×2 정사각형도 특수 블럭이 돼요!' },
-  { icon: '🔨', title: '아이템 & 콤바인', desc: '망치·폭탄·셔플 아이템으로 위기를 돌파하세요. 블럭이 터지는 동안에도 다른 블럭을 움직일 수 있어요.' },
-  { icon: '🎯', title: '목표 점수 달성', desc: '제한 시간·이동 횟수 안에 목표 점수를 넘기면 별을 얻어요. 스테이지가 오를수록 어려워져요!' },
+  { kind: 'intro'   as const, title: '리니와 도리의 가시소동!', desc: '같은 고슴도치 친구 블럭 3개 이상을 가로·세로로 맞추면 터져요. 화면을 채운 블럭을 터트려 점수를 모으는 퍼즐 게임이에요.' },
+  { kind: 'drag'    as const, title: '① 드래그로 이동', desc: '옮길 블럭을 누른 채 바꾸고 싶은 방향(상하좌우)으로 살짝 끌면 옆 블럭과 자리가 바뀌어요. 탭해서 선택한 뒤 옆 칸을 탭해도 됩니다.' },
+  { kind: 'match'   as const, title: '② 3개 맞춰 터트리기', desc: '같은 친구가 가로 또는 세로로 3개 이상 나란히 모이면 펑! 하고 터지고, 위 블럭이 내려와 빈자리를 채워요. 연쇄로 터지면 콤보 보너스!' },
+  { kind: 'special' as const, title: '③ 특수 블럭 만들기', desc: '한 번에 4개 = ⚡라이트닝(가로·세로 줄 제거), 5개 이상 = 💣폭탄(주변 3×3 제거)! 2×2 정사각형으로 모아도 특수 블럭이 생겨요.' },
+  { kind: 'goal'    as const, title: '④ 목표 점수 달성', desc: '정해진 이동 횟수 안에 목표 점수(⭐⭐⭐)를 넘기면 스테이지 클리어! 별 3개를 모아야 다음 스테이지가 열려요. 망치·폭탄·셔플 아이템도 활용하세요.' },
 ];
 
 interface Cell { id: number; t: number; kind: TileKind; hit: boolean; }
@@ -1004,6 +1004,58 @@ export default function LinyDoryGame() {
       {showTutorial && (() => {
         const step = TUTORIAL_STEPS[tutStep];
         const last = tutStep >= TUTORIAL_STEPS.length - 1;
+        // 실제 블럭 아이콘으로 플레이 장면을 보여주는 작은 일러스트
+        const Tile = ({ t, size = 40, glow = false }: { t: number; size?: number; glow?: boolean }) => (
+          <div style={{ width:size, height:size, borderRadius:'50%', background:TILES[t].bg, border:'2px solid rgba(255,255,255,0.6)', boxShadow: glow ? `0 0 12px ${TILES[t].glow}, 0 2px 5px rgba(0,0,0,0.4)` : '0 2px 5px rgba(0,0,0,0.4)', overflow:'hidden', position:'relative', flexShrink:0 }}>
+            <img src={TILES[t].img} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
+          </div>
+        );
+        const Special = ({ icon, size = 34 }: { icon: string; size?: number }) => (
+          <div style={{ width:size, height:size, borderRadius:'50%', background:'linear-gradient(145deg,#6A1B9A,#E040FB)', border:'2px solid white', display:'flex', alignItems:'center', justifyContent:'center', fontSize:size*0.5, boxShadow:'0 0 12px rgba(224,64,251,0.85)', flexShrink:0 }}>{icon}</div>
+        );
+        const arrow = <span style={{ fontSize:18, color:'#FFD700', fontWeight:900 }}>→</span>;
+        const cap = (txt: string) => <div style={{ fontSize:11, color:'rgba(255,255,255,0.55)', marginTop:2 }}>{txt}</div>;
+        const visual =
+          step.kind === 'intro' ? (
+            <div style={{ display:'flex', gap:6 }}>{[0,1,2,3,4].map(t => <Tile key={t} t={t} size={42}/>)}</div>
+          ) : step.kind === 'drag' ? (
+            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                <div style={{ position:'relative' }}><Tile t={0} size={50} glow/><span style={{ position:'absolute', bottom:-12, right:-10, fontSize:24 }}>👆</span></div>
+                <span style={{ fontSize:26, color:'#FFD700', fontWeight:900 }}>⇆</span>
+                <Tile t={1} size={50}/>
+              </div>
+              {cap('끌어서 옆 블럭과 자리 바꾸기')}
+            </div>
+          ) : step.kind === 'match' ? (
+            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                <Tile t={2} size={44} glow/><Tile t={2} size={44} glow/><Tile t={2} size={44} glow/>
+                <span style={{ fontSize:26 }}>💥</span>
+              </div>
+              {cap('같은 친구 3개 → 펑! 터짐')}
+            </div>
+          ) : step.kind === 'special' ? (
+            <div style={{ display:'flex', flexDirection:'column', gap:10, width:'100%' }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:4 }}>
+                {[0,1,2,3].map(i => <Tile key={i} t={3} size={26}/>)}{arrow}<Special icon="⚡" size={32}/>
+                <span style={{ fontSize:10, color:'rgba(255,255,255,0.6)', marginLeft:4 }}>4개</span>
+              </div>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:4 }}>
+                {[0,1,2,3,4].map(i => <Tile key={i} t={4} size={26}/>)}{arrow}<Special icon="💣" size={32}/>
+                <span style={{ fontSize:10, color:'rgba(255,255,255,0.6)', marginLeft:4 }}>5개+</span>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:8 }}>
+              <div style={{ fontSize:32, letterSpacing:2 }}>⭐⭐⭐</div>
+              <div style={{ display:'flex', gap:6 }}>
+                <span style={{ fontSize:11, fontWeight:800, color:'#3D1C00', background:'linear-gradient(135deg,#FF8C00,#FFD700)', borderRadius:999, padding:'4px 10px' }}>🎯 목표 2,000</span>
+                <span style={{ fontSize:11, fontWeight:800, color:'white', background:'rgba(255,255,255,0.15)', borderRadius:999, padding:'4px 10px' }}>📊 현재 1,650</span>
+              </div>
+              {cap('별 3개(목표 점수) 달성 = 클리어!')}
+            </div>
+          );
         return (
           <div style={{ position:'absolute', inset:0, zIndex:70, background:'rgba(0,0,0,0.82)', backdropFilter:'blur(6px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
             <div style={{ width:'100%', maxWidth:340, background:'linear-gradient(160deg,#0d1a3a,#1a0d2e)', borderRadius:22, border:'2px solid rgba(255,180,0,0.4)', boxShadow:'0 20px 60px rgba(0,0,0,0.8)', overflow:'hidden' }}>
@@ -1011,10 +1063,12 @@ export default function LinyDoryGame() {
                 <span style={{ fontSize:12, fontWeight:800, color:'#FFD700', letterSpacing:1 }}>📖 튜토리얼 {tutStep+1}/{TUTORIAL_STEPS.length}</span>
                 <button onClick={closeTutorial} style={{ background:'none', border:'none', cursor:'pointer', fontSize:12, fontWeight:800, color:'rgba(255,255,255,0.55)' }}>건너뛰기 ✕</button>
               </div>
-              <div style={{ padding:'24px 22px 10px', textAlign:'center' }}>
-                <div style={{ fontSize:56, marginBottom:10, animation:'splashPulse 1.6s ease infinite' }}>{step.icon}</div>
-                <div style={{ fontSize:17, fontWeight:900, color:'white', marginBottom:8 }}>{step.title}</div>
-                <div style={{ fontSize:13, color:'rgba(255,255,255,0.75)', lineHeight:1.6, minHeight:62 }}>{step.desc}</div>
+              <div style={{ padding:'18px 20px 8px', textAlign:'center' }}>
+                <div style={{ minHeight:118, display:'flex', alignItems:'center', justifyContent:'center', marginBottom:12, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:16, padding:12 }}>
+                  {visual}
+                </div>
+                <div style={{ fontSize:16, fontWeight:900, color:'white', marginBottom:8 }}>{step.title}</div>
+                <div style={{ fontSize:13, color:'rgba(255,255,255,0.78)', lineHeight:1.6, minHeight:84 }}>{step.desc}</div>
               </div>
               <div style={{ display:'flex', justifyContent:'center', gap:6, padding:'4px 0 12px' }}>
                 {TUTORIAL_STEPS.map((_,i) => (
