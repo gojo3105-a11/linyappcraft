@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { loadCoins, spendCoins, addCoins, loadBoosters, saveBoosters, loadLives, spendLife, addLives, nextLifeMs, LIVES_MAX, type BoosterKind } from './quest';
+import { loadCoins, spendCoins, addCoins, loadBoosters, saveBoosters, loadLives, spendLife, addLives, nextLifeMs, LIVES_MAX, questAddGameCleared, questUpdateMaxCombo, questAddSpecials, questAddBlocks, questClaim, loadQuests, QUESTS, type QuestSave, type BoosterKind } from './quest';
 import { sGet, sSet, getScope, setScope } from './store';
 import { tossLogin, fetchUserKey } from './toss';
 import { sfx, buzz, primeAudio, isMuted, toggleMuted } from './sfx';
@@ -470,6 +470,8 @@ export default function LinyDoryGame() {
   const [coins,    setCoins]      = useState(loadCoins);
   const [lives,    setLives]      = useState(loadLives);
   const [lifeTimer, setLifeTimer] = useState(0); // 다음 하트 충전까지(초)
+  const [quests,   setQuests]     = useState<QuestSave>(loadQuests);
+  const [showQuests, setShowQuests] = useState(false);
   const [boosters,    setBoosters]    = useState(loadBoosters);
   const [boosterMode, setBoosterMode] = useState<'hammer'|'bomb'|null>(null);
   const [showShop,    setShowShop]    = useState(false);
@@ -499,13 +501,15 @@ export default function LinyDoryGame() {
   const dragRef      = useRef<{r:number;c:number;x:number;y:number;moved:boolean}|null>(null);
   const continuesUsedRef   = useRef(0);  // 이번 판 이어하기 사용 횟수
   const pausedRef          = useRef(false); // 이어하기 제안 중 입력/타이머 정지
+  const sessionBlocksRef   = useRef(0);  // 퀘스트 집계: 이번 판 터트린 블럭
+  const sessionSpecialsRef = useRef(0);  // 퀘스트 집계: 이번 판 만든 특수 블럭
   const mapScrollRef       = useRef<HTMLDivElement>(null); // 맵 스크롤 컨테이너
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { boostersRef.current = boosters; }, [boosters]);
   // 맵 화면 진입 시 현재(잠금 해제된 마지막) 스테이지가 보이도록 스크롤
   useEffect(() => {
-    if (phase === 'map' && mapScrollRef.current) {
+    if (phase === 'main' && mapScrollRef.current) {
       const idx = progress.findIndex(s => s < 3);
       const cur = idx === -1 ? LEVELS.length - 1 : idx;
       mapScrollRef.current.scrollTop = Math.max(0, mapNodeY(cur) - 220);
@@ -579,6 +583,8 @@ export default function LinyDoryGame() {
       setProgress(loadProg());
       setCoins(loadCoins());
       setBoosters(loadBoosters());
+      setLives(loadLives());
+      setQuests(loadQuests());
     };
     window.addEventListener('scope-changed', onScope);
     return () => window.removeEventListener('scope-changed', onScope);
@@ -610,6 +616,11 @@ export default function LinyDoryGame() {
     const s = calcStars(scoreRef.current, LEVELS[li].goal);
     const goal0 = LEVELS[li].goal[0];
     setNearMiss(s === 0 && scoreRef.current >= goal0 * 0.72 && scoreRef.current < goal0);
+    // 일일 퀘스트 집계 반영
+    questAddBlocks(sessionBlocksRef.current);     sessionBlocksRef.current = 0;
+    questAddSpecials(sessionSpecialsRef.current); sessionSpecialsRef.current = 0;
+    if (s >= 3) questAddGameCleared();
+    setQuests(loadQuests());
     // 클리어 보상 코인 — 기록 갱신이면 전액, 재도전이면 25%
     const prevStars = progress[li] ?? 0;
     let earned = CLEAR_COINS[s];
@@ -703,6 +714,7 @@ export default function LinyDoryGame() {
     resolvingRef.current=false; dirtyRef.current=false; comboRef.current=0;
     lastSwapRef.current=null; dragRef.current=null;
     continuesUsedRef.current=0; pausedRef.current=false;
+    sessionBlocksRef.current=0; sessionSpecialsRef.current=0;
     setFlames([]); setScreenShake(false); setConfetti([]); setCoinsEarned(0);
     setContinuesUsed(0); setContinueOffer(false); setBlocksPopped(0);
     primeAudio();
@@ -754,6 +766,8 @@ export default function LinyDoryGame() {
           const combo = comboRef.current;
           push(res.nextG);
           setBlocksPopped(n => n + res.hits.size);
+          sessionBlocksRef.current += res.hits.size;
+          sessionSpecialsRef.current += res.newSpec.size;
           // 폭탄이 터지면 불길 효과 + 화면 흔들림
           const bombHit = [...res.hits].some(k => { const [r,c]=k.split(',').map(Number); return g[r][c]?.kind==='bomb'; });
           if (bombHit) { spawnFlames(res.hits); kickScreen(); sfx.explode(); }
@@ -770,6 +784,7 @@ export default function LinyDoryGame() {
           } else if (combo >= 2) {
             sfx.combo(combo);
             pop(`${combo}x COMBO! +${pts.toLocaleString()}`, 'combo');
+            if (combo >= 5) questUpdateMaxCombo(combo);
           }
           await wait(280);
           push(applyFall(gRef.current, LEVELS[lvlRef.current].types, mapRef.current));
@@ -836,7 +851,7 @@ export default function LinyDoryGame() {
       expandSpecials(hits, sw);
       hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell=sw[rr][cc]; if(cell) cell.hit=true; });
       inc(hits.size*120);
-      setBlocksPopped(n => n + hits.size);
+      setBlocksPopped(n => n + hits.size); sessionBlocksRef.current += hits.size;
       spawnFlames(hits); kickScreen(); sfx.explode(); buzz(25);
       pop((srcSpec ? sw[r][c]?.kind : sw[sr][sc]?.kind) === 'bomb' ? '💣 BOOM!' : '⚡ ZAP!', 'special');
     }
@@ -866,7 +881,7 @@ export default function LinyDoryGame() {
     expandSpecials(hits, sw);
     hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell2=sw[rr][cc]; if(cell2) cell2.hit=true; });
     inc(hits.size*80);
-    setBlocksPopped(n => n + hits.size);
+    setBlocksPopped(n => n + hits.size); sessionBlocksRef.current += hits.size;
     spawnFlames(hits); kickScreen(); sfx.explode(); buzz(25); // 아이템 사용 시 불길 효과
     pop(kind==='bomb' ? '💣 폭탄 발동!' : '🔨 망치 발동!', 'special');
     dirtyRef.current = true;
@@ -1048,6 +1063,52 @@ export default function LinyDoryGame() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 일일 퀘스트 (완료 시 난이도별 하트 지급) */}
+      {showQuests && (
+        <div style={{ position:'absolute', inset:0, zIndex:50, background:'rgba(0,0,0,0.78)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+          <div style={{ width:'100%', maxWidth:340, background:'linear-gradient(160deg,#0d1a3a,#1a1a0d)', borderRadius:20, border:'2px solid rgba(255,180,0,0.35)', boxShadow:'0 20px 60px rgba(0,0,0,0.8)', overflow:'hidden' }}>
+            <div style={{ padding:'16px 16px 12px', borderBottom:'1px solid rgba(255,180,0,0.2)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <span style={{ fontSize:16, fontWeight:900, color:'#FFD700', letterSpacing:1 }}>📋 일일 퀘스트</span>
+              <button onClick={() => setShowQuests(false)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'rgba(255,255,255,0.6)', lineHeight:1 }}>✕</button>
+            </div>
+            <div style={{ padding:12, display:'flex', flexDirection:'column', gap:8, maxHeight:'68vh', overflowY:'auto' }}>
+              {QUESTS.map(qd => {
+                const current = qd.metric(quests);
+                const claimed = quests.claimed[qd.key];
+                const done = current >= qd.target;
+                const diffColor = qd.difficulty==='쉬움' ? '#66BB6A' : qd.difficulty==='보통' ? '#FFB300' : '#EF5350';
+                return (
+                  <div key={qd.key} style={{ padding:'10px 12px', borderRadius:12, background: claimed ? 'rgba(255,255,255,0.04)' : done ? 'rgba(255,180,0,0.1)' : 'rgba(255,255,255,0.05)', border: `1px solid ${claimed ? 'rgba(255,255,255,0.1)' : done ? 'rgba(255,180,0,0.4)' : 'rgba(255,255,255,0.1)'}`, display:'flex', alignItems:'center', gap:10 }}>
+                    <span style={{ fontSize:20, opacity: claimed ? 0.4 : 1 }}>{qd.icon}</span>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                        <span style={{ fontSize:12, fontWeight:800, color: claimed ? 'rgba(255,255,255,0.35)' : 'white' }}>{qd.label}</span>
+                        <span style={{ fontSize:8, fontWeight:900, color:diffColor, border:`1px solid ${diffColor}`, borderRadius:999, padding:'1px 5px', opacity: claimed?0.4:1 }}>{qd.difficulty}</span>
+                      </div>
+                      <div style={{ fontSize:10, color:'rgba(255,255,255,0.45)', marginTop:2 }}>
+                        {claimed ? '완료 ✓' : `${Math.min(current, qd.target)} / ${qd.target}`} · 💗 {qd.hearts}개
+                      </div>
+                      {!claimed && <div style={{ marginTop:4, height:4, borderRadius:999, background:'rgba(255,255,255,0.1)', overflow:'hidden' }}>
+                        <div style={{ height:'100%', borderRadius:999, background:'linear-gradient(90deg,#FF8C00,#FFD700)', width:`${Math.min((current/qd.target)*100,100)}%`, transition:'width 0.3s' }}/>
+                      </div>}
+                    </div>
+                    {done && !claimed && (
+                      <button onClick={() => { const r = questClaim(qd.key); if (r.success) { setQuests(loadQuests()); setLives(loadLives()); pop(`${r.reward} 하트 획득!`, 'special'); } }} style={{ padding:'6px 10px', borderRadius:999, background:'linear-gradient(135deg,#FF5C8A,#C2185B)', border:'none', cursor:'pointer', fontSize:10, fontWeight:900, color:'white', whiteSpace:'nowrap' }}>
+                        💗 {qd.hearts} 받기
+                      </button>
+                    )}
+                    {claimed && <span style={{ fontSize:18, opacity:0.5 }}>✅</span>}
+                  </div>
+                );
+              })}
+              <div style={{ padding:'8px 12px', borderRadius:10, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)', fontSize:10, color:'rgba(255,255,255,0.4)', textAlign:'center', lineHeight:1.5 }}>
+                매일 0시 초기화 · 완료하면 난이도에 따라 하트를 드려요 💗
+              </div>
             </div>
           </div>
         </div>
@@ -1392,107 +1453,42 @@ export default function LinyDoryGame() {
     </div>
   );
 
-  // ── Main ──────────────────────────────────────────────────────────────────────
+  // ── Main = 스크롤 가능한 스테이지 맵 ───────────────────────────────────────────
   if (phase === 'main') {
-    // 다음 스테이지는 별 3개를 모두 얻어야 잠금 해제 — 아직 3별이 아닌 첫 스테이지가 현재 도전 대상
-    const nextLvl    = progress.findIndex(s => s < 3);
-    const stageIdx   = nextLvl === -1 ? LEVELS.length - 1 : nextLvl;
+    const isUnlocked = (i:number) => i===0 || progress[i-1]>=3;
     const totalStars = progress.reduce((a, b) => a + b, 0);
-    const lvlCfg     = LEVELS[stageIdx];
-    const dotStart   = Math.max(0, Math.min(stageIdx - 2, LEVELS.length - 5));
-    const dots       = Array.from({ length: Math.min(5, LEVELS.length) }, (_, i) => dotStart + i);
+    const curIdx = progress.findIndex(p=>p<3)===-1 ? LEVELS.length-1 : progress.findIndex(p=>p<3);
     return (
-      <div style={{ position:'relative', width:'100%', height:'100vh', overflow:'hidden', userSelect:'none', background:'#0d1a0d' }}>
+      <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100vh', userSelect:'none', background:'linear-gradient(180deg,#1565C0 0%,#0D47A1 55%,#0A2E6E 100%)', overflow:'hidden' }}>
         <style>{GAME_CSS}</style>
-        <img src={`${BASE}characters/MAIN.png`} alt="" style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'top center' }} />
-        <div style={{ position:'absolute', top:0, left:0, right:0, height:120, background:'linear-gradient(180deg,rgba(5,15,5,0.85) 0%,transparent 100%)' }}/>
-        <div style={{ position:'absolute', bottom:0, left:0, right:0, height:'clamp(180px,40vh,260px)', background:'linear-gradient(0deg,rgba(5,15,5,0.97) 0%,rgba(5,15,5,0.65) 65%,transparent 100%)' }}/>
-        <div style={{ position:'absolute', top:0, left:0, right:0, padding:'calc(var(--sat) + clamp(10px,2.5vh,16px)) clamp(10px,3vw,16px) 0', display:'flex', alignItems:'center', gap:'clamp(5px,1.5vw,8px)' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(0,0,0,0.55)', borderRadius:999, padding:'4px 10px 4px 6px', border:'1.5px solid rgba(255,120,150,0.5)' }}>
+        {/* 상단바: 하트 / 코인 / 랭킹 */}
+        <div style={{ flexShrink:0, padding:'calc(var(--sat) + clamp(10px,2.5vh,16px)) clamp(10px,3vw,16px) 4px', display:'flex', alignItems:'center', gap:'clamp(5px,1.5vw,8px)' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(0,0,0,0.4)', borderRadius:999, padding:'4px 10px 4px 6px', border:'1.5px solid rgba(255,120,150,0.5)' }}>
             <img src={`${BASE}characters/life.png`} alt="하트" style={{ width:22, height:22, borderRadius:'50%', objectFit:'cover' }}/>
             <span style={{ fontSize:13, fontWeight:900, color:'white' }}>{lives}</span>
-            <span style={{ fontSize:10, color:'rgba(255,255,255,0.45)', fontWeight:700 }}>/{LIVES_MAX}</span>
+            <span style={{ fontSize:10, color:'rgba(255,255,255,0.5)', fontWeight:700 }}>/{LIVES_MAX}</span>
             {lives < LIVES_MAX && lifeTimer > 0 && (
-              <span style={{ fontSize:10, fontWeight:700, color:'#9EE6A0', marginLeft:2 }}>
-                {Math.floor(lifeTimer/60)}:{String(lifeTimer%60).padStart(2,'0')}
-              </span>
+              <span style={{ fontSize:10, fontWeight:700, color:'#9EE6A0', marginLeft:2 }}>{Math.floor(lifeTimer/60)}:{String(lifeTimer%60).padStart(2,'0')}</span>
             )}
           </div>
           <div style={{ flex:1 }}/>
-          <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(0,0,0,0.55)', borderRadius:999, padding:'5px 10px', border:'1.5px solid rgba(255,180,0,0.35)' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(0,0,0,0.4)', borderRadius:999, padding:'5px 10px', border:'1.5px solid rgba(255,180,0,0.35)' }}>
             <Icon name="coin" size={16} color="#FFCA28" /><span style={{ fontSize:13, fontWeight:900, color:'#FFE566' }}>{coins.toLocaleString()}</span>
           </div>
-          <button onClick={() => { sfx.click(); setRanking(getLeaderboard(loadWeeklyBest())); setShowRanking(true); }} style={{ width:34, height:34, borderRadius:'50%', background:'rgba(0,0,0,0.55)', border:'1.5px solid rgba(120,160,255,0.45)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}>
+          <button onClick={() => { sfx.click(); setQuests(loadQuests()); setShowQuests(true); }} style={{ position:'relative', width:34, height:34, borderRadius:'50%', background:'rgba(0,0,0,0.4)', border:'1.5px solid rgba(255,180,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}>
+            <Icon name="list" size={17} color="#FFD27A" />
+            {(() => { const cnt = QUESTS.filter(qd => qd.metric(quests) >= qd.target && !quests.claimed[qd.key]).length; return cnt > 0 ? <span style={{ position:'absolute', top:-4, right:-4, width:14, height:14, borderRadius:'50%', background:'#FF3030', border:'1.5px solid white', fontSize:9, fontWeight:900, color:'white', display:'flex', alignItems:'center', justifyContent:'center', animation:'questBadge 1s ease infinite' }}>{cnt}</span> : null; })()}
+          </button>
+          <button onClick={() => { sfx.click(); setRanking(getLeaderboard(loadWeeklyBest())); setShowRanking(true); }} style={{ width:34, height:34, borderRadius:'50%', background:'rgba(0,0,0,0.4)', border:'1.5px solid rgba(120,160,255,0.45)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}>
             <Icon name="trophy" size={17} color="#9EC0FF" />
           </button>
         </div>
-
-        <div style={{ position:'absolute', bottom:'calc(var(--sab) + clamp(60px,10vh,80px))', left:0, right:0, display:'flex', flexDirection:'column', alignItems:'center', gap:'clamp(10px,2.5vh,16px)', padding:'0 clamp(16px,5vw,32px)' }}>
-          <div style={{ display:'flex', alignItems:'flex-end', gap:10 }}>
-            {dots.map(li => {
-              const s = progress[li]; const isCur = li === stageIdx;
-              return (
-                <div key={li} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3 }}>
-                  <div style={{ width:isCur?44:32, height:isCur?44:32, borderRadius:'50%', background:isCur?'linear-gradient(135deg,#FFB300,#FF6F00)':s>0?'rgba(255,255,255,0.25)':'rgba(0,0,0,0.45)', border:`2.5px solid ${isCur?'white':s>0?'rgba(255,255,255,0.4)':'rgba(255,255,255,0.15)'}`, boxShadow:isCur?'0 4px 16px rgba(255,150,0,0.6)':'none', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                    <span style={{ fontSize:isCur?13:10, fontWeight:900, color:'white' }}>{li+1}</span>
-                  </div>
-                  <div style={{ display:'flex' }}>{[1,2,3].map(n=><span key={n} style={{ fontSize:7, opacity:n<=s?1:0.15 }}>⭐</span>)}</div>
-                </div>
-              );
-            })}
-          </div>
-          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-            {(() => { const d = difficultyOf(stageIdx); return (
-              <span style={{ fontSize:11, fontWeight:800, color:d.color, background:'rgba(0,0,0,0.4)', padding:'3px 10px', borderRadius:999, border:`1px solid ${d.color}` }}>
-                {'🔥'.repeat(d.stars)} {d.label}
-              </span>
-            ); })()}
-            <span style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.6)', background:'rgba(0,0,0,0.4)', padding:'3px 10px', borderRadius:999, border:'1px solid rgba(255,255,255,0.15)' }}>
-              {lvlCfg.mode==='time'?`⏱ ${(lvlCfg as {sec?:number}).sec}초`:`🎯 ${(lvlCfg as {moves?:number}).moves}수`}
-            </span>
-            <span style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.6)', background:'rgba(0,0,0,0.4)', padding:'3px 10px', borderRadius:999, border:'1px solid rgba(255,255,255,0.15)' }}>⭐ {totalStars}/{LEVELS.length*3}</span>
-          </div>
-          <button onClick={() => tryStartLevel(stageIdx)}
-            style={{ width:'100%', padding:'15px 0', borderRadius:999, background:'linear-gradient(180deg,#42A5F5 0%,#1565C0 100%)', border:'none', cursor:'pointer', boxShadow:'0 6px 0 #0D3B80,0 10px 28px rgba(0,80,200,0.55)', color:'white', fontWeight:900, fontSize:22, letterSpacing:3, display:'flex', alignItems:'center', justifyContent:'center', gap:10 }}
-            onTouchStart={e=>(e.currentTarget.style.transform='scale(0.97)')} onTouchEnd={e=>(e.currentTarget.style.transform='scale(1)')}>
-            <span style={{ fontSize:24 }}>🎮</span> STAGE {stageIdx+1} <span style={{ fontSize:20 }}>▶</span>
-          </button>
+        <div style={{ flexShrink:0, textAlign:'center', padding:'2px 0' }}>
+          <div style={{ fontSize:15, fontWeight:900, letterSpacing:1, color:'#FFE566', WebkitTextStroke:'0.5px #FFA500' }}>리니와도리의 가시소동 <span style={{ fontSize:11, color:'white', WebkitTextStroke:'0' }}>⭐ {totalStars}/{LEVELS.length*3}</span></div>
+          <div style={{ fontSize:10.5, color:'rgba(255,255,255,0.55)', marginTop:2 }}>스테이지를 눌러 도전! · 클리어한 곳은 언제든 다시 플레이 🔓</div>
         </div>
-        <div style={{ position:'absolute', bottom:0, left:0, right:0, paddingBottom:'var(--sab)', background:'rgba(5,15,5,0.92)', borderTop:'1.5px solid rgba(255,255,255,0.1)', display:'flex', alignItems:'center', justifyContent:'space-around', minHeight:'clamp(56px,8vh,72px)' }}>
-          {([
-            {icon:'home'   as const, label:'홈',   fn:()=>{},                   active:true },
-            {icon:'map'    as const, label:'맵',   fn:()=>setPhase('map'),      active:false},
-            {icon:'tv'     as const, label:'유튜브', fn:()=>{ sfx.click(); window.open(CHANNEL_URL, '_blank', 'noopener'); }, active:false},
-            {icon:'shop'   as const, label:'상점', fn:()=>setShowShop(true),    active:false},
-            {icon:'gear'   as const, label:'설정', fn:()=>setShowSettings(true), active:false},
-          ]).map((item,i)=>(
-            <button key={i} onClick={item.fn} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3, background:'none', border:'none', cursor:'pointer', padding:'6px 10px', filter:item.active?'drop-shadow(0 0 6px rgba(255,179,0,0.6))':'none' }}>
-              <Icon name={item.icon} size={23} color={item.active?'#FFB300':'rgba(255,255,255,0.55)'} />
-              <span style={{ fontSize:10, fontWeight:700, color:item.active?'#FFB300':'rgba(255,255,255,0.45)' }}>{item.label}</span>
-            </button>
-          ))}
-        </div>
-        {renderModals()}
-      </div>
-    );
-  }
-
-  // ── Map ───────────────────────────────────────────────────────────────────────
-  if (phase === 'map') {
-    const isUnlocked = (i:number) => i===0 || progress[i-1]>=3;
-    const totalStars = progress.reduce((a,b)=>a+b,0);
-    return (
-      <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100vh', userSelect:'none', background:'linear-gradient(180deg,#1565C0 0%,#0D47A1 60%,#0A2E6E 100%)', overflow:'hidden' }}>
-        <style>{GAME_CSS}</style>
-        <div style={{ flexShrink:0, padding:'calc(var(--sat) + clamp(10px,2.5vh,16px)) clamp(12px,4vw,16px) clamp(6px,1.5vh,10px)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-          <button onClick={()=>setPhase('main')} style={{ display:'flex', alignItems:'center', gap:4, padding:'6px 12px', borderRadius:999, color:'white', fontSize:14, fontWeight:700, background:'rgba(0,0,0,0.3)', border:'1px solid rgba(255,255,255,0.2)', cursor:'pointer' }}><Icon name="back" size={16} color="white" /> 홈</button>
-          <span style={{ fontSize:15, fontWeight:900, letterSpacing:1, color:'#FFE566', WebkitTextStroke:'0.5px #FFA500', whiteSpace:'nowrap' }}>리니와도리의 가시소동</span>
-          <div style={{ display:'flex', alignItems:'center', gap:4, padding:'6px 12px', borderRadius:999, background:'rgba(0,0,0,0.3)', border:'1px solid rgba(255,255,255,0.2)' }}>
-            <span>⭐</span><span style={{ color:'white', fontWeight:700, fontSize:14 }}>{totalStars}/{LEVELS.length*3}</span>
-          </div>
-        </div>
-        <div style={{ fontSize:11, color:'rgba(255,255,255,0.55)', textAlign:'center', padding:'0 0 6px' }}>클리어한 스테이지는 언제든 다시 플레이할 수 있어요 · 별 3개를 모으면 다음이 열려요 🔓</div>
-        <div ref={mapScrollRef} style={{ flex:1, overflowY:'auto', margin:'0 12px 12px', borderRadius:16, background:'rgba(0,0,60,0.25)', border:'2px solid rgba(255,255,255,0.1)' }}>
+        {/* 스크롤 가능한 스테이지 맵 */}
+        <div ref={mapScrollRef} style={{ flex:1, overflowY:'auto', margin:'6px 12px 8px', borderRadius:16, background:'rgba(0,0,60,0.22)', border:'2px solid rgba(255,255,255,0.1)' }}>
           <div style={{ position:'relative', width:'100%', height: MAP_HEIGHT() }}>
             <svg style={{ position:'absolute', inset:0, width:'100%', height:'100%', zIndex:1 }}>
               {LEVELS.slice(0,-1).map((_,i)=>{
@@ -1501,7 +1497,7 @@ export default function LinyDoryGame() {
               })}
             </svg>
             {LEVELS.map((_,i)=>{
-              const unlocked=isUnlocked(i); const s=progress[i]??0; const isCur = i === (progress.findIndex(p=>p<3)===-1?LEVELS.length-1:progress.findIndex(p=>p<3));
+              const unlocked=isUnlocked(i); const s=progress[i]??0; const isCur = i === curIdx;
               const diff = difficultyOf(i);
               return (
                 <button key={i} onClick={()=>unlocked&&tryStartLevel(i)} disabled={!unlocked}
@@ -1519,6 +1515,21 @@ export default function LinyDoryGame() {
             })}
           </div>
         </div>
+        {/* 하단 내비게이션 */}
+        <div style={{ flexShrink:0, paddingBottom:'var(--sab)', background:'rgba(5,10,30,0.92)', borderTop:'1.5px solid rgba(255,255,255,0.1)', display:'flex', alignItems:'center', justifyContent:'space-around', minHeight:'clamp(54px,7.5vh,68px)' }}>
+          {([
+            {icon:'home'   as const, label:'홈',   fn:()=>{ if(mapScrollRef.current){ mapScrollRef.current.scrollTop = Math.max(0, mapNodeY(curIdx)-220); } }, active:true },
+            {icon:'tv'     as const, label:'유튜브', fn:()=>{ sfx.click(); window.open(CHANNEL_URL, '_blank', 'noopener'); }, active:false},
+            {icon:'shop'   as const, label:'상점', fn:()=>setShowShop(true),    active:false},
+            {icon:'gear'   as const, label:'설정', fn:()=>setShowSettings(true), active:false},
+          ]).map((item,i)=>(
+            <button key={i} onClick={item.fn} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3, background:'none', border:'none', cursor:'pointer', padding:'6px 14px', filter:item.active?'drop-shadow(0 0 6px rgba(255,179,0,0.6))':'none' }}>
+              <Icon name={item.icon} size={23} color={item.active?'#FFB300':'rgba(255,255,255,0.55)'} />
+              <span style={{ fontSize:10, fontWeight:700, color:item.active?'#FFB300':'rgba(255,255,255,0.45)' }}>{item.label}</span>
+            </button>
+          ))}
+        </div>
+        {renderModals()}
       </div>
     );
   }
@@ -1861,7 +1872,7 @@ export default function LinyDoryGame() {
             </button>
             {endStars===3 && lvlIdx<LEVELS.length-1
               ? <button onClick={()=>{ sfx.click(); tryStartLevel(lvlIdx+1); }} style={{ padding:'clamp(10px,2.5vh,12px) clamp(20px,5.5vw,28px)', borderRadius:999, fontWeight:900, fontSize:'clamp(14px,4vw,17px)', color:'white', background:'linear-gradient(135deg,#FF6F00,#FFB300)', border:'2px solid rgba(255,255,255,0.7)', animation:'luckyGlow 0.9s ease infinite', cursor:'pointer' }}>다음 스테이지 ▶</button>
-              : <button onClick={()=>setPhase('map')} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background:'linear-gradient(135deg,#607D8B,#455A64)', boxShadow:'0 4px 0 #2C3940', border:'none', cursor:'pointer' }}>맵으로 🗺️</button>
+              : <button onClick={()=>setPhase('main')} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background:'linear-gradient(135deg,#607D8B,#455A64)', boxShadow:'0 4px 0 #2C3940', border:'none', cursor:'pointer' }}>맵으로 🗺️</button>
             }
           </div>
           <button onClick={() => { setRanking(getLeaderboard(loadWeeklyBest())); setShowRanking(true); }} style={{ marginTop:4, background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.7)', fontSize:'clamp(11px,3vw,13px)', fontWeight:800, textDecoration:'underline' }}>🏆 주간 랭킹 보기</button>

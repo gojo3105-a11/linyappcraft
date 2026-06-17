@@ -67,17 +67,20 @@ export interface QuestDef {
   label: string;
   difficulty: Difficulty;
   target: number;
-  reward: number;                // 난이도가 높을수록 코인 보상이 큼
+  hearts: number;                // 완료 보상: 하트 개수(난이도에 따라 차등)
   metric: (q: QuestSave) => number;
 }
 
-// 일일 퀘스트 5종 — 난이도에 따라 코인 지급량 차등
+// 난이도별 하트 보상: 쉬움 1, 보통 2, 어려움 3
+const HEARTS_BY_DIFF: Record<Difficulty, number> = { '쉬움': 1, '보통': 2, '어려움': 3 };
+
+// 일일 퀘스트 5종 — 완료 시 난이도에 따라 하트 지급
 export const QUESTS: QuestDef[] = [
-  { key:'clear1',    icon:'🎮', label:'게임 1판 클리어',     difficulty:'쉬움',   target:1,   reward:100,  metric:q=>q.gamesCleared  },
-  { key:'clear3',    icon:'🏆', label:'게임 3판 클리어',     difficulty:'보통',   target:3,   reward:300,  metric:q=>q.gamesCleared  },
-  { key:'combo5',    icon:'⚡', label:'5x 콤보 달성',        difficulty:'보통',   target:5,   reward:500,  metric:q=>q.maxCombo      },
-  { key:'special5',  icon:'💣', label:'특수 블럭 5개 만들기', difficulty:'어려움', target:5,   reward:800,  metric:q=>q.specialsMade  },
-  { key:'blocks200', icon:'🧱', label:'블럭 200개 터트리기',  difficulty:'어려움', target:200, reward:1200, metric:q=>q.blocksCleared },
+  { key:'clear1',    icon:'🎮', label:'게임 1판 클리어',     difficulty:'쉬움',   target:1,   hearts:HEARTS_BY_DIFF['쉬움'],   metric:q=>q.gamesCleared  },
+  { key:'clear3',    icon:'🏆', label:'게임 3판 클리어',     difficulty:'보통',   target:3,   hearts:HEARTS_BY_DIFF['보통'],   metric:q=>q.gamesCleared  },
+  { key:'combo5',    icon:'⚡', label:'5x 콤보 달성',        difficulty:'보통',   target:5,   hearts:HEARTS_BY_DIFF['보통'],   metric:q=>q.maxCombo      },
+  { key:'special5',  icon:'💣', label:'특수 블럭 5개 만들기', difficulty:'어려움', target:5,   hearts:HEARTS_BY_DIFF['어려움'], metric:q=>q.specialsMade  },
+  { key:'blocks200', icon:'🧱', label:'블럭 200개 터트리기',  difficulty:'어려움', target:200, hearts:HEARTS_BY_DIFF['어려움'], metric:q=>q.blocksCleared },
 ];
 
 const emptyClaimed = (): Record<QuestKey, boolean> =>
@@ -171,6 +174,6 @@ export function questClaim(key: QuestKey): { success: boolean; reward: string } 
   if (!def || def.metric(d) < def.target) return { success: false, reward: '' };
   d.claimed[key] = true;
   saveQuests(d);
-  addCoins(def.reward);
-  return { success: true, reward: `🪙 +${def.reward}` };
+  addLives(def.hearts);            // 난이도에 따른 하트 지급
+  return { success: true, reward: `💗 +${def.hearts}` };
 }
