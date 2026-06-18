@@ -130,11 +130,14 @@ export function spendCoins(n: number): boolean {
 }
 
 // ── 부스터(블럭 제거 아이템) 인벤토리 ──────────────────
-export type BoosterKind = 'hammer' | 'bomb' | 'shuffle';
+export type BoosterKind = 'hammer' | 'bomb' | 'shuffle' | 'rowClear' | 'colClear' | 'allClear';
 
 export function loadBoosters(): Record<BoosterKind, number> {
   const d = sGet<Partial<Record<BoosterKind, number>>>(BOOST_BASE, {});
-  return { hammer: d.hammer ?? 0, bomb: d.bomb ?? 0, shuffle: d.shuffle ?? 0 };
+  return {
+    hammer: d.hammer ?? 0, bomb: d.bomb ?? 0, shuffle: d.shuffle ?? 0,
+    rowClear: d.rowClear ?? 0, colClear: d.colClear ?? 0, allClear: d.allClear ?? 0,
+  };
 }
 
 export function saveBoosters(b: Record<BoosterKind, number>) {
