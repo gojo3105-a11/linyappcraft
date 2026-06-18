@@ -79,7 +79,7 @@ const MAPS = [
 ] as const;
 
 // 미니맵(월드) 구성 — 최대 500개, 각 월드당 STAGES_PER_WORLD 스테이지
-const STAGES_PER_WORLD = 5;
+const STAGES_PER_WORLD = 10;
 const WORLD_COUNT = 500;
 const TOTAL_STAGES = WORLD_COUNT * STAGES_PER_WORLD; // 2,500 스테이지
 
