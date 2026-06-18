@@ -80,7 +80,7 @@ const MAPS = [
 
 // 미니맵(월드) 구성 — 최대 500개, 각 월드당 STAGES_PER_WORLD 스테이지
 const STAGES_PER_WORLD = 10;
-const WORLD_COUNT = 500;
+const WORLD_COUNT = 5;
 const TOTAL_STAGES = WORLD_COUNT * STAGES_PER_WORLD; // 2,500 스테이지
 
 // 스테이지 설정은 인덱스 기반으로 절차 생성(블럭 종류↑ / 목표 점수↑, 후반은 완만히 증가)
@@ -1709,33 +1709,37 @@ export default function LinyDoryGame() {
           <div style={{ fontSize:16, fontWeight:900, letterSpacing:1, color:'#FFE566', WebkitTextStroke:'0.5px #FFA500' }}>맵 선택 <span style={{ fontSize:11, color:'white', WebkitTextStroke:'0' }}>⭐ {totalStars}/{LEVELS.length*3}</span></div>
           <div style={{ fontSize:10.5, color:'rgba(255,255,255,0.6)', marginTop:2 }}>미니맵을 골라 스테이지에 도전하세요!</div>
         </div>
-        <div style={{ flex:1, overflowY:'auto', padding:'4px 12px 12px', display:'grid', gridTemplateColumns:'repeat(2, 1fr)', gap:'clamp(8px,2.5vw,14px)', alignContent:'start' }}>
-          {WORLDS.map((w, wi) => {
-            const unlocked = isUnlocked(w.from);
-            const wStars = progress.slice(w.from, w.to).reduce((a,b)=>a+b,0);
-            const wMax = (w.to - w.from) * 3;
-            const cleared = progress.slice(w.from, w.to).every(s => s >= 3);
-            return (
-              <button key={wi} disabled={!unlocked} onClick={() => { if(!unlocked) return; sfx.click(); setSelectedWorld(wi); setPhase('map'); }}
-                style={{ position:'relative', padding:0, cursor:unlocked?'pointer':'default', borderRadius:18, overflow:'hidden', aspectRatio:'3/4',
-                  border:`3px solid ${unlocked?w.color:'rgba(255,255,255,0.15)'}`,
-                  boxShadow: unlocked ? `0 6px 18px rgba(0,0,0,0.5)` : 'none', opacity: unlocked?1:0.7, textAlign:'left' }}>
-                <img src={worldImg(wi)} alt="" loading="lazy" style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover', filter: unlocked?'none':'grayscale(1) brightness(0.4)' }}/>
-                {/* 하단 그라데이션 + 정보 */}
-                <div style={{ position:'absolute', left:0, right:0, bottom:0, padding:'18px 8px 7px', background:'linear-gradient(0deg, rgba(0,0,0,0.85) 0%, transparent 100%)' }}>
-                  <div style={{ fontSize:12, fontWeight:900, color:'white', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{wi+1}. {w.name}</div>
-                  <div style={{ fontSize:10, fontWeight:800, color:'#FFE566', marginTop:1 }}>⭐ {wStars}/{wMax}{cleared?' 🎉':''}</div>
-                  <div style={{ marginTop:3, height:4, borderRadius:999, background:'rgba(255,255,255,0.2)', overflow:'hidden' }}>
-                    <div style={{ height:'100%', width:`${(wStars/wMax)*100}%`, background:'linear-gradient(90deg,#FF8C00,#FFD700)' }}/>
-                  </div>
+        <div style={{ flex:1, overflowY:'auto', padding:'4px 0 8px' }}>
+          <div style={{ position:'relative', width:'100%', height: WORLD_COUNT*MAP_ROW_GAP + 80 }}>
+            {/* 월드 사이 길 */}
+            <svg style={{ position:'absolute', inset:0, width:'100%', height:'100%', zIndex:1 }}>
+              {WORLDS.slice(0,-1).map((_,wi)=>{
+                const done = progress.slice(WORLDS[wi].from, WORLDS[wi].to).every(s=>s>=3);
+                return <line key={wi} x1={`${mapNodeX(wi)}%`} y1={wi*MAP_ROW_GAP+56} x2={`${mapNodeX(wi+1)}%`} y2={(wi+1)*MAP_ROW_GAP+56} stroke={done?'#FFB300':'rgba(255,255,255,0.2)'} strokeWidth="4" strokeDasharray={done?'0':'8,6'} strokeLinecap="round"/>;
+              })}
+            </svg>
+            {WORLDS.map((w, wi) => {
+              const unlocked = isUnlocked(w.from);
+              const wStars = progress.slice(w.from, w.to).reduce((a,b)=>a+b,0);
+              const wMax = (w.to - w.from) * 3;
+              const cleared = progress.slice(w.from, w.to).every(s => s >= 3);
+              return (
+                <div key={wi} style={{ position:'absolute', left:`calc(${mapNodeX(wi)}% - 55px)`, top:wi*MAP_ROW_GAP+56-32, width:110, zIndex:2, display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
+                  {/* 스테이지 원형과 동일한 64px 원형 이미지 */}
+                  <button disabled={!unlocked} onClick={() => { if(!unlocked) return; sfx.click(); setSelectedWorld(wi); setPhase('map'); }}
+                    style={{ position:'relative', width:64, height:64, borderRadius:'50%', overflow:'hidden', padding:0, cursor:unlocked?'pointer':'default',
+                      border:`3px solid ${unlocked?w.color:'rgba(255,255,255,0.2)'}`,
+                      boxShadow: unlocked ? `0 0 12px ${w.color}, 0 4px 14px rgba(0,0,0,0.5)` : 'none', opacity: unlocked?1:0.6 }}>
+                    <img src={worldImg(wi)} alt="" loading="lazy" style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover', filter: unlocked?'none':'grayscale(1) brightness(0.4)' }}/>
+                    <span style={{ position:'absolute', top:1, left:3, fontSize:13 }}>{w.emoji}</span>
+                    {!unlocked && <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:24 }}>🔒</span>}
+                  </button>
+                  <div style={{ fontSize:11, fontWeight:900, color:'white', textShadow:'0 1px 3px rgba(0,0,0,0.8)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:110, textAlign:'center' }}>{wi+1}. {w.name}</div>
+                  <div style={{ fontSize:9, fontWeight:800, color:'#FFE566', textShadow:'0 1px 2px rgba(0,0,0,0.8)' }}>⭐ {wStars}/{wMax}{cleared?' 🎉':''}</div>
                 </div>
-                {/* 월드 번호 배지 */}
-                <span style={{ position:'absolute', top:6, left:6, fontSize:18 }}>{w.emoji}</span>
-                {!unlocked && <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:34 }}>🔒</span>}
-              </button>
-            );
-          })}
-          <div style={{ fontSize:10, color:'rgba(255,255,255,0.4)', textAlign:'center', lineHeight:1.5 }}>이전 월드의 모든 스테이지를 별 3개로 클리어하면 다음 월드가 열려요 🔓</div>
+              );
+            })}
+          </div>
         </div>
         {bottomNav}
         {renderModals()}
