@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, type CSSProperties } from 'react';
 import { loadCoins, spendCoins, addCoins, loadBoosters, saveBoosters, loadLives, spendLife, addLives, nextLifeMs, LIVES_MAX, questAddGameCleared, questUpdateMaxCombo, questAddSpecials, questAddBlocks, questClaim, loadQuests, QUESTS, type QuestSave, type BoosterKind } from './quest';
 import { sGet, sSet, getScope, setScope } from './store';
 import { tossLogin, fetchUserKey } from './toss';
@@ -442,10 +442,19 @@ const GAME_CSS = `
     50%      { transform:scale(1.15); }
   }
   @keyframes popOut {
-    0%   { transform:scale(1) rotate(0deg);    opacity:1; }
-    30%  { transform:scale(1.5) rotate(12deg); opacity:1; }
-    55%  { transform:scale(0.85) rotate(-10deg); opacity:0.9; }
-    100% { transform:scale(0) rotate(-28deg);  opacity:0; }
+    0%   { transform:scale(1) rotate(0deg);    opacity:1; filter:brightness(1); }
+    25%  { transform:scale(1.35) rotate(8deg); opacity:1; filter:brightness(1.6); }
+    55%  { transform:scale(0.9) rotate(-6deg); opacity:0.75; filter:blur(1px); }
+    100% { transform:scale(0.2) rotate(-16deg); opacity:0; filter:blur(3px); }
+  }
+  @keyframes dustFly {
+    0%   { opacity:1; transform:translate(-50%,-50%) scale(1.1); }
+    100% { opacity:0; transform:translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.3); }
+  }
+  @keyframes lightDive {
+    0%   { opacity:0; transform:translate(-50%,-340px) scale(0.6) rotate(0deg); }
+    25%  { opacity:1; }
+    100% { opacity:1; transform:translate(-50%,-50%) scale(1.2) rotate(360deg); }
   }
   @keyframes popFlash {
     0%   { transform:scale(0.5); opacity:0.95; }
@@ -512,6 +521,8 @@ export default function LinyDoryGame() {
   const [popKind, setPopKind]     = useState<'combo'|'special'>('combo');
   const [flames, setFlames]       = useState<{id:number;r:number;c:number}[]>([]);
   const [sparks, setSparks]       = useState<{id:number;r:number;c:number}[]>([]);
+  const [dust, setDust]           = useState<{id:number;r:number;c:number;dx:number;dy:number;color:string}[]>([]);
+  const [lights, setLights]       = useState<{id:number;r:number;c:number}[]>([]);
   const [selectedWorld, setSelectedWorld] = useState(0);
   const [blocksPopped, setBlocksPopped] = useState(0);
   const [screenShake, setScreenShake] = useState(false);
@@ -642,6 +653,33 @@ export default function LinyDoryGame() {
     setTimeout(() => setSparks(p => p.filter(f => !ids.has(f.id))), 450);
   }, []);
 
+  // 블럭이 가루가 되어 퍼지는 먼지 파티클 (천천히 보이게)
+  const spawnDust = useCallback((keys: string[], g: Grid) => {
+    const parts: {id:number;r:number;c:number;dx:number;dy:number;color:string}[] = [];
+    for (const k of keys.slice(0, 28)) {
+      const [r,c] = k.split(',').map(Number);
+      const cell = g[r]?.[c]; if (!cell) continue;
+      const color = cell.kind === 'normal' ? (TILES[cell.t]?.glow ?? '#fff') : (SPECIAL_COLOR[cell.kind] ?? '#fff');
+      for (let p = 0; p < 4; p++) {
+        const ang = Math.random() * Math.PI * 2, dist = 16 + Math.random() * 40;
+        parts.push({ id: ++_fid, r, c, dx: Math.cos(ang)*dist, dy: Math.sin(ang)*dist - 8, color });
+      }
+    }
+    if (!parts.length) return;
+    setDust(p => [...p.slice(-120), ...parts]);
+    const ids = new Set(parts.map(a => a.id));
+    setTimeout(() => setDust(p => p.filter(f => !ids.has(f.id))), 1400);
+  }, []);
+
+  // 클리어 피날레 — 빛이 위에서 블럭으로 날아오는 효과
+  const spawnLights = useCallback((keys: Iterable<string>) => {
+    const arr = [...keys].map(k => { const [r,c]=k.split(',').map(Number); return { id: ++_fid, r, c }; });
+    if (!arr.length) return;
+    setLights(p => [...p.slice(-20), ...arr]);
+    const ids = new Set(arr.map(a => a.id));
+    setTimeout(() => setLights(p => p.filter(f => !ids.has(f.id))), 520);
+  }, []);
+
   useEffect(() => {
     const refresh = () => setCoins(loadCoins());
     window.addEventListener('coins-updated', refresh);
@@ -759,18 +797,19 @@ export default function LinyDoryGame() {
       for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) { const cc=g[r][c]; if (cc && !cc.hit) cells.push([r,c]); }
       if (!cells.length) break;
       const [r,c] = cells[Math.floor(Math.random()*cells.length)];
-      spawnSparks([`${r},${c}`]);            // 빛이 블럭으로 모임
-      await wait(70);
+      spawnLights([`${r},${c}`]); spawnSparks([`${r},${c}`]); // 빛이 위에서 블럭으로 날아옴
+      sfx.swap();
+      await wait(180);
       const ng = g.map(row => row.map(x => x ? {...x} : null));
       if (ng[r][c]) ng[r][c]!.hit = true;
-      push(ng); inc(300); sfx.pop(4); spawnFlames([`${r},${c}`]); buzz(8);
+      push(ng); inc(300); sfx.pop(4); spawnDust([`${r},${c}`], g); buzz(8);  // 가루 터짐(#1과 동일)
       bonus--;
-      await wait(95);
+      await wait(120);
     }
-    await wait(250);
+    await wait(300);
     resolvingRef.current = false;
     endGame();
-  }, [push, inc, pop, endGame, spawnFlames, spawnSparks]);
+  }, [push, inc, pop, endGame, spawnDust, spawnLights, spawnSparks]);
 
   // 시간/이동이 다 떨어졌을 때 — 이어하기 제안 가능하면 일시정지하고 제안, 아니면 종료
   const outOfResource = useCallback(() => {
@@ -847,7 +886,7 @@ export default function LinyDoryGame() {
     sessionBlocksRef.current=0; sessionSpecialsRef.current=0;
     tutorialPlayRef.current=false; setTutorialPlay(false); setTutMatches(0); tutMatchesRef.current=0;
     setTimeLeft(STAGE_TIME);
-    setFlames([]); setSparks([]); setScreenShake(false); setConfetti([]); setCoinsEarned(0);
+    setFlames([]); setSparks([]); setDust([]); setLights([]); setScreenShake(false); setConfetti([]); setCoinsEarned(0);
     setContinuesUsed(0); setContinueOffer(false); setBlocksPopped(0);
     primeAudio();
     const mv = (lvl as {moves?:number}).moves ?? 0; movesRef.current=mv;
@@ -900,7 +939,7 @@ export default function LinyDoryGame() {
           const g = gRef.current;
           // 부스터/특수블럭 발동으로 미리 표시된 칸은 먼저 터뜨려 떨어뜨린다(매치 판정 전)
           if (anyHit(g)) {
-            await wait(280);
+            await wait(450);
             push(applyFall(gRef.current, LEVELS[lvlRef.current].types, mapRef.current));
             await wait(200);
             continue;
@@ -911,6 +950,7 @@ export default function LinyDoryGame() {
           comboRef.current++;
           const combo = comboRef.current;
           push(res.nextG);
+          spawnDust([...res.hits], g);   // 가루가 되어 퍼지는 효과
           setBlocksPopped(n => n + res.hits.size);
           sessionBlocksRef.current += res.hits.size;
           sessionSpecialsRef.current += res.newSpec.size;
@@ -941,7 +981,7 @@ export default function LinyDoryGame() {
               pop('🎉 튜토리얼 완료! 이제 자유롭게 즐겨보세요', 'special');
             }
           }
-          await wait(280);
+          await wait(450);
           push(applyFall(gRef.current, LEVELS[lvlRef.current].types, mapRef.current));
           await wait(200);
         }
@@ -967,7 +1007,7 @@ export default function LinyDoryGame() {
       if (LEVELS[lvlRef.current].mode === 'moves' && movesRef.current <= 0) { outOfResource(); return; }
       scheduleHint();
     }
-  }, [push, inc, pop, endGame, outOfResource, scheduleHint, spawnFlames, kickScreen, runFinale]);
+  }, [push, inc, pop, endGame, outOfResource, scheduleHint, spawnFlames, kickScreen, runFinale, spawnDust]);
 
   // 두 칸 교환 시도 — 유효하면 즉시 커밋하고 리졸버를 가동(입력 잠금 없음)
   const trySwap = useCallback((sr: number, sc: number, r: number, c: number) => {
@@ -1004,7 +1044,7 @@ export default function LinyDoryGame() {
       hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell=sw[rr][cc]; if(cell) cell.hit=true; });
       inc(hits.size*120);
       setBlocksPopped(n => n + hits.size); sessionBlocksRef.current += hits.size;
-      spawnFlames(hits); kickScreen(); sfx.explode(); buzz(25);
+      spawnFlames(hits); spawnDust([...hits], sw); kickScreen(); sfx.explode(); buzz(25);
       const dk = (srcSpec ? sw[r][c]?.kind : sw[sr][sc]?.kind) ?? 'bomb';
       pop(SPECIAL_LABEL[dk] ?? '💥 발동!', 'special');
     }
@@ -1012,7 +1052,7 @@ export default function LinyDoryGame() {
     dirtyRef.current = true;
     push(sw);
     resolve();
-  }, [clearHint, inc, pop, push, resolve, spawnFlames, kickScreen]);
+  }, [clearHint, inc, pop, push, resolve, spawnFlames, kickScreen, spawnDust]);
 
   // 부스터(망치/폭탄/가로/세로/전체) 발동 — 선택한 칸 기준 효과 (입력 잠금 없음)
   const triggerBooster = useCallback((kind: BoosterKind, r: number, c: number) => {
@@ -1038,12 +1078,12 @@ export default function LinyDoryGame() {
     hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell2=sw[rr][cc]; if(cell2) cell2.hit=true; });
     inc(hits.size*80);
     setBlocksPopped(n => n + hits.size); sessionBlocksRef.current += hits.size;
-    spawnFlames(hits); kickScreen(); sfx.explode(); buzz(25);
+    spawnFlames(hits); spawnDust([...hits], sw); kickScreen(); sfx.explode(); buzz(25);
     pop(kind==='bomb'?'💣 폭탄 발동!':kind==='rowClear'?'↔ 가로 제거!':kind==='colClear'?'↕ 세로 제거!':kind==='allClear'?'🌈 전체 제거!':'🔨 망치 발동!', 'special');
     dirtyRef.current = true;
     push(sw);
     resolve();
-  }, [clearHint, inc, pop, push, resolve, spawnFlames, kickScreen]);
+  }, [clearHint, inc, pop, push, resolve, spawnFlames, kickScreen, spawnDust]);
 
   // 셔플 부스터 — 즉시 보드 재생성
   const triggerShuffle = useCallback(() => {
@@ -1992,6 +2032,30 @@ export default function LinyDoryGame() {
                 animation:'sparkConverge 0.45s ease-out forwards',
               }}>✨</span>
             ))}
+            {/* 가루(먼지) 파티클 */}
+            {dust.map(d => (
+              <span key={d.id} style={{
+                position:'absolute',
+                left:`${((d.c+0.5)/COLS)*100}%`,
+                top:`${((d.r+0.5)/ROWS)*100}%`,
+                width:7, height:7, borderRadius:'50%',
+                background:d.color, pointerEvents:'none', zIndex:6,
+                boxShadow:`0 0 5px ${d.color}`,
+                '--dx':`${d.dx}px`, '--dy':`${d.dy}px`,
+                animation:'dustFly 1.4s ease-out forwards',
+              } as unknown as CSSProperties}>{''}</span>
+            ))}
+            {/* 클리어 피날레: 위에서 내려오는 빛 */}
+            {lights.map(l => (
+              <span key={l.id} style={{
+                position:'absolute',
+                left:`${((l.c+0.5)/COLS)*100}%`,
+                top:`${((l.r+0.5)/ROWS)*100}%`,
+                fontSize:'clamp(18px,5vw,26px)', lineHeight:1, pointerEvents:'none', zIndex:8,
+                filter:'drop-shadow(0 0 10px rgba(255,255,150,1))',
+                animation:'lightDive 0.32s ease-in forwards',
+              }}>💫</span>
+            ))}
             {Array.from({ length: ROWS * COLS }, (_, idx) => {
               const row = Math.floor(idx / COLS);
               const col = idx % COLS;
@@ -2042,7 +2106,7 @@ export default function LinyDoryGame() {
                     cursor: 'pointer',
                     // 터질 때 자연스럽게 부풀었다 사라지는 효과(popOut)
                     animation: cell.hit
-                      ? 'popOut 0.28s ease-out forwards'
+                      ? 'popOut 0.6s ease-out forwards'
                       : isHint && !isSel
                       ? 'hintGlow 0.75s ease infinite'
                       : undefined,
