@@ -1628,7 +1628,7 @@ export default function LinyDoryGame() {
 
   // ── Splash ────────────────────────────────────────────────────────────────────
   if (phase === 'splash') return (
-    <div style={{ position:'relative', width:'100%', height:'100vh', overflow:'hidden', userSelect:'none' }}>
+    <div style={{ position:'relative', width:'100%', height:'100dvh', overflow:'hidden', userSelect:'none' }}>
       <style>{GAME_CSS}</style>
       <img src={`${BASE}characters/MAIN.png`} alt="리니와도리의 가시소동" style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'top center' }} />
       <div style={{ position:'absolute', top:0, left:0, right:0, padding:'calc(var(--sat) + clamp(28px,6vh,48px)) clamp(16px,5vw,32px) clamp(40px,8vh,80px)', background:'linear-gradient(180deg,rgba(5,10,40,0.85) 0%,transparent 100%)', display:'flex', flexDirection:'column', alignItems:'center' }}>
@@ -1702,14 +1702,14 @@ export default function LinyDoryGame() {
   // ── Main = 월드(미니맵) 선택 ────────────────────────────────────────────────
   if (phase === 'main') {
     return (
-      <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100vh', userSelect:'none', background:`linear-gradient(180deg, rgba(10,26,72,0.5) 0%, rgba(8,20,60,0.82) 55%, rgba(6,16,48,0.94) 100%), url(${BASE}characters/mapbg.png) center top / cover no-repeat`, overflow:'hidden' }}>
+      <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100dvh', userSelect:'none', background:`linear-gradient(180deg, rgba(10,26,72,0.5) 0%, rgba(8,20,60,0.82) 55%, rgba(6,16,48,0.94) 100%), url(${BASE}characters/mapbg.png) center top / cover no-repeat`, overflow:'hidden' }}>
         <style>{GAME_CSS}</style>
         {topBar}
         <div style={{ flexShrink:0, textAlign:'center', padding:'2px 0 8px' }}>
           <div style={{ fontSize:16, fontWeight:900, letterSpacing:1, color:'#FFE566', WebkitTextStroke:'0.5px #FFA500' }}>맵 선택 <span style={{ fontSize:11, color:'white', WebkitTextStroke:'0' }}>⭐ {totalStars}/{LEVELS.length*3}</span></div>
           <div style={{ fontSize:10.5, color:'rgba(255,255,255,0.6)', marginTop:2 }}>미니맵을 골라 스테이지에 도전하세요!</div>
         </div>
-        <div style={{ flex:1, overflowY:'auto', padding:'4px 16px 12px', display:'flex', flexDirection:'column', gap:14 }}>
+        <div style={{ flex:1, overflowY:'auto', padding:'4px 12px 12px', display:'grid', gridTemplateColumns:'repeat(2, 1fr)', gap:'clamp(8px,2.5vw,14px)', alignContent:'start' }}>
           {WORLDS.map((w, wi) => {
             const unlocked = isUnlocked(w.from);
             const wStars = progress.slice(w.from, w.to).reduce((a,b)=>a+b,0);
@@ -1717,21 +1717,21 @@ export default function LinyDoryGame() {
             const cleared = progress.slice(w.from, w.to).every(s => s >= 3);
             return (
               <button key={wi} disabled={!unlocked} onClick={() => { if(!unlocked) return; sfx.click(); setSelectedWorld(wi); setPhase('map'); }}
-                style={{ position:'relative', textAlign:'left', cursor:unlocked?'pointer':'default', borderRadius:20, padding:'16px 18px', border:`2.5px solid ${unlocked?w.color:'rgba(255,255,255,0.15)'}`,
-                  background: unlocked ? `linear-gradient(135deg, ${w.color}33, rgba(0,0,0,0.45))` : 'rgba(8,10,30,0.7)',
-                  boxShadow: unlocked ? `0 6px 20px rgba(0,0,0,0.45)` : 'none', opacity: unlocked?1:0.6, display:'flex', alignItems:'center', gap:14 }}>
-                <div style={{ position:'relative', width:64, height:64, flexShrink:0, borderRadius:14, overflow:'hidden', border:`2px solid ${unlocked?'rgba(255,255,255,0.6)':'rgba(255,255,255,0.15)'}`, background:'rgba(0,0,0,0.3)' }}>
-                  <img src={worldImg(wi)} alt="" loading="lazy" style={{ width:'100%', height:'100%', objectFit:'cover', filter: unlocked?'none':'grayscale(1) brightness(0.5)' }}/>
-                  {!unlocked && <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:24 }}>🔒</span>}
-                </div>
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontSize:16, fontWeight:900, color:'white' }}>{w.emoji} 월드 {wi+1} · {w.name}</div>
-                  <div style={{ fontSize:11, color:'rgba(255,255,255,0.65)', marginTop:3 }}>스테이지 {w.from+1}–{w.to} · ⭐ {wStars}/{wMax}{cleared ? ' · 클리어! 🎉' : ''}</div>
-                  <div style={{ marginTop:6, height:6, borderRadius:999, background:'rgba(255,255,255,0.15)', overflow:'hidden' }}>
-                    <div style={{ height:'100%', width:`${(wStars/wMax)*100}%`, background:`linear-gradient(90deg,#FF8C00,#FFD700)`, transition:'width 0.3s' }}/>
+                style={{ position:'relative', padding:0, cursor:unlocked?'pointer':'default', borderRadius:18, overflow:'hidden', aspectRatio:'3/4',
+                  border:`3px solid ${unlocked?w.color:'rgba(255,255,255,0.15)'}`,
+                  boxShadow: unlocked ? `0 6px 18px rgba(0,0,0,0.5)` : 'none', opacity: unlocked?1:0.7, textAlign:'left' }}>
+                <img src={worldImg(wi)} alt="" loading="lazy" style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover', filter: unlocked?'none':'grayscale(1) brightness(0.4)' }}/>
+                {/* 하단 그라데이션 + 정보 */}
+                <div style={{ position:'absolute', left:0, right:0, bottom:0, padding:'18px 8px 7px', background:'linear-gradient(0deg, rgba(0,0,0,0.85) 0%, transparent 100%)' }}>
+                  <div style={{ fontSize:12, fontWeight:900, color:'white', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{wi+1}. {w.name}</div>
+                  <div style={{ fontSize:10, fontWeight:800, color:'#FFE566', marginTop:1 }}>⭐ {wStars}/{wMax}{cleared?' 🎉':''}</div>
+                  <div style={{ marginTop:3, height:4, borderRadius:999, background:'rgba(255,255,255,0.2)', overflow:'hidden' }}>
+                    <div style={{ height:'100%', width:`${(wStars/wMax)*100}%`, background:'linear-gradient(90deg,#FF8C00,#FFD700)' }}/>
                   </div>
                 </div>
-                {unlocked && <span style={{ fontSize:20, color:'white' }}>▶</span>}
+                {/* 월드 번호 배지 */}
+                <span style={{ position:'absolute', top:6, left:6, fontSize:18 }}>{w.emoji}</span>
+                {!unlocked && <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:34 }}>🔒</span>}
               </button>
             );
           })}
@@ -1751,7 +1751,7 @@ export default function LinyDoryGame() {
     const wHeight = ids.length * MAP_ROW_GAP + 90;
     const curIdx = progress.findIndex(p=>p<3)===-1 ? LEVELS.length-1 : progress.findIndex(p=>p<3);
     return (
-      <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100vh', userSelect:'none', background:`linear-gradient(180deg, ${w.color}33 0%, rgba(8,20,60,0.9) 55%, rgba(6,16,48,0.97) 100%), url(${worldImg(selectedWorld)}) center top / cover no-repeat`, overflow:'hidden' }}>
+      <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100dvh', userSelect:'none', background:`linear-gradient(180deg, ${w.color}33 0%, rgba(8,20,60,0.9) 55%, rgba(6,16,48,0.97) 100%), url(${worldImg(selectedWorld)}) center top / cover no-repeat`, overflow:'hidden' }}>
         <style>{GAME_CSS}</style>
         {topBar}
         <div style={{ flexShrink:0, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'2px 14px 6px' }}>
@@ -1827,7 +1827,7 @@ export default function LinyDoryGame() {
 
   // ── Play / End ────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100vh', overflow:'hidden', position:'relative', background:'linear-gradient(180deg,#7EC8F0 0%,#AEE4F8 30%,#C5F0A4 70%,#8BC34A 100%)', userSelect:'none', animation: screenShake ? 'screenShake 0.32s ease' : undefined }}>
+    <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100dvh', overflow:'hidden', position:'relative', background:'linear-gradient(180deg,#7EC8F0 0%,#AEE4F8 30%,#C5F0A4 70%,#8BC34A 100%)', userSelect:'none', animation: screenShake ? 'screenShake 0.32s ease' : undefined }}>
       <style>{GAME_CSS}</style>
 
       {/* Cloud decorations */}
