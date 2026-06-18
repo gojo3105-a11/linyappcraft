@@ -9,10 +9,13 @@ import { Icon } from './icons';
 
 // 부스터(블럭 제거 아이템) 상점 정보
 // price = 코인 가격, cash = 시뮬레이션 현금 결제 가격(원)
-const BOOSTERS: { kind: BoosterKind; icon: string; name: string; desc: string; price: number; cash: number }[] = [
-  { kind: 'hammer',  icon: '🔨', name: '망치',   desc: '블럭 1개 제거',     price: 100, cash: 500  },
-  { kind: 'bomb',    icon: '💣', name: '폭탄',   desc: '주변 3×3 제거',     price: 250, cash: 1200 },
-  { kind: 'shuffle', icon: '🔀', name: '셔플',   desc: '보드 전체 섞기',     price: 150, cash: 800  },
+const BOOSTERS: { kind: BoosterKind; icon: string; name: string; desc: string; price: number; cash: number; aim: boolean }[] = [
+  { kind: 'hammer',   icon: '🔨', name: '망치',   desc: '블럭 1개 제거',       price: 100, cash: 500,  aim: true  },
+  { kind: 'bomb',     icon: '💣', name: '폭탄',   desc: '주변 3×3 제거',       price: 250, cash: 1200, aim: true  },
+  { kind: 'rowClear', icon: '↔', name: '가로',   desc: '가로 한 줄 제거',     price: 200, cash: 1000, aim: true  },
+  { kind: 'colClear', icon: '↕', name: '세로',   desc: '세로 한 줄 제거',     price: 200, cash: 1000, aim: true  },
+  { kind: 'allClear', icon: '🌈', name: '전체',   desc: '보드 전체 제거',      price: 500, cash: 2500, aim: false },
+  { kind: 'shuffle',  icon: '🔀', name: '셔플',   desc: '보드 전체 섞기',       price: 150, cash: 800,  aim: false },
 ];
 
 // 코인 충전 패키지 (시뮬레이션 결제)
@@ -75,24 +78,19 @@ const MAPS = [
   M(['.##.##.','#######','#######','#######','.#####.','..###..','...#...']), // 15 하트
 ] as const;
 
-// 스테이지가 올라갈수록 난이도 상승: 블럭 종류↑ / 목표 점수↑
-const LEVELS: { mode: 'time' | 'moves'; sec?: number; moves?: number; types: number; goal: readonly [number, number, number] }[] = [
-  { mode: 'moves', moves: 30, types: 4, goal: [400,  1000,  2000] },
-  { mode: 'moves', moves: 30, types: 4, goal: [600,  1500,  3000] },
-  { mode: 'moves', moves: 28, types: 5, goal: [800,  2000,  4000] },
-  { mode: 'moves', moves: 28, types: 5, goal: [1100, 2800,  5500] },
-  { mode: 'moves', moves: 28, types: 5, goal: [1400, 3400,  6800] },
-  { mode: 'moves', moves: 27, types: 6, goal: [1700, 4200,  8200] },
-  { mode: 'moves', moves: 27, types: 6, goal: [2100, 5000, 10000] },
-  { mode: 'moves', moves: 27, types: 6, goal: [2500, 6000, 12000] },
-  { mode: 'moves', moves: 27, types: 7, goal: [3000, 7000, 14000] },
-  { mode: 'moves', moves: 28, types: 7, goal: [3500, 8000, 16000] },
-  { mode: 'moves', moves: 28, types: 7, goal: [4000, 9000, 18000] },
-  { mode: 'moves', moves: 30, types: 8, goal: [4600, 10000, 20000] },
-  { mode: 'moves', moves: 30, types: 8, goal: [5200, 11500, 23000] },
-  { mode: 'moves', moves: 32, types: 9, goal: [6000, 13000, 26000] },
-  { mode: 'moves', moves: 34, types: 9, goal: [7000, 15000, 30000] },
-];
+// 미니맵(월드) 구성 — 최대 500개, 각 월드당 STAGES_PER_WORLD 스테이지
+const STAGES_PER_WORLD = 5;
+const WORLD_COUNT = 500;
+const TOTAL_STAGES = WORLD_COUNT * STAGES_PER_WORLD; // 2,500 스테이지
+
+// 스테이지 설정은 인덱스 기반으로 절차 생성(블럭 종류↑ / 목표 점수↑, 후반은 완만히 증가)
+const LEVELS: { mode: 'time' | 'moves'; sec?: number; moves?: number; types: number; goal: readonly [number, number, number] }[] =
+  Array.from({ length: TOTAL_STAGES }, (_, i) => {
+    const types = 4 + Math.min(5, Math.floor(i / 12));   // 4 → 9
+    const moves = 26 + ((i * 7) % 9);                     // 26 ~ 34
+    const base  = 400 + Math.min(i, 80) * 110 + Math.floor(i / 80) * 150;
+    return { mode: 'moves' as const, moves, types, goal: [base, Math.round(base * 2.2), Math.round(base * 3.4)] as const };
+  });
 
 // 스테이지 난이도 등급(블럭 종류 기준 — 표시용)
 const difficultyOf = (idx: number): { label: string; stars: number; color: string } => {
@@ -103,12 +101,20 @@ const difficultyOf = (idx: number): { label: string; stars: number; color: strin
   return { label: '최고', stars: 4, color: '#EF5350' };
 };
 
-// 월드(미니맵) — 스테이지를 구역으로 묶음
-const WORLDS: { name: string; from: number; to: number; color: string; emoji: string }[] = [
-  { name: '가시숲 마을',  from: 0,  to: 5,  color: '#66BB6A', emoji: '🌳' },
-  { name: '솔방울 언덕',  from: 5,  to: 10, color: '#FFB300', emoji: '⛰️' },
-  { name: '반짝 동굴',    from: 10, to: 15, color: '#7E57C2', emoji: '💎' },
+// 월드(미니맵) — 최대 500개. 테마(이름/색/이모지)는 순환
+const WORLD_NAMES = ['가시숲 마을','솔방울 언덕','반짝 동굴','물방울 호수','노을 사막','서리 골짜기','벚꽃 들판','버섯 숲','별빛 평원','달밤 언덕'];
+const WORLD_THEMES = [
+  { color:'#66BB6A', emoji:'🌳' }, { color:'#FFB300', emoji:'⛰️' }, { color:'#7E57C2', emoji:'💎' },
+  { color:'#42A5F5', emoji:'🌊' }, { color:'#FF7043', emoji:'🏜️' }, { color:'#26C6DA', emoji:'❄️' },
+  { color:'#EC407A', emoji:'🌸' }, { color:'#AB47BC', emoji:'🍄' }, { color:'#FDD835', emoji:'⭐' }, { color:'#5C6BC0', emoji:'🌙' },
 ];
+const WORLDS: { name: string; from: number; to: number; color: string; emoji: string }[] =
+  Array.from({ length: WORLD_COUNT }, (_, w) => {
+    const t = WORLD_THEMES[w % WORLD_THEMES.length];
+    const cycle = Math.floor(w / WORLD_NAMES.length);
+    const name = WORLD_NAMES[w % WORLD_NAMES.length] + (cycle > 0 ? ` ${cycle + 1}` : '');
+    return { name, from: w * STAGES_PER_WORLD, to: w * STAGES_PER_WORLD + STAGES_PER_WORLD, color: t.color, emoji: t.emoji };
+  });
 
 // 스테이지 첫 클리어(별3) 보상 — 하트 + 부스터 아이템
 const BOOSTER_CYCLE = ['hammer', 'bomb', 'shuffle'] as const;
@@ -534,11 +540,11 @@ export default function LinyDoryGame() {
   const [quests,   setQuests]     = useState<QuestSave>(loadQuests);
   const [showQuests, setShowQuests] = useState(false);
   const [boosters,    setBoosters]    = useState(loadBoosters);
-  const [boosterMode, setBoosterMode] = useState<'hammer'|'bomb'|null>(null);
+  const [boosterMode, setBoosterMode] = useState<BoosterKind|null>(null);
   const [showShop,    setShowShop]    = useState(false);
   const [showSettings,setShowSettings]= useState(false);
   const [shopTab,     setShopTab]     = useState<'coin'|'cash'>('coin');
-  const [cart,        setCart]        = useState<Record<BoosterKind,number>>({hammer:0,bomb:0,shuffle:0});
+  const [cart,        setCart]        = useState<Record<BoosterKind,number>>({hammer:0,bomb:0,shuffle:0,rowClear:0,colClear:0,allClear:0});
   const [pay,         setPay]         = useState<{label:string;cash:number;onDone:()=>void}|null>(null);
   const [payStage,    setPayStage]    = useState<'confirm'|'processing'|'done'>('confirm');
   const [account,     setAccount]     = useState<string>(getScope());
@@ -830,7 +836,7 @@ export default function LinyDoryGame() {
 
   const startLevel = useCallback((idx: number) => {
     const lvl = LEVELS[idx];
-    const map = MAPS[idx];
+    const map = MAPS[idx % MAPS.length];
     mapRef.current = map;
     _uid = 0;
     const g = mkGrid(lvl.types, map);
@@ -1008,8 +1014,8 @@ export default function LinyDoryGame() {
     resolve();
   }, [clearHint, inc, pop, push, resolve, spawnFlames, kickScreen]);
 
-  // 부스터(망치/폭탄) 발동 — 선택한 칸에 효과 적용 (입력 잠금 없음)
-  const triggerBooster = useCallback((kind: 'hammer'|'bomb', r: number, c: number) => {
+  // 부스터(망치/폭탄/가로/세로/전체) 발동 — 선택한 칸 기준 효과 (입력 잠금 없음)
+  const triggerBooster = useCallback((kind: BoosterKind, r: number, c: number) => {
     if (phaseRef.current !== 'play' || pausedRef.current) return;
     if ((boostersRef.current[kind] ?? 0) <= 0) { setShowShop(true); return; }
     const g = gRef.current;
@@ -1021,7 +1027,10 @@ export default function LinyDoryGame() {
     const sw: Grid = g.map(row => row.map(x => x ? {...x} : null));
     const hits = new Set<string>();
     if (kind === 'hammer') hits.add(`${r},${c}`);
-    else for (let dr=-1; dr<=1; dr++) for (let dc=-1; dc<=1; dc++) {
+    else if (kind === 'rowClear') { for (let x=0;x<COLS;x++) if (sw[r]?.[x]) hits.add(`${r},${x}`); }
+    else if (kind === 'colClear') { for (let y=0;y<ROWS;y++) if (sw[y]?.[c]) hits.add(`${y},${c}`); }
+    else if (kind === 'allClear') { for (let y=0;y<ROWS;y++) for (let x=0;x<COLS;x++) if (sw[y]?.[x]) hits.add(`${y},${x}`); }
+    else for (let dr=-1; dr<=1; dr++) for (let dc=-1; dc<=1; dc++) { // bomb
       const nr=r+dr, nc=c+dc;
       if (nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&sw[nr]?.[nc]) hits.add(`${nr},${nc}`);
     }
@@ -1029,8 +1038,8 @@ export default function LinyDoryGame() {
     hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell2=sw[rr][cc]; if(cell2) cell2.hit=true; });
     inc(hits.size*80);
     setBlocksPopped(n => n + hits.size); sessionBlocksRef.current += hits.size;
-    spawnFlames(hits); kickScreen(); sfx.explode(); buzz(25); // 아이템 사용 시 불길 효과
-    pop(kind==='bomb' ? '💣 폭탄 발동!' : '🔨 망치 발동!', 'special');
+    spawnFlames(hits); kickScreen(); sfx.explode(); buzz(25);
+    pop(kind==='bomb'?'💣 폭탄 발동!':kind==='rowClear'?'↔ 가로 제거!':kind==='colClear'?'↕ 세로 제거!':kind==='allClear'?'🌈 전체 제거!':'🔨 망치 발동!', 'special');
     dirtyRef.current = true;
     push(sw);
     resolve();
@@ -1103,7 +1112,7 @@ export default function LinyDoryGame() {
   };
 
   // ── 장바구니(부스터 묶음 현금 결제) ──────────────────
-  const cartCount = cart.hammer + cart.bomb + cart.shuffle;
+  const cartCount = BOOSTERS.reduce((s, b) => s + cart[b.kind], 0);
   const cartTotal = BOOSTERS.reduce((s, b) => s + cart[b.kind] * b.cash, 0);
   const setCartQty = (kind: BoosterKind, delta: number) =>
     setCart(prev => ({ ...prev, [kind]: Math.max(0, Math.min(99, prev[kind] + delta)) }));
@@ -1112,14 +1121,11 @@ export default function LinyDoryGame() {
     const snapshot = { ...cart };
     startPay(`아이템 ${cartCount}개`, cartTotal, () => {
       setBoosters(prev => {
-        const next = {
-          hammer:  prev.hammer  + snapshot.hammer,
-          bomb:    prev.bomb    + snapshot.bomb,
-          shuffle: prev.shuffle + snapshot.shuffle,
-        };
+        const next = { ...prev };
+        (Object.keys(snapshot) as BoosterKind[]).forEach(k => { next[k] = (prev[k] ?? 0) + snapshot[k]; });
         saveBoosters(next); return next;
       });
-      setCart({ hammer: 0, bomb: 0, shuffle: 0 });
+      setCart({ hammer:0, bomb:0, shuffle:0, rowClear:0, colClear:0, allClear:0 });
       pop('🎉 결제 완료! 아이템 지급', 'special');
     });
   };
@@ -1154,7 +1160,7 @@ export default function LinyDoryGame() {
     : condPct > 25
     ? 'linear-gradient(180deg,#FFA726,#E65100)'
     : 'linear-gradient(180deg,#EF5350,#B71C1C)';
-  const curMap = MAPS[lvlIdx];
+  const curMap = MAPS[lvlIdx % MAPS.length];
 
   const renderModals = () => (
     <>
@@ -1506,7 +1512,7 @@ export default function LinyDoryGame() {
               <div style={{ padding:'12px', borderRadius:14, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', display:'flex', justifyContent:'space-around', textAlign:'center' }}>
                 <div><div style={{ fontSize:18, fontWeight:900, color:'#FFD700' }}>⭐ {progress.reduce((a,b)=>a+b,0)}</div><div style={{ fontSize:9, color:'rgba(255,255,255,0.4)' }}>총 별</div></div>
                 <div><div style={{ fontSize:18, fontWeight:900, color:'#FFE566' }}>🪙 {coins.toLocaleString()}</div><div style={{ fontSize:9, color:'rgba(255,255,255,0.4)' }}>코인</div></div>
-                <div><div style={{ fontSize:18, fontWeight:900, color:'#9EC0FF' }}>🎒 {boosters.hammer+boosters.bomb+boosters.shuffle}</div><div style={{ fontSize:9, color:'rgba(255,255,255,0.4)' }}>아이템</div></div>
+                <div><div style={{ fontSize:18, fontWeight:900, color:'#9EC0FF' }}>🎒 {BOOSTERS.reduce((a,b)=>a+boosters[b.kind],0)}</div><div style={{ fontSize:9, color:'rgba(255,255,255,0.4)' }}>아이템</div></div>
               </div>
               {/* 사운드 on/off */}
               <button onClick={() => { const m = toggleMuted(); setMutedState(m); if (!m) { sfx.click(); primeAudio(); if (phaseRef.current==='main') startBgm(); } else stopBgm(); }}
@@ -1523,7 +1529,7 @@ export default function LinyDoryGame() {
               <button onClick={() => {
                   if (confirm('이 계정의 진행도·코인·아이템을 모두 초기화할까요?')) {
                     saveProg(Array(LEVELS.length).fill(0)); setProgress(Array(LEVELS.length).fill(0));
-                    saveBoosters({hammer:0,bomb:0,shuffle:0}); setBoosters({hammer:0,bomb:0,shuffle:0});
+                    saveBoosters({hammer:0,bomb:0,shuffle:0,rowClear:0,colClear:0,allClear:0}); setBoosters({hammer:0,bomb:0,shuffle:0,rowClear:0,colClear:0,allClear:0});
                     sSet('linydory_coins_v1', 0); setCoins(0); window.dispatchEvent(new Event('coins-updated'));
                     pop('진행도를 초기화했어요', 'special'); setShowSettings(false);
                   }
@@ -1703,7 +1709,8 @@ export default function LinyDoryGame() {
           <span style={{ fontSize:15, fontWeight:900, color:'#FFE566', WebkitTextStroke:'0.5px #FFA500' }}>{w.emoji} {w.name}</span>
           <span style={{ fontSize:12, fontWeight:800, color:'white' }}>⭐ {progress.slice(w.from,w.to).reduce((a,b)=>a+b,0)}/{(w.to-w.from)*3}</span>
         </div>
-        <div ref={mapScrollRef} style={{ flex:1, overflowY:'auto', margin:'4px 12px 8px', borderRadius:16, background:'rgba(0,0,40,0.28)', border:'2px solid rgba(255,255,255,0.1)' }}>
+        <div style={{ flex:1, display:'flex', gap:6, margin:'4px 8px 8px', minHeight:0 }}>
+        <div ref={mapScrollRef} style={{ flex:1, overflowY:'auto', borderRadius:16, background:'rgba(0,0,40,0.28)', border:'2px solid rgba(255,255,255,0.1)' }}>
           <div style={{ position:'relative', width:'100%', height: wHeight }}>
             <svg style={{ position:'absolute', inset:0, width:'100%', height:'100%', zIndex:1 }}>
               {ids.slice(0,-1).map((gi,k)=>{
@@ -1745,6 +1752,22 @@ export default function LinyDoryGame() {
               );
             })}
           </div>
+        </div>
+        {/* 우측 진행 고슴도치 — 이 월드에서 별3 클리어한 만큼 아래→위로 */}
+        {(() => {
+          const count = w.to - w.from;
+          const clearedN = progress.slice(w.from, w.to).filter(s => s >= 3).length;
+          const frac = count > 0 ? clearedN / count : 0;
+          return (
+            <div style={{ width:30, flexShrink:0, display:'flex', justifyContent:'center', padding:'4px 0' }}>
+              <div style={{ position:'relative', width:9, borderRadius:999, background:'rgba(255,255,255,0.18)', border:'1.5px solid rgba(255,255,255,0.35)' }}>
+                <div style={{ position:'absolute', left:0, right:0, bottom:0, height:`${frac*100}%`, borderRadius:999, background:`linear-gradient(0deg, ${w.color}, #FFD700)`, transition:'height 0.4s ease' }}/>
+                <span style={{ position:'absolute', left:'50%', top:-2, transform:'translateX(-50%)', fontSize:11 }}>🏁</span>
+                <img src={`${BASE}characters/block1.png`} alt="" style={{ position:'absolute', left:'50%', bottom:`${frac*100}%`, transform:'translate(-50%,50%)', width:26, height:26, borderRadius:'50%', objectFit:'cover', border:'2px solid white', boxShadow:'0 2px 7px rgba(0,0,0,0.55)', transition:'bottom 0.4s ease' }}/>
+              </div>
+            </div>
+          );
+        })()}
         </div>
         {bottomNav}
         {renderModals()}
@@ -2046,14 +2069,14 @@ export default function LinyDoryGame() {
       {phase==='play' && boosterMode && (
         <div style={{ position:'absolute', left:0, right:0, top:'44%', zIndex:24, display:'flex', justifyContent:'center', pointerEvents:'none' }}>
           <div style={{ padding:'7px 18px', borderRadius:999, background:'rgba(0,0,0,0.8)', color:'#FFE566', fontWeight:800, fontSize:13, whiteSpace:'nowrap', boxShadow:'0 0 18px rgba(255,180,0,0.6)', animation:'splashPulse 0.9s ease infinite' }}>
-            {boosterMode==='bomb'?'💣':'🔨'} 제거할 블럭 선택! (다시 탭하면 취소)
+            {(BOOSTERS.find(b=>b.kind===boosterMode)?.icon ?? '🔨')} 적용할 블럭 선택! (다시 탭하면 취소)
           </div>
         </div>
       )}
 
       {/* Booster bar */}
       {phase==='play' && (
-        <div style={{ flexShrink:0, position:'relative', zIndex:12, display:'flex', alignItems:'center', justifyContent:'center', gap:'clamp(6px,2vw,10px)', padding:'0 10px calc(var(--sab) + 8px)' }}>
+        <div style={{ flexShrink:0, position:'relative', zIndex:12, display:'flex', flexWrap:'wrap', alignItems:'center', justifyContent:'center', gap:'clamp(4px,1.4vw,7px)', padding:'0 8px calc(var(--sab) + 8px)' }}>
           {BOOSTERS.map(b => {
             const cnt = boosters[b.kind];
             const armed = boosterMode === b.kind;
@@ -2062,18 +2085,19 @@ export default function LinyDoryGame() {
                 onClick={() => {
                   if (cnt <= 0) { setShowShop(true); return; }
                   if (b.kind === 'shuffle') { triggerShuffle(); return; }
+                  if (b.kind === 'allClear') { const g=gRef.current; for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++) if(g[y]?.[x] && !g[y][x]!.hit){ triggerBooster('allClear',y,x); return; } return; }
                   setBoosterMode(armed ? null : b.kind);
                 }}
                 style={{
                   position:'relative', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
-                  width:58, height:54, borderRadius:16, cursor:'pointer',
+                  width:50, height:50, borderRadius:14, cursor:'pointer',
                   background: armed ? 'linear-gradient(145deg,#FF8C00,#FFD700)' : 'rgba(255,255,255,0.92)',
                   border: armed ? '2.5px solid white' : '2px solid rgba(0,0,0,0.1)',
                   boxShadow: armed ? '0 0 16px rgba(255,180,0,0.9), 0 4px 0 rgba(0,0,0,0.15)' : '0 4px 0 rgba(0,0,0,0.15)',
                   opacity: cnt <= 0 ? 0.5 : 1, transition:'all 0.15s ease',
                 }}>
-                <span style={{ fontSize:22, lineHeight:1 }}>{b.icon}</span>
-                <span style={{ fontSize:9, fontWeight:800, color: armed ? '#3D1C00' : '#555' }}>{b.name}</span>
+                <span style={{ fontSize:19, lineHeight:1, fontWeight:900, color: armed?'#3D1C00':'#333' }}>{b.icon}</span>
+                <span style={{ fontSize:8.5, fontWeight:800, color: armed ? '#3D1C00' : '#555' }}>{b.name}</span>
                 <span style={{ position:'absolute', top:-6, right:-6, minWidth:18, height:18, padding:'0 4px', borderRadius:999,
                   background: cnt > 0 ? '#22AA55' : '#BBB', border:'1.5px solid white', color:'white', fontSize:10, fontWeight:900,
                   display:'flex', alignItems:'center', justifyContent:'center' }}>{cnt}</span>
@@ -2082,9 +2106,9 @@ export default function LinyDoryGame() {
           })}
           <button onClick={() => setShowShop(true)}
             style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
-              width:58, height:54, borderRadius:16, cursor:'pointer', background:'linear-gradient(145deg,#42A5F5,#1565C0)', border:'2px solid rgba(255,255,255,0.4)', boxShadow:'0 4px 0 #0D3B80' }}>
-            <span style={{ fontSize:20, lineHeight:1 }}>🛒</span>
-            <span style={{ fontSize:9, fontWeight:800, color:'white' }}>상점</span>
+              width:50, height:50, borderRadius:14, cursor:'pointer', background:'linear-gradient(145deg,#42A5F5,#1565C0)', border:'2px solid rgba(255,255,255,0.4)', boxShadow:'0 4px 0 #0D3B80' }}>
+            <span style={{ fontSize:18, lineHeight:1 }}>🛒</span>
+            <span style={{ fontSize:8.5, fontWeight:800, color:'white' }}>상점</span>
           </button>
         </div>
       )}
