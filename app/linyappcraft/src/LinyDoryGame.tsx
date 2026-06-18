@@ -32,15 +32,15 @@ const BASE = import.meta.env.BASE_URL;
 // 블럭 캐릭터 아이콘 (public/characters/block{n}.png)
 const BLK = (n: number) => `${BASE}characters/block${n}.png`;
 const TILES = [
-  { img: BLK(1), bg: 'linear-gradient(145deg,#FFD54F,#FF8F00)', glow: '#FFB300' }, // 1 금발 행복(골드)
-  { img: BLK(2), bg: 'linear-gradient(145deg,#64B5F6,#1565C0)', glow: '#42A5F5' }, // 2 정장 시크(블루)
-  { img: BLK(3), bg: 'linear-gradient(145deg,#F48FB1,#AD1457)', glow: '#EC407A' }, // 3 핑크 홀로그램(핑크)
-  { img: BLK(4), bg: 'linear-gradient(145deg,#80DEEA,#00838F)', glow: '#26C6DA' }, // 4 번개 놀람(시안)
-  { img: BLK(5), bg: 'linear-gradient(145deg,#AED581,#33691E)', glow: '#7CB342' }, // 5 우는 고슴도치(그린)
-  { img: BLK(6), bg: 'linear-gradient(145deg,#CE93D8,#6A1B9A)', glow: '#AB47BC' }, // 6 동글안경 행복(퍼플)
-  { img: BLK(7), bg: 'linear-gradient(145deg,#FF8A65,#BF360C)', glow: '#FF7043' }, // 7 (코랄/레드)
-  { img: BLK(8), bg: 'linear-gradient(145deg,#DCE775,#9E9D24)', glow: '#CDDC39' }, // 8 (라임)
-  { img: BLK(9), bg: 'linear-gradient(145deg,#9FA8DA,#283593)', glow: '#5C6BC0' }, // 9 (인디고)
+  { img: BLK(1), bg: 'linear-gradient(145deg,#FF8A8A,#D50000)', glow: '#FF1744' }, // 1 빨강
+  { img: BLK(2), bg: 'linear-gradient(145deg,#FFB74D,#E65100)', glow: '#FF9100' }, // 2 주황
+  { img: BLK(3), bg: 'linear-gradient(145deg,#FFF176,#F9A825)', glow: '#FFD600' }, // 3 노랑
+  { img: BLK(4), bg: 'linear-gradient(145deg,#69F0AE,#00913B)', glow: '#00E676' }, // 4 초록
+  { img: BLK(5), bg: 'linear-gradient(145deg,#64FFDA,#00897B)', glow: '#1DE9B6' }, // 5 청록
+  { img: BLK(6), bg: 'linear-gradient(145deg,#80D8FF,#0277BD)', glow: '#00B0FF' }, // 6 하늘
+  { img: BLK(7), bg: 'linear-gradient(145deg,#82B1FF,#1A237E)', glow: '#2979FF' }, // 7 파랑
+  { img: BLK(8), bg: 'linear-gradient(145deg,#B388FF,#4527A0)', glow: '#7C4DFF' }, // 8 보라
+  { img: BLK(9), bg: 'linear-gradient(145deg,#FF80AB,#C51162)', glow: '#F50057' }, // 9 자홍
 ] as const;
 
 // 특수 블럭 종류: 가로 1줄 / 세로 1줄 / 주변 폭탄 / 전체 제거
