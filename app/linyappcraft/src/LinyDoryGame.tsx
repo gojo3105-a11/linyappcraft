@@ -30,16 +30,17 @@ const COLS = 7;
 const BASE = import.meta.env.BASE_URL;
 // 블럭 캐릭터 아이콘 (public/characters/block{n}.png)
 const BLK = (n: number) => `${BASE}characters/block${n}.png`;
+// 서로 완전히 다른 9색(계열 겹치지 않게) — 최대 구분 팔레트
 const TILES = [
-  { img: BLK(1), bg: 'linear-gradient(145deg,#FF8A8A,#D50000)', glow: '#FF1744' }, // 1 빨강
-  { img: BLK(2), bg: 'linear-gradient(145deg,#FFB74D,#E65100)', glow: '#FF9100' }, // 2 주황
-  { img: BLK(3), bg: 'linear-gradient(145deg,#FFF176,#F9A825)', glow: '#FFD600' }, // 3 노랑
-  { img: BLK(4), bg: 'linear-gradient(145deg,#69F0AE,#00913B)', glow: '#00E676' }, // 4 초록
-  { img: BLK(5), bg: 'linear-gradient(145deg,#64FFDA,#00897B)', glow: '#1DE9B6' }, // 5 청록
-  { img: BLK(6), bg: 'linear-gradient(145deg,#80D8FF,#0277BD)', glow: '#00B0FF' }, // 6 하늘
-  { img: BLK(7), bg: 'linear-gradient(145deg,#82B1FF,#1A237E)', glow: '#2979FF' }, // 7 파랑
-  { img: BLK(8), bg: 'linear-gradient(145deg,#B388FF,#4527A0)', glow: '#7C4DFF' }, // 8 보라
-  { img: BLK(9), bg: 'linear-gradient(145deg,#FF80AB,#C51162)', glow: '#F50057' }, // 9 자홍
+  { img: BLK(1), bg: 'linear-gradient(145deg,#FF6B6B,#C1121F)', glow: '#E6194B' }, // 1 빨강
+  { img: BLK(2), bg: 'linear-gradient(145deg,#FFB14E,#E36A00)', glow: '#F58231' }, // 2 주황
+  { img: BLK(3), bg: 'linear-gradient(145deg,#FFF06B,#E0C200)', glow: '#FFE119' }, // 3 노랑
+  { img: BLK(4), bg: 'linear-gradient(145deg,#6FE07A,#2E7D32)', glow: '#3CB44B' }, // 4 초록
+  { img: BLK(5), bg: 'linear-gradient(145deg,#7DEAF7,#0097A7)', glow: '#42D4F4' }, // 5 하늘(시안)
+  { img: BLK(6), bg: 'linear-gradient(145deg,#6E86F0,#21409A)', glow: '#4363D8' }, // 6 파랑
+  { img: BLK(7), bg: 'linear-gradient(145deg,#C06BD6,#6A1B9A)', glow: '#911EB4' }, // 7 보라
+  { img: BLK(8), bg: 'linear-gradient(145deg,#FF7BEF,#C026B8)', glow: '#F032E6' }, // 8 자홍(핑크)
+  { img: BLK(9), bg: 'linear-gradient(145deg,#C39A6B,#6D4C24)', glow: '#9A6324' }, // 9 갈색
 ] as const;
 
 // 특수 블럭 종류: 가로 1줄 / 세로 1줄 / 주변 폭탄 / 전체 제거
@@ -722,16 +723,17 @@ export default function LinyDoryGame() {
     return () => { window.removeEventListener('lives-updated', refresh); clearInterval(id); };
   }, []);
 
-  // 메인 화면 BGM: 메인일 때 재생, 벗어나면 정지
+  // 게임 BGM: 메인/맵/플레이 중 재생, 스플래시·종료 화면에선 정지
   useEffect(() => {
-    if (phase === 'main' && !muted) startBgm();
+    const playing = phase === 'main' || phase === 'map' || phase === 'play';
+    if (playing && !muted) startBgm();
     else stopBgm();
     return () => stopBgm();
   }, [phase, muted]);
 
-  // 오디오 잠금 해제(첫 제스처) — 메인이면 BGM 시작
+  // 오디오 잠금 해제(첫 제스처) — 게임 중이면 BGM 시작
   useEffect(() => {
-    const unlock = () => { primeAudio(); if (phaseRef.current === 'main' && !isMuted()) startBgm(); };
+    const unlock = () => { primeAudio(); const p = phaseRef.current; if ((p === 'main' || p === 'map' || p === 'play') && !isMuted()) startBgm(); };
     window.addEventListener('pointerdown', unlock);
     return () => window.removeEventListener('pointerdown', unlock);
   }, []);
@@ -1557,7 +1559,7 @@ export default function LinyDoryGame() {
                 <div><div style={{ fontSize:18, fontWeight:900, color:'#9EC0FF' }}>🎒 {BOOSTERS.reduce((a,b)=>a+boosters[b.kind],0)}</div><div style={{ fontSize:9, color:'rgba(255,255,255,0.4)' }}>아이템</div></div>
               </div>
               {/* 사운드 on/off */}
-              <button onClick={() => { const m = toggleMuted(); setMutedState(m); if (!m) { sfx.click(); primeAudio(); if (phaseRef.current==='main') startBgm(); } else stopBgm(); }}
+              <button onClick={() => { const m = toggleMuted(); setMutedState(m); if (!m) { sfx.click(); primeAudio(); const p=phaseRef.current; if (p==='main'||p==='map'||p==='play') startBgm(); } else stopBgm(); }}
                 style={{ padding:'11px', borderRadius:12, border:'1px solid rgba(120,160,255,0.35)', cursor:'pointer', background:'rgba(120,160,255,0.12)', color:'#9EC0FF', fontSize:12, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
                 <span>{muted ? '🔇 소리 꺼짐' : '🔊 소리 켜짐'}</span>
                 <span style={{ fontSize:10, opacity:0.7 }}>{muted ? '탭하면 켜기' : '탭하면 끄기'}</span>
