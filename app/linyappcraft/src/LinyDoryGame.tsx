@@ -78,9 +78,36 @@ const MAPS = [
   M(['.##.##.','#######','#######','#######','.#####.','..###..','...#...']), // 15 하트
 ] as const;
 
+// 인덱스 기반 시드 난수
+function mulberry(seed: number) {
+  return () => {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+// 스테이지마다 서로 다른 보드 — 기본 모양에 시드 기반 좌우대칭 구멍을 추가해 매번 다르게(난이도도 변동)
+function genMap(i: number): (0|1)[][] {
+  const base = MAPS[i % MAPS.length].map(row => [...row]) as (0|1)[][];
+  const rnd = mulberry((i + 1) * 2654435761);
+  const carve = 2 + (i % 4); // 2~5개의 추가 구멍 → 후반/특정 스테이지일수록 보드가 더 까다로움
+  for (let n = 0; n < carve; n++) {
+    const r = Math.floor(rnd() * ROWS);
+    const c = Math.floor(rnd() * Math.ceil(COLS / 2));
+    base[r][c] = 0; base[r][COLS - 1 - c] = 0;
+  }
+  // 각 열에 최소 3칸 보장(플레이 가능하도록)
+  for (let c = 0; c < COLS; c++) {
+    let cnt = 0; for (let r = 0; r < ROWS; r++) cnt += base[r][c];
+    for (let r = ROWS - 1; r >= 0 && cnt < 3; r--) { if (!base[r][c]) { base[r][c] = 1; cnt++; } }
+  }
+  return base;
+}
+
 // 미니맵(월드) 구성 — 최대 500개, 각 월드당 STAGES_PER_WORLD 스테이지
 const STAGES_PER_WORLD = 10;
-const WORLD_COUNT = 5;
+const WORLD_COUNT = 10;
 const TOTAL_STAGES = WORLD_COUNT * STAGES_PER_WORLD; // 2,500 스테이지
 
 // 스테이지 설정은 인덱스 기반으로 절차 생성(블럭 종류↑ / 목표 점수↑, 후반은 완만히 증가)
@@ -515,7 +542,7 @@ export default function LinyDoryGame() {
   const [loadPct, setLoadPct]     = useState(0);
   const [lvlIdx, setLvlIdx]       = useState(0);
   const [progress, setProgress]   = useState<number[]>(loadProg);
-  const [grid, setGrid]           = useState<Grid>(() => mkGrid(LEVELS[0].types, MAPS[0]));
+  const [grid, setGrid]           = useState<Grid>(() => mkGrid(LEVELS[0].types, genMap(0)));
   const [sel, setSel]             = useState<[number,number]|null>(null);
   const [score, setScore]         = useState(0);
   const [time, setTime]           = useState(60);
@@ -567,7 +594,7 @@ export default function LinyDoryGame() {
   const scoreRef = useRef(0);
   const lvlRef   = useRef(0);
   const movesRef = useRef(0);
-  const mapRef   = useRef<readonly (0|1)[][]>(MAPS[0]);
+  const mapRef   = useRef<readonly (0|1)[][]>(genMap(0));
   const popT     = useRef<ReturnType<typeof setTimeout>|null>(null);
   const hintTmr  = useRef<ReturnType<typeof setTimeout>|null>(null);
   const luckyRef = useRef(false);
@@ -880,7 +907,7 @@ export default function LinyDoryGame() {
 
   const startLevel = useCallback((idx: number) => {
     const lvl = LEVELS[idx];
-    const map = MAPS[idx % MAPS.length];
+    const map = genMap(idx);
     mapRef.current = map;
     _uid = 0;
     const g = mkGrid(lvl.types, map);
@@ -1207,7 +1234,7 @@ export default function LinyDoryGame() {
     : condPct > 25
     ? 'linear-gradient(180deg,#FFA726,#E65100)'
     : 'linear-gradient(180deg,#EF5350,#B71C1C)';
-  const curMap = MAPS[lvlIdx % MAPS.length];
+  const curMap = genMap(lvlIdx);
 
   const renderModals = () => (
     <>
@@ -1709,37 +1736,28 @@ export default function LinyDoryGame() {
           <div style={{ fontSize:16, fontWeight:900, letterSpacing:1, color:'#FFE566', WebkitTextStroke:'0.5px #FFA500' }}>맵 선택 <span style={{ fontSize:11, color:'white', WebkitTextStroke:'0' }}>⭐ {totalStars}/{LEVELS.length*3}</span></div>
           <div style={{ fontSize:10.5, color:'rgba(255,255,255,0.6)', marginTop:2 }}>미니맵을 골라 스테이지에 도전하세요!</div>
         </div>
-        <div style={{ flex:1, overflowY:'auto', padding:'4px 0 8px' }}>
-          <div style={{ position:'relative', width:'100%', height: WORLD_COUNT*MAP_ROW_GAP + 80 }}>
-            {/* 월드 사이 길 */}
-            <svg style={{ position:'absolute', inset:0, width:'100%', height:'100%', zIndex:1 }}>
-              {WORLDS.slice(0,-1).map((_,wi)=>{
-                const done = progress.slice(WORLDS[wi].from, WORLDS[wi].to).every(s=>s>=3);
-                return <line key={wi} x1={`${mapNodeX(wi)}%`} y1={wi*MAP_ROW_GAP+56} x2={`${mapNodeX(wi+1)}%`} y2={(wi+1)*MAP_ROW_GAP+56} stroke={done?'#FFB300':'rgba(255,255,255,0.2)'} strokeWidth="4" strokeDasharray={done?'0':'8,6'} strokeLinecap="round"/>;
-              })}
-            </svg>
-            {WORLDS.map((w, wi) => {
-              const unlocked = isUnlocked(w.from);
-              const wStars = progress.slice(w.from, w.to).reduce((a,b)=>a+b,0);
-              const wMax = (w.to - w.from) * 3;
-              const cleared = progress.slice(w.from, w.to).every(s => s >= 3);
-              return (
-                <div key={wi} style={{ position:'absolute', left:`calc(${mapNodeX(wi)}% - 55px)`, top:wi*MAP_ROW_GAP+56-32, width:110, zIndex:2, display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
-                  {/* 스테이지 원형과 동일한 64px 원형 이미지 */}
-                  <button disabled={!unlocked} onClick={() => { if(!unlocked) return; sfx.click(); setSelectedWorld(wi); setPhase('map'); }}
-                    style={{ position:'relative', width:64, height:64, borderRadius:'50%', overflow:'hidden', padding:0, cursor:unlocked?'pointer':'default',
-                      border:`3px solid ${unlocked?w.color:'rgba(255,255,255,0.2)'}`,
-                      boxShadow: unlocked ? `0 0 12px ${w.color}, 0 4px 14px rgba(0,0,0,0.5)` : 'none', opacity: unlocked?1:0.6 }}>
-                    <img src={worldImg(wi)} alt="" loading="lazy" style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover', filter: unlocked?'none':'grayscale(1) brightness(0.4)' }}/>
-                    <span style={{ position:'absolute', top:1, left:3, fontSize:13 }}>{w.emoji}</span>
-                    {!unlocked && <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:24 }}>🔒</span>}
-                  </button>
-                  <div style={{ fontSize:11, fontWeight:900, color:'white', textShadow:'0 1px 3px rgba(0,0,0,0.8)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:110, textAlign:'center' }}>{wi+1}. {w.name}</div>
-                  <div style={{ fontSize:9, fontWeight:800, color:'#FFE566', textShadow:'0 1px 2px rgba(0,0,0,0.8)' }}>⭐ {wStars}/{wMax}{cleared?' 🎉':''}</div>
-                </div>
-              );
-            })}
-          </div>
+        <div style={{ flex:1, minHeight:0, overflow:'hidden', padding:'4px 10px 8px', display:'grid', gridTemplateColumns:'repeat(2,1fr)', gridAutoRows:'1fr', gap:'clamp(4px,1.5vw,10px)' }}>
+          {WORLDS.map((w, wi) => {
+            const unlocked = isUnlocked(w.from);
+            const wStars = progress.slice(w.from, w.to).reduce((a,b)=>a+b,0);
+            const wMax = (w.to - w.from) * 3;
+            const cleared = progress.slice(w.from, w.to).every(s => s >= 3);
+            return (
+              <div key={wi} style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:3, minHeight:0 }}>
+                {/* 스테이지와 동일한 원형 이미지 */}
+                <button disabled={!unlocked} onClick={() => { if(!unlocked) return; sfx.click(); setSelectedWorld(wi); setPhase('map'); }}
+                  style={{ position:'relative', width:'clamp(46px,13vw,64px)', aspectRatio:'1', borderRadius:'50%', overflow:'hidden', padding:0, flexShrink:0, cursor:unlocked?'pointer':'default',
+                    border:`3px solid ${unlocked?w.color:'rgba(255,255,255,0.2)'}`,
+                    boxShadow: unlocked ? `0 0 10px ${w.color}, 0 4px 12px rgba(0,0,0,0.5)` : 'none', opacity: unlocked?1:0.6 }}>
+                  <img src={worldImg(wi)} alt="" loading="lazy" style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover', filter: unlocked?'none':'grayscale(1) brightness(0.4)' }}/>
+                  <span style={{ position:'absolute', top:0, left:3, fontSize:12 }}>{w.emoji}</span>
+                  {!unlocked && <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:22 }}>🔒</span>}
+                </button>
+                <div style={{ fontSize:'clamp(9px,2.6vw,11px)', fontWeight:900, color:'white', textShadow:'0 1px 3px rgba(0,0,0,0.85)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:'46vw', textAlign:'center' }}>{wi+1}. {w.name}</div>
+                <div style={{ fontSize:'clamp(8px,2.2vw,9px)', fontWeight:800, color:'#FFE566', textShadow:'0 1px 2px rgba(0,0,0,0.85)' }}>⭐ {wStars}/{wMax}{cleared?' 🎉':''}</div>
+              </div>
+            );
+          })}
         </div>
         {bottomNav}
         {renderModals()}
