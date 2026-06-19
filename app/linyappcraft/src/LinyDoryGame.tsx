@@ -3,7 +3,6 @@ import { loadCoins, spendCoins, addCoins, loadBoosters, saveBoosters, loadLives,
 import { sGet, sSet, getScope, setScope } from './store';
 import { tossLogin, fetchUserKey } from './toss';
 import { sfx, buzz, primeAudio, isMuted, toggleMuted, startBgm, stopBgm } from './sfx';
-import { submitScore, loadWeeklyBest, getLeaderboard, type LBEntry } from './leaderboard';
 import { CHANNEL_URL } from './episodes';
 import { Icon } from './icons';
 
@@ -573,8 +572,6 @@ export default function LinyDoryGame() {
   const STAGE_TIME = 60;
   const [continueOffer, setContinueOffer] = useState(false);
   const [continuesUsed, setContinuesUsed] = useState(0);
-  const [showRanking, setShowRanking] = useState(false);
-  const [ranking, setRanking]     = useState<LBEntry[]>([]);
   const [coins,    setCoins]      = useState(loadCoins);
   const [lives,    setLives]      = useState(loadLives);
   const [lifeTimer, setLifeTimer] = useState(0); // 다음 하트 충전까지(초)
@@ -808,8 +805,6 @@ export default function LinyDoryGame() {
         color: palette[i % palette.length], e: ['🎉','✨','⭐','🎊'][i % 4],
       })));
     } else { sfx.lose(); setConfetti([]); }
-    // 주간 랭킹에 점수 제출
-    submitScore(scoreRef.current);
     setProgress(prev => { const next=[...prev]; if (s>next[li]) next[li]=s; saveProg(next); return next; });
     setPhase('end');
   }, [clearHint, progress]);
@@ -1268,33 +1263,6 @@ export default function LinyDoryGame() {
         );
       })()}
 
-      {/* 주간 랭킹 */}
-      {showRanking && (
-        <div style={{ position:'absolute', inset:0, zIndex:55, background:'rgba(0,0,0,0.8)', backdropFilter:'blur(5px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
-          <div style={{ width:'100%', maxWidth:340, maxHeight:'86vh', background:'linear-gradient(160deg,#0d1a3a,#1a0d2e)', borderRadius:22, border:'2px solid rgba(120,160,255,0.4)', boxShadow:'0 20px 60px rgba(0,0,0,0.8)', overflow:'hidden', display:'flex', flexDirection:'column' }}>
-            <div style={{ padding:'16px 16px 12px', borderBottom:'1px solid rgba(120,160,255,0.2)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-              <span style={{ fontSize:16, fontWeight:900, color:'#9EC0FF', letterSpacing:1 }}>🏆 주간 랭킹</span>
-              <button onClick={() => setShowRanking(false)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'rgba(255,255,255,0.6)', lineHeight:1 }}>✕</button>
-            </div>
-            <div style={{ fontSize:10, color:'rgba(255,255,255,0.4)', textAlign:'center', padding:'8px 0 4px' }}>매주 월요일 초기화 · 이번 주 내 최고점 {loadWeeklyBest().toLocaleString()}</div>
-            <div style={{ padding:12, display:'flex', flexDirection:'column', gap:6, overflowY:'auto' }}>
-              {ranking.map(e => {
-                const medal = e.rank===1?'🥇':e.rank===2?'🥈':e.rank===3?'🥉':`${e.rank}`;
-                return (
-                  <div key={e.name} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', borderRadius:12,
-                    background: e.me ? 'rgba(255,180,0,0.18)' : 'rgba(255,255,255,0.05)',
-                    border: e.me ? '1.5px solid rgba(255,200,0,0.6)' : '1px solid rgba(255,255,255,0.08)' }}>
-                    <span style={{ width:26, textAlign:'center', fontSize:e.rank<=3?16:12, fontWeight:900, color: e.rank<=3?'#FFD700':'rgba(255,255,255,0.6)' }}>{medal}</span>
-                    <span style={{ flex:1, minWidth:0, fontSize:13, fontWeight:800, color: e.me?'#FFE566':'white', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{e.name}{e.me && ' (나)'}</span>
-                    <span style={{ fontSize:13, fontWeight:900, color: e.me?'#FFE566':'rgba(255,255,255,0.85)' }}>{e.score.toLocaleString()}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* 일일 퀘스트 (완료 시 난이도별 하트 지급) */}
       {showQuests && (
         <div style={{ position:'absolute', inset:0, zIndex:50, background:'rgba(0,0,0,0.78)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
@@ -1704,9 +1672,6 @@ export default function LinyDoryGame() {
       <button onClick={() => { sfx.click(); setQuests(loadQuests()); setShowQuests(true); }} style={{ position:'relative', width:34, height:34, borderRadius:'50%', background:'rgba(0,0,0,0.4)', border:'1.5px solid rgba(255,180,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}>
         <Icon name="list" size={17} color="#FFD27A" />
         {(() => { const cnt = QUESTS.filter(qd => qd.metric(quests) >= qd.target && !quests.claimed[qd.key]).length; return cnt > 0 ? <span style={{ position:'absolute', top:-4, right:-4, width:14, height:14, borderRadius:'50%', background:'#FF3030', border:'1.5px solid white', fontSize:9, fontWeight:900, color:'white', display:'flex', alignItems:'center', justifyContent:'center', animation:'questBadge 1s ease infinite' }}>{cnt}</span> : null; })()}
-      </button>
-      <button onClick={() => { sfx.click(); setRanking(getLeaderboard(loadWeeklyBest())); setShowRanking(true); }} style={{ width:34, height:34, borderRadius:'50%', background:'rgba(0,0,0,0.4)', border:'1.5px solid rgba(120,160,255,0.45)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}>
-        <Icon name="trophy" size={17} color="#9EC0FF" />
       </button>
     </div>
   );
@@ -2280,7 +2245,6 @@ export default function LinyDoryGame() {
               : <button onClick={()=>setPhase('main')} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background:'linear-gradient(135deg,#607D8B,#455A64)', boxShadow:'0 4px 0 #2C3940', border:'none', cursor:'pointer' }}>맵으로 🗺️</button>
             }
           </div>
-          <button onClick={() => { setRanking(getLeaderboard(loadWeeklyBest())); setShowRanking(true); }} style={{ marginTop:4, background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.7)', fontSize:'clamp(11px,3vw,13px)', fontWeight:800, textDecoration:'underline' }}>🏆 주간 랭킹 보기</button>
         </div>
       )}
     </div>
