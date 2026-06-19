@@ -4,7 +4,7 @@ import { sGet, sSet, getScope, setScope } from './store';
 import { tossLogin, fetchUserKey } from './toss';
 import { sfx, buzz, primeAudio, isMuted, toggleMuted, startBgm, stopBgm } from './sfx';
 import { CHANNEL_URL } from './episodes';
-import { Icon } from './icons';
+import { Icon, type IconName } from './icons';
 
 // 부스터(블럭 제거 아이템) 상점 정보
 // price = 코인 가격, cash = 시뮬레이션 현금 결제 가격(원)
@@ -16,6 +16,12 @@ const BOOSTERS: { kind: BoosterKind; icon: string; name: string; desc: string; p
   { kind: 'allClear', icon: '🌈', name: '전체',   desc: '보드 전체 제거',      price: 500, cash: 2500, aim: false },
   { kind: 'shuffle',  icon: '🔀', name: '셔플',   desc: '보드 전체 섞기',       price: 150, cash: 800,  aim: false },
 ];
+
+// 부스터 종류별 SVG 아이콘 매핑 (하단 아이템 바)
+const BOOSTER_ICON: Record<BoosterKind, IconName> = {
+  hammer: 'hammer', bomb: 'bomb', rowClear: 'rowclear',
+  colClear: 'colclear', allClear: 'allclear', shuffle: 'shuffle',
+};
 
 // 코인 충전 패키지 (시뮬레이션 결제)
 const COIN_PACKS: { coins: number; cash: number; bonus?: string }[] = [
@@ -580,6 +586,7 @@ export default function LinyDoryGame() {
   const [showQuests, setShowQuests] = useState(false);
   const [boosters,    setBoosters]    = useState(loadBoosters);
   const [boosterMode, setBoosterMode] = useState<BoosterKind|null>(null);
+  const [showPause,   setShowPause]   = useState(false);
   const [showShop,    setShowShop]    = useState(false);
   const [showSettings,setShowSettings]= useState(false);
   const [shopTab,     setShopTab]     = useState<'coin'|'cash'>('coin');
@@ -772,6 +779,7 @@ export default function LinyDoryGame() {
 
   const endGame = useCallback(() => {
     clearHint();
+    setShowPause(false);
     if (luckyTmr.current) clearTimeout(luckyTmr.current);
     luckyRef.current = false; setIsLucky(false);
     const li = lvlRef.current;
@@ -785,7 +793,7 @@ export default function LinyDoryGame() {
     setQuests(loadQuests());
     // 클리어 보상 코인 — 기록 갱신이면 전액, 재도전이면 25%
     const prevStars = progress[li] ?? 0;
-    let earned = CLEAR_COINS[s];
+    let earned: number = CLEAR_COINS[s];
     if (s > 0 && s <= prevStars) earned = Math.floor(earned * 0.25);
     if (s > 0 && prevStars === 0) earned += FIRST_CLEAR_BONUS;
     setCoinsEarned(earned);
@@ -922,7 +930,7 @@ export default function LinyDoryGame() {
     setLvlIdx(idx); setGrid(g); setScore(0); setTime((lvl as {sec?:number}).sec ?? 0);
     setMovesLeft(mv); setSel(null); setPopup(null); setFloats([]);
     setNearMiss(false); setIsLucky(false); luckyRef.current = false;
-    setBoosterMode(null);
+    setBoosterMode(null); setShowPause(false);
     setPhase('play');
     if (hintTmr.current) clearTimeout(hintTmr.current);
     setHintPair(null);
@@ -1879,7 +1887,7 @@ export default function LinyDoryGame() {
               <span key={s} style={{ fontSize:15, filter:s<=curStars?'drop-shadow(0 0 5px #FFD700)':'grayscale(1) opacity(0.3)', transition:'filter 0.3s, transform 0.3s', transform:s<=curStars?'scale(1.1)':'scale(1)' }}>⭐</span>
             ))}
           </div>
-          <button onClick={()=>setPhase('main')} style={{ background:'none', border:'none', cursor:'pointer', padding:0, lineHeight:1, display:'flex' }}><Icon name="home" size={18} color="#9aa0a6" /></button>
+          <button onClick={()=>{ sfx.click(); pausedRef.current = true; setShowPause(true); }} aria-label="일시정지" style={{ background:'#eef1f5', border:'1px solid rgba(0,0,0,0.08)', borderRadius:10, cursor:'pointer', padding:'4px 7px', lineHeight:1, display:'flex', boxShadow:'0 2px 0 rgba(0,0,0,0.08)' }}><Icon name="pause" size={17} color="#4b5563" /></button>
         </div>
       </div>
 
@@ -2137,9 +2145,9 @@ export default function LinyDoryGame() {
         </div>
       )}
 
-      {/* Booster bar */}
+      {/* Booster bar — 두 줄 그리드 (SVG 아이콘) */}
       {phase==='play' && (
-        <div style={{ flexShrink:0, position:'relative', zIndex:12, display:'flex', flexWrap:'wrap', alignItems:'center', justifyContent:'center', gap:'clamp(4px,1.4vw,7px)', padding:'0 8px calc(var(--sab) + 8px)' }}>
+        <div style={{ flexShrink:0, position:'relative', zIndex:12, display:'grid', gridTemplateColumns:'repeat(4, minmax(0,1fr))', alignItems:'stretch', justifyContent:'center', gap:'clamp(4px,1.4vw,7px)', padding:'4px 10px calc(var(--sab) + 8px)', maxWidth:340, margin:'0 auto', width:'100%' }}>
           {BOOSTERS.map(b => {
             const cnt = boosters[b.kind];
             const armed = boosterMode === b.kind;
@@ -2152,15 +2160,15 @@ export default function LinyDoryGame() {
                   setBoosterMode(armed ? null : b.kind);
                 }}
                 style={{
-                  position:'relative', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
-                  width:50, height:50, borderRadius:14, cursor:'pointer',
+                  position:'relative', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:2,
+                  height:48, borderRadius:14, cursor:'pointer',
                   background: armed ? 'linear-gradient(145deg,#FF8C00,#FFD700)' : 'rgba(255,255,255,0.92)',
                   border: armed ? '2.5px solid white' : '2px solid rgba(0,0,0,0.1)',
                   boxShadow: armed ? '0 0 16px rgba(255,180,0,0.9), 0 4px 0 rgba(0,0,0,0.15)' : '0 4px 0 rgba(0,0,0,0.15)',
                   opacity: cnt <= 0 ? 0.5 : 1, transition:'all 0.15s ease',
                 }}>
-                <span style={{ fontSize:19, lineHeight:1, fontWeight:900, color: armed?'#3D1C00':'#333' }}>{b.icon}</span>
-                <span style={{ fontSize:8.5, fontWeight:800, color: armed ? '#3D1C00' : '#555' }}>{b.name}</span>
+                <Icon name={BOOSTER_ICON[b.kind]} size={20} color={armed ? '#3D1C00' : '#444'} />
+                <span style={{ fontSize:8.5, fontWeight:800, color: armed ? '#3D1C00' : '#555', lineHeight:1 }}>{b.name}</span>
                 <span style={{ position:'absolute', top:-6, right:-6, minWidth:18, height:18, padding:'0 4px', borderRadius:999,
                   background: cnt > 0 ? '#22AA55' : '#BBB', border:'1.5px solid white', color:'white', fontSize:10, fontWeight:900,
                   display:'flex', alignItems:'center', justifyContent:'center' }}>{cnt}</span>
@@ -2168,11 +2176,39 @@ export default function LinyDoryGame() {
             );
           })}
           <button onClick={() => setShowShop(true)}
-            style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
-              width:50, height:50, borderRadius:14, cursor:'pointer', background:'linear-gradient(145deg,#42A5F5,#1565C0)', border:'2px solid rgba(255,255,255,0.4)', boxShadow:'0 4px 0 #0D3B80' }}>
-            <span style={{ fontSize:18, lineHeight:1 }}>🛒</span>
-            <span style={{ fontSize:8.5, fontWeight:800, color:'white' }}>상점</span>
+            style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:2,
+              height:48, borderRadius:14, cursor:'pointer', background:'linear-gradient(145deg,#42A5F5,#1565C0)', border:'2px solid rgba(255,255,255,0.4)', boxShadow:'0 4px 0 #0D3B80' }}>
+            <Icon name="shop" size={19} color="white" />
+            <span style={{ fontSize:8.5, fontWeight:800, color:'white', lineHeight:1 }}>상점</span>
           </button>
+        </div>
+      )}
+
+      {/* 일시정지 메뉴 오버레이 */}
+      {phase==='play' && showPause && (
+        <div style={{ position:'absolute', inset:0, zIndex:40, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(8,12,30,0.78)', backdropFilter:'blur(6px)', padding:'0 28px' }}>
+          <div style={{ width:'100%', maxWidth:300, background:'linear-gradient(160deg,#ffffff,#eef2fb)', borderRadius:22, padding:'22px 20px', boxShadow:'0 16px 40px rgba(0,0,0,0.45)', display:'flex', flexDirection:'column', gap:12 }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, marginBottom:2 }}>
+              <Icon name="pause" size={22} color="#1565C0" />
+              <span style={{ fontSize:20, fontWeight:900, color:'#1a1a2e' }}>일시정지</span>
+            </div>
+            <button onClick={()=>{ sfx.click(); pausedRef.current = false; setShowPause(false); }}
+              style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, width:'100%', padding:'13px 0', borderRadius:14, border:'none', cursor:'pointer', color:'white', fontSize:16, fontWeight:900, background:'linear-gradient(145deg,#FF8C00,#FFB300)', boxShadow:'0 4px 0 #C46A00' }}>
+              <Icon name="play" size={17} color="white" /> 계속하기
+            </button>
+            <button onClick={()=>{ sfx.click(); startLevel(lvlIdx); }}
+              style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, width:'100%', padding:'11px 0', borderRadius:14, border:'none', cursor:'pointer', color:'#1a1a2e', fontSize:15, fontWeight:800, background:'#e7ebf5', boxShadow:'0 3px 0 rgba(0,0,0,0.12)' }}>
+              <Icon name="refresh" size={16} color="#1a1a2e" /> 다시하기
+            </button>
+            <button onClick={()=>{ const m = toggleMuted(); setMutedState(m); if (!m) { sfx.click(); primeAudio(); startBgm(); } else stopBgm(); }}
+              style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, width:'100%', padding:'11px 0', borderRadius:14, border:'none', cursor:'pointer', color:'#1a1a2e', fontSize:15, fontWeight:800, background:'#e7ebf5', boxShadow:'0 3px 0 rgba(0,0,0,0.12)' }}>
+              <Icon name={muted ? 'mute' : 'sound'} size={16} color="#1a1a2e" /> {muted ? '소리 켜기' : '소리 끄기'}
+            </button>
+            <button onClick={()=>{ sfx.click(); pausedRef.current = false; setShowPause(false); setSelectedWorld(Math.floor(lvlIdx/STAGES_PER_WORLD)); setPhase('map'); }}
+              style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, width:'100%', padding:'11px 0', borderRadius:14, border:'none', cursor:'pointer', color:'white', fontSize:15, fontWeight:800, background:'linear-gradient(145deg,#EF5350,#C62828)', boxShadow:'0 3px 0 #8E1818' }}>
+              <Icon name="exit" size={16} color="white" /> 나가기
+            </button>
+          </div>
         </div>
       )}
 

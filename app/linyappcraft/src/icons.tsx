@@ -1,7 +1,9 @@
 // 세련된 라인/필 SVG 아이콘 세트 (시스템 UI용)
-type IconName =
+export type IconName =
   | 'home' | 'map' | 'tv' | 'shop' | 'gear' | 'trophy'
-  | 'coin' | 'heart' | 'play' | 'close' | 'back' | 'bolt' | 'list' | 'clock';
+  | 'coin' | 'heart' | 'play' | 'close' | 'back' | 'bolt' | 'list' | 'clock'
+  | 'pause' | 'refresh' | 'exit' | 'sound' | 'mute'
+  | 'hammer' | 'bomb' | 'rowclear' | 'colclear' | 'allclear' | 'shuffle';
 
 export function Icon({ name, size = 24, color = 'currentColor' }: { name: IconName; size?: number; color?: string }) {
   const s = {
@@ -38,6 +40,28 @@ export function Icon({ name, size = 24, color = 'currentColor' }: { name: IconNa
       return (<svg {...s}><path d="M6 6l12 12M18 6 6 18"/></svg>);
     case 'back':
       return (<svg {...s}><path d="M15 5l-7 7 7 7"/></svg>);
+    case 'pause':
+      return (<svg width={size} height={size} viewBox="0 0 24 24"><rect x="6" y="4.5" width="4" height="15" rx="1.4" fill={color}/><rect x="14" y="4.5" width="4" height="15" rx="1.4" fill={color}/></svg>);
+    case 'refresh':
+      return (<svg {...s}><path d="M20 11a8 8 0 1 0-.5 4"/><path d="M20 4v6h-6"/></svg>);
+    case 'exit':
+      return (<svg {...s}><path d="M14 4h4.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H14"/><path d="M9 8l-5 4 5 4"/><path d="M4 12h11"/></svg>);
+    case 'sound':
+      return (<svg {...s}><path d="M4 9.5v5h3.5L13 19V5L7.5 9.5z" fill={color}/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/></svg>);
+    case 'mute':
+      return (<svg {...s}><path d="M4 9.5v5h3.5L13 19V5L7.5 9.5z" fill={color}/><path d="M17 9.5l4 5M21 9.5l-4 5"/></svg>);
+    case 'hammer':
+      return (<svg {...s}><path d="M14 6.5 17.5 3l3.5 3.5L17.5 10z" fill={color} stroke="none"/><path d="M14.5 6 18 9.5"/><path d="m16 8-9 9-3.5-.5L3 13z" fill={color} stroke="none"/></svg>);
+    case 'bomb':
+      return (<svg {...s}><circle cx="10.5" cy="14" r="6.5" fill={color} stroke="none"/><path d="M16 8.5 18.5 6"/><path d="M18.5 6V3.5M18.5 6H21" /></svg>);
+    case 'rowclear':
+      return (<svg {...s}><path d="M3 12h18"/><path d="M7 8.5 3.5 12 7 15.5M17 8.5 20.5 12 17 15.5"/></svg>);
+    case 'colclear':
+      return (<svg {...s}><path d="M12 3v18"/><path d="M8.5 7 12 3.5 15.5 7M8.5 17 12 20.5 15.5 17"/></svg>);
+    case 'allclear':
+      return (<svg {...s}><path d="M12 3v18M3 12h18M5.5 5.5l13 13M18.5 5.5l-13 13"/></svg>);
+    case 'shuffle':
+      return (<svg {...s}><path d="M3 7h3.5l9 10H20M3 17h3.5l3-3.3M14.5 8.3l1.5-1.3H20"/><path d="M17.5 4.5 20.5 7l-3 2.5M17.5 14.5 20.5 17l-3 2.5"/></svg>);
     default:
       return null;
   }
