@@ -254,12 +254,6 @@ function mkGrid(types: number, map: readonly (0|1)[][], obMask?: readonly boolea
   return g;
 }
 
-// 현재 보드에 남아있는 장애물(돌) 위치 마스크 — 셔플 시 부서진 돌은 되살아나지 않도록
-function currentRockMask(g: Grid): boolean[][] {
-  return Array.from({ length: ROWS }, (_, r) =>
-    Array.from({ length: COLS }, (_, c) => g[r]?.[c]?.kind === 'rock'));
-}
-
 function hasMoves(g: Grid): boolean {
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
@@ -933,11 +927,10 @@ export default function LinyDoryGame() {
       if (tutorialPlayRef.current) return;                     // 튜토리얼 중엔 셔플 안 함
       if (anyHit(gRef.current)) return;                        // 아직 터지는 칸이 있으면 대기
       if (hasMoves(gRef.current)) return;                      // 움직일 수 있으면 OK
-      // 터트릴 수 있는 블럭이 없음 → 움직임이 생길 때까지 재생성 후 셔플(부서진 돌은 그대로 비움)
+      // 터트릴 수 있는 블럭이 없음 → 자동 셔플. 셔플 후에는 장애물을 다시 만들지 않음
       const types = LEVELS[lvlRef.current].types;
-      const rocks = currentRockMask(gRef.current);
-      let g = mkGrid(types, mapRef.current, rocks);
-      for (let t = 0; t < 40 && !hasMoves(g); t++) g = mkGrid(types, mapRef.current, rocks);
+      let g = mkGrid(types, mapRef.current);
+      for (let t = 0; t < 40 && !hasMoves(g); t++) g = mkGrid(types, mapRef.current);
       if (!hasMoves(g)) return;   // 어떤 배치로도 움직임이 없는 맵이면 무한 셔플 방지(보류)
       pop('🔀 섞을 블럭이 없어 자동 셔플!', 'special');
       sfx.click();
@@ -1164,9 +1157,8 @@ export default function LinyDoryGame() {
           pop('🔀 셔플!', 'special');
           await wait(700);
           const types = LEVELS[lvlRef.current].types;
-          const rocks = currentRockMask(gRef.current);
-          let g = mkGrid(types, mapRef.current, rocks);
-          for (let t = 0; t < 40 && !hasMoves(g); t++) g = mkGrid(types, mapRef.current, rocks);
+          let g = mkGrid(types, mapRef.current);   // 셔플 후에는 장애물 재생성 안 함
+          for (let t = 0; t < 40 && !hasMoves(g); t++) g = mkGrid(types, mapRef.current);
           push(g);
         }
         if (!dirtyRef.current) break; // 애니메이션 도중 새 입력이 없었으면 종료
@@ -1269,7 +1261,7 @@ export default function LinyDoryGame() {
     if ((boostersRef.current.shuffle ?? 0) <= 0) { setShowShop(true); return; }
     setBoosters(prev => { const next={...prev,shuffle:Math.max(0,prev.shuffle-1)}; saveBoosters(next); return next; });
     clearHint();
-    push(mkGrid(LEVELS[lvlRef.current].types, mapRef.current, currentRockMask(gRef.current)));
+    push(mkGrid(LEVELS[lvlRef.current].types, mapRef.current));   // 셔플 후에는 장애물 재생성 안 함
     pop('🔀 셔플!', 'special');
     scheduleHint();
   }, [push, pop, clearHint, scheduleHint]);
