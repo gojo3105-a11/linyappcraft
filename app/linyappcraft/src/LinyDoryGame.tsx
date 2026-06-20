@@ -626,7 +626,6 @@ export default function LinyDoryGame() {
   const [muted, setMutedState]    = useState(isMuted());
   const [floats, setFloats]       = useState<{id:number;text:string}[]>([]);
   const [hintPair, setHintPair]   = useState<[[number,number],[number,number]]|null>(null);
-  const [isLucky,  setIsLucky]    = useState(false);
   const [nearMiss, setNearMiss]   = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutStep, setTutStep]     = useState(0);
@@ -663,8 +662,6 @@ export default function LinyDoryGame() {
   const freeStartRef = useRef<number | null>(null);  // 클리어 직후 다음 스테이지 1회 무료 시작
   const popT     = useRef<ReturnType<typeof setTimeout>|null>(null);
   const hintTmr  = useRef<ReturnType<typeof setTimeout>|null>(null);
-  const luckyRef = useRef(false);
-  const luckyTmr = useRef<ReturnType<typeof setTimeout>|null>(null);
   // 연쇄 처리는 단일 리졸버가 항상 최신 보드(gRef)를 읽어 진행 — 입력은 잠그지 않음
   const resolvingRef = useRef(false);        // 리졸버 중복 실행 방지
   const dirtyRef     = useRef(false);        // 애니메이션 도중 새 스왑이 커밋되면 표시
@@ -708,12 +705,11 @@ export default function LinyDoryGame() {
   const push = useCallback((g: Grid) => { gRef.current=g; setGrid(g); }, []);
 
   const inc = useCallback((n: number) => {
-    const pts = luckyRef.current ? n * 2 : n;
-    scoreRef.current += pts;
+    scoreRef.current += n;
     setScore(scoreRef.current);
     const fid = ++_fid;
-    const label = pts >= 1000 ? `+${(pts/1000).toFixed(1)}K` : `+${pts}`;
-    setFloats(p => [...p.slice(-5), { id: fid, text: luckyRef.current ? `⭐${label}` : label }]);
+    const label = n >= 1000 ? `+${(n/1000).toFixed(1)}K` : `+${n}`;
+    setFloats(p => [...p.slice(-5), { id: fid, text: label }]);
     setTimeout(() => setFloats(p => p.filter(f => f.id !== fid)), 1100);
   }, []);
 
@@ -841,8 +837,6 @@ export default function LinyDoryGame() {
   const endGame = useCallback(() => {
     clearHint();
     setShowPause(false);
-    if (luckyTmr.current) clearTimeout(luckyTmr.current);
-    luckyRef.current = false; setIsLucky(false);
     const li = lvlRef.current;
     const s = calcStars(scoreRef.current, LEVELS[li].goal);
     const goal0 = LEVELS[li].goal[0];
@@ -1021,23 +1015,6 @@ export default function LinyDoryGame() {
     if (phase !== 'play') { clearHint(); }
   }, [phase, clearHint]);
 
-  useEffect(() => {
-    if (phase !== 'play') return;
-    const id = setInterval(() => {
-      if (luckyRef.current) return;
-      if (Math.random() < 0.22) {
-        luckyRef.current = true;
-        setIsLucky(true);
-        pop('🌟 2배 점수! 6초!', 'special');
-        luckyTmr.current = setTimeout(() => {
-          luckyRef.current = false;
-          setIsLucky(false);
-        }, 6000);
-      }
-    }, 8000);
-    return () => clearInterval(id);
-  }, [phase, pop]);
-
   const startLevel = useCallback((idx: number) => {
     const lvl = LEVELS[idx];
     const map = genMap(idx);
@@ -1060,7 +1037,7 @@ export default function LinyDoryGame() {
     const mv = (lvl as {moves?:number}).moves ?? 0; movesRef.current=mv;
     setLvlIdx(idx); setGrid(g); setScore(0); setTime((lvl as {sec?:number}).sec ?? 0);
     setMovesLeft(mv); setSel(null); setPopup(null); setFloats([]);
-    setNearMiss(false); setIsLucky(false); luckyRef.current = false;
+    setNearMiss(false);
     setBoosterMode(null); setShowPause(false);
     setPhase('play');
     if (hintTmr.current) clearTimeout(hintTmr.current);
@@ -2066,23 +2043,6 @@ export default function LinyDoryGame() {
             </div>
           </div>
           <button onClick={()=>{ tutorialPlayRef.current=false; setTutorialPlay(false); }} style={{ pointerEvents:'auto', background:'rgba(0,0,0,0.5)', border:'1px solid rgba(255,255,255,0.3)', color:'rgba(255,255,255,0.85)', fontSize:11, fontWeight:800, borderRadius:999, padding:'4px 12px', cursor:'pointer' }}>튜토리얼 건너뛰기</button>
-        </div>
-      )}
-
-      {/* Lucky Time Event banner */}
-      {phase === 'play' && isLucky && (
-        <div style={{ position:'absolute', top:0, left:0, right:0, zIndex:25, pointerEvents:'none',
-          display:'flex', justifyContent:'center', paddingTop:'calc(var(--sat) + 76px)' }}>
-          <div style={{
-            padding: '8px 24px', borderRadius: 999,
-            background: 'linear-gradient(135deg,#FF8C00,#FFD700,#FF8C00)',
-            backgroundSize: '200% 100%',
-            fontWeight: 900, fontSize: 'clamp(14px,4vw,17px)', color: '#3D1C00',
-            boxShadow: '0 4px 24px rgba(255,180,0,0.9)',
-            animation: 'luckyGlow 0.8s ease infinite',
-            whiteSpace: 'nowrap',
-            letterSpacing: 1,
-          }}>🌟 2배 점수 타임! 🌟</div>
         </div>
       )}
 
