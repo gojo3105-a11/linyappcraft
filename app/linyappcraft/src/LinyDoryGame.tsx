@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef, useCallback, type CSSProperties } from 'react';
 import { loadCoins, spendCoins, addCoins, loadBoosters, saveBoosters, loadLives, spendLife, addLives, nextLifeMs, LIVES_MAX, questAddGameCleared, questUpdateMaxCombo, questAddSpecials, questAddBlocks, questClaim, loadQuests, QUESTS, type QuestSave, type BoosterKind } from './quest';
 import { sGet, sSet, getScope, setScope } from './store';
-import { tossLogin, fetchUserKey } from './toss';
+import { tossLogin, fetchUserKey, onBackEvent, closeApp, purchase } from './toss';
 import { sfx, buzz, primeAudio, isMuted, toggleMuted, startBgm, stopBgm } from './sfx';
-import { CHANNEL_URL } from './episodes';
 import { Icon, type IconName } from './icons';
 
 // 부스터(블럭 제거 아이템) 상점 정보
@@ -23,12 +22,14 @@ const BOOSTER_ICON: Record<BoosterKind, IconName> = {
   colClear: 'colclear', allClear: 'allclear', shuffle: 'shuffle',
 };
 
-// 코인 충전 패키지 (시뮬레이션 결제)
-const COIN_PACKS: { coins: number; cash: number; bonus?: string }[] = [
-  { coins: 1000,  cash: 1100  },
-  { coins: 3500,  cash: 3300,  bonus: '+16%' },
-  { coins: 12000, cash: 11000, bonus: '+33%' },
+// 코인 충전 패키지. sku는 앱인토스 콘솔에 등록한 상품 ID와 동일해야 실제 결제가 연결돼요.
+const COIN_PACKS: { coins: number; cash: number; bonus?: string; sku: string }[] = [
+  { coins: 1000,  cash: 1100,                sku: 'coins_1000'  },
+  { coins: 3500,  cash: 3300,  bonus: '+16%', sku: 'coins_3500'  },
+  { coins: 12000, cash: 11000, bonus: '+33%', sku: 'coins_12000' },
 ];
+// 하트 가득 충전 상품 SKU (콘솔 등록 필요)
+const SKU_HEARTS_FULL = 'hearts_full';
 
 const ROWS = 7;
 const COLS = 7;
@@ -879,6 +880,29 @@ export default function LinyDoryGame() {
     endGame();
   }, [endGame]);
 
+  // 안드로이드 하드웨어/내비게이션 뒤로가기 처리
+  //   열린 오버레이 닫기 → 게임 중 일시정지 토글 → 맵 → 메인 → 앱 종료 순으로 단계적 처리
+  const backHandlerRef = useRef<() => void>(() => {});
+  backHandlerRef.current = () => {
+    sfx.click();
+    if (showShop)      { setShowShop(false); return; }
+    if (showSettings)  { setShowSettings(false); return; }
+    if (showQuests)    { setShowQuests(false); return; }
+    if (continueOffer) { declineContinue(); return; }
+    const p = phaseRef.current;
+    if (p === 'play') {
+      if (showPause) { pausedRef.current = false; setShowPause(false); }
+      else           { pausedRef.current = true;  setShowPause(true); }
+      return;
+    }
+    if (p === 'map')  { setPhase('main'); return; }
+    if (p === 'main') { closeApp(); return; }   // 메인에서 뒤로가기 → 미니앱 종료(토스 환경)
+  };
+  useEffect(() => {
+    const off = onBackEvent(() => backHandlerRef.current());
+    return off;
+  }, []);
+
   // 제한 시간 — 진행 중(일시정지 아님)일 때 60초에서 1초씩 감소, 0이 되면 종료/이어하기 제안
   useEffect(() => {
     if (phase !== 'play') return;
@@ -1176,8 +1200,20 @@ export default function LinyDoryGame() {
     handleTap(d.r, d.c); // 드래그가 아니면 탭으로 처리
   };
 
-  // ── 시뮬레이션 결제 ──────────────────────────────────
-  const startPay = (label: string, cash: number, onDone: () => void) => {
+  // ── 결제: 토스 앱이면 실제 인앱결제(IAP), 그 외(브라우저/데모)는 시뮬레이션 ──
+  const startPay = (label: string, cash: number, onDone: () => void, sku?: string) => {
+    if (sku) {
+      // 콘솔에 등록된 상품(sku)만 실제 결제 시도. 토스 앱이 아니면 시뮬레이션으로 폴백.
+      purchase(sku, () => onDone()).then(res => {
+        if (res.ok) return;                      // 결제 성공 — onDone은 지급 단계에서 이미 실행됨
+        if (res.reason === 'NOT_IN_TOSS') {      // 데모/브라우저 → 시뮬레이션 결제 모달
+          setPay({ label, cash, onDone }); setPayStage('confirm');
+        } else if (res.reason !== 'USER_CANCELED') {
+          pop('결제에 실패했어요. 다시 시도해주세요', 'special');
+        }
+      });
+      return;
+    }
     setPay({ label, cash, onDone });
     setPayStage('confirm');
   };
@@ -1208,11 +1244,11 @@ export default function LinyDoryGame() {
       pop('🎉 결제 완료! 아이템 지급', 'special');
     });
   };
-  const buyCoinPack = (coins: number, cash: number) => {
+  const buyCoinPack = (coins: number, cash: number, sku: string) => {
     startPay(`코인 ${coins.toLocaleString()}개`, cash, () => {
       addCoins(coins);
       pop(`🪙 +${coins.toLocaleString()} 충전 완료!`, 'special');
-    });
+    }, sku);
   };
 
   // ── 토스 로그인 ──────────────────────────────────────
@@ -1486,7 +1522,7 @@ export default function LinyDoryGame() {
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ fontSize:13, fontWeight:800, color:'white' }}>{p.coins.toLocaleString()} 코인 {p.bonus && <span style={{ fontSize:10, color:'#FFD700' }}>{p.bonus}</span>}</div>
                       </div>
-                      <button onClick={() => buyCoinPack(p.coins, p.cash)}
+                      <button onClick={() => buyCoinPack(p.coins, p.cash, p.sku)}
                         style={{ padding:'8px 12px', borderRadius:999, border:'none', cursor:'pointer', background:'linear-gradient(135deg,#1565C0,#42A5F5)', color:'white', fontSize:11, fontWeight:900, whiteSpace:'nowrap' }}>
                         ₩{p.cash.toLocaleString()}
                       </button>
@@ -1500,7 +1536,7 @@ export default function LinyDoryGame() {
                       <div style={{ fontSize:13, fontWeight:800, color:'white' }}>하트 가득 채우기 (15)</div>
                       <div style={{ fontSize:10, color:'rgba(255,255,255,0.45)' }}>지금 바로 최대치로</div>
                     </div>
-                    <button onClick={() => startPay('하트 가득 채우기', 1500, () => { addLives(LIVES_MAX); setLives(loadLives()); pop('💗 하트 가득 충전!', 'special'); })}
+                    <button onClick={() => startPay('하트 가득 채우기', 1500, () => { addLives(LIVES_MAX); setLives(loadLives()); pop('💗 하트 가득 충전!', 'special'); }, SKU_HEARTS_FULL)}
                       style={{ padding:'8px 12px', borderRadius:999, border:'none', cursor:'pointer', background:'linear-gradient(135deg,#FF5C8A,#C2185B)', color:'white', fontSize:11, fontWeight:900, whiteSpace:'nowrap' }}>
                       ₩1,500
                     </button>
@@ -1689,7 +1725,6 @@ export default function LinyDoryGame() {
     <div style={{ flexShrink:0, paddingBottom:'var(--sab)', background:'rgba(5,10,30,0.92)', borderTop:'1.5px solid rgba(255,255,255,0.1)', display:'flex', alignItems:'center', justifyContent:'space-around', minHeight:'clamp(54px,7.5vh,68px)' }}>
       {([
         {icon:'home'   as const, label:'홈',   fn:()=>setPhase('main'),     active: phase==='main' },
-        {icon:'tv'     as const, label:'유튜브', fn:()=>{ sfx.click(); window.open(CHANNEL_URL, '_blank', 'noopener'); }, active:false},
         {icon:'shop'   as const, label:'상점', fn:()=>setShowShop(true),    active:false},
         {icon:'gear'   as const, label:'설정', fn:()=>setShowSettings(true), active:false},
       ]).map((item,i)=>(
