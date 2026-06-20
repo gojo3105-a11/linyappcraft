@@ -946,14 +946,24 @@ export default function LinyDoryGame() {
     if (cost > 0 && !spendCoins(cost)) { pop('🪙 코인이 부족해요!', 'special'); setShowShop(true); return; }
     if (cost > 0) setCoins(loadCoins());
     continuesUsedRef.current++; setContinuesUsed(c => c+1);
-    // 이동 +5수 보충 (+ 시간도 함께 회복해 재개 가능하도록)
-    movesRef.current += CONTINUE_MOVES; setMovesLeft(movesRef.current);
-    setTimeLeft(t => Math.max(t, 30));
+    // 소진된 자원에 따라 보충 방식이 달라요 (멈춘 동안 timeLeft는 고정값)
+    if (timeLeft <= 0) {
+      // ① 시간이 0 → 30초만 추가, 남아있는 이동 횟수 그대로 이어가기
+      setTimeLeft(30);
+      // 혹시 이동도 0이면 진행 불가하므로 안전하게 +5 보충
+      if (movesRef.current <= 0) { movesRef.current += CONTINUE_MOVES; setMovesLeft(movesRef.current); }
+      pop('▶ 시간 +30초! 남은 이동으로 계속!', 'special');
+    } else {
+      // ② 이동이 0 → 시간 30초 + 이동 +5
+      movesRef.current += CONTINUE_MOVES; setMovesLeft(movesRef.current);
+      setTimeLeft(30);
+      pop(`▶ 이동 +${CONTINUE_MOVES}! 시간 30초!`, 'special');
+    }
     setContinueOffer(false);
     pausedRef.current = false;
-    sfx.coin(); pop(`▶ 이동 +${CONTINUE_MOVES}! 이어서 도전!`, 'special');
+    sfx.coin();
     scheduleHint();
-  }, [pop, scheduleHint]);
+  }, [pop, scheduleHint, timeLeft]);
 
   const declineContinue = useCallback(() => {
     setContinueOffer(false);
@@ -1372,7 +1382,9 @@ export default function LinyDoryGame() {
                 <div style={{ fontSize:46, animation:'splashPulse 1s ease infinite' }}>{timeMode ? '⏳' : '🎯'}</div>
                 <div style={{ fontSize:18, fontWeight:900, color:'white', marginTop:6 }}>{timeMode ? '시간이 다 됐어요!' : '이동을 다 썼어요!'}</div>
                 <div style={{ fontSize:13, color:'rgba(255,255,255,0.7)', marginTop:6, lineHeight:1.5 }}>
-                  코인으로 <b style={{ color:'#FFE566' }}>+{CONTINUE_MOVES}수 · +시간</b> 받고<br/>이어서 도전할 수 있어요!
+                  {timeMode
+                    ? <><b style={{ color:'#FFE566' }}>시간 +30초</b> 받고<br/>남은 이동으로 이어서 도전!</>
+                    : <><b style={{ color:'#FFE566' }}>이동 +{CONTINUE_MOVES}수 · 시간 30초</b> 받고<br/>이어서 도전할 수 있어요!</>}
                 </div>
                 <div style={{ fontSize:12, color:'rgba(255,255,255,0.55)', marginTop:8 }}>
                   현재 <b style={{ color:'white' }}>{score.toLocaleString()}</b> / 목표 <b style={{ color:'#FFD700' }}>{lvl.goal[0].toLocaleString()}</b>
@@ -1381,7 +1393,7 @@ export default function LinyDoryGame() {
               <div style={{ display:'flex', gap:8, padding:'14px 16px 8px' }}>
                 <button onClick={declineContinue} style={{ flex:1, padding:'13px', borderRadius:12, border:'1px solid rgba(255,255,255,0.2)', cursor:'pointer', background:'rgba(255,255,255,0.06)', color:'rgba(255,255,255,0.8)', fontSize:13, fontWeight:800 }}>포기하기</button>
                 <button onClick={acceptContinue} style={{ flex:2, padding:'13px', borderRadius:12, border:'none', cursor:'pointer', background: (cost===0 || afford) ? 'linear-gradient(135deg,#FF8C00,#FFD700)' : 'rgba(255,255,255,0.15)', color: (cost===0 || afford) ? '#3D1C00' : 'rgba(255,255,255,0.7)', fontSize:14, fontWeight:900 }}>
-                  {cost===0 ? `무료 이어하기 ▶ (+${CONTINUE_MOVES}수)` : afford ? `🪙 ${cost} 이어하기 ▶` : `🪙 ${cost} · 충전`}
+                  {cost===0 ? `무료 이어하기 ▶ (${timeMode ? '+30초' : `+${CONTINUE_MOVES}수`})` : afford ? `🪙 ${cost} 이어하기 ▶` : `🪙 ${cost} · 충전`}
                 </button>
               </div>
               <div style={{ fontSize:10, color:'rgba(255,255,255,0.4)', paddingBottom:14 }}>남은 이어하기 {MAX_CONTINUES - continuesUsed}회 · 보유 🪙 {coins.toLocaleString()}</div>
