@@ -660,6 +660,7 @@ export default function LinyDoryGame() {
   const movesRef = useRef(0);
   const mapRef   = useRef<readonly (0|1)[][]>(genMap(0));
   const obstacleRef = useRef<readonly boolean[][]>(genObstacles(0, genMap(0)));
+  const freeStartRef = useRef<number | null>(null);  // 클리어 직후 다음 스테이지 1회 무료 시작
   const popT     = useRef<ReturnType<typeof setTimeout>|null>(null);
   const hintTmr  = useRef<ReturnType<typeof setTimeout>|null>(null);
   const luckyRef = useRef(false);
@@ -846,6 +847,8 @@ export default function LinyDoryGame() {
     const s = calcStars(scoreRef.current, LEVELS[li].goal);
     const goal0 = LEVELS[li].goal[0];
     setNearMiss(s === 0 && scoreRef.current >= goal0 * 0.72 && scoreRef.current < goal0);
+    // 클리어(별3) 시 다음 스테이지는 하트 차감 없이 시작할 수 있도록 무료 토큰 부여
+    freeStartRef.current = s >= 3 && li + 1 < LEVELS.length ? li + 1 : null;
     // 일일 퀘스트 집계 반영
     questAddBlocks(sessionBlocksRef.current);     sessionBlocksRef.current = 0;
     questAddSpecials(sessionSpecialsRef.current); sessionSpecialsRef.current = 0;
@@ -1077,6 +1080,12 @@ export default function LinyDoryGame() {
 
   // 하트 1개를 소모하고 스테이지 시작 (하트 없으면 상점 안내)
   const tryStartLevel = useCallback((idx: number) => {
+    // 클리어 직후 '다음 스테이지'는 하트 차감 없이 시작
+    if (freeStartRef.current === idx) {
+      freeStartRef.current = null;
+      startLevel(idx);
+      return;
+    }
     if (!spendLife()) {
       setLives(loadLives());
       pop('💔 하트가 부족해요! 충전을 기다리거나 상점에서 받으세요', 'special');
