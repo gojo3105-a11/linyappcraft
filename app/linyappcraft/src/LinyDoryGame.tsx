@@ -918,6 +918,28 @@ export default function LinyDoryGame() {
     }
   }, [endGame]);
 
+  // 자동 셔플 감시 — 보드가 안정된 뒤 터트릴 수 있는 블럭(이동)이 하나도 없으면 자동으로 섞는다
+  useEffect(() => {
+    if (phase !== 'play') return;
+    const id = setTimeout(() => {
+      if (phaseRef.current !== 'play') return;
+      if (resolvingRef.current || pausedRef.current) return;   // 연쇄 중/일시정지 중엔 대기
+      if (tutorialPlayRef.current) return;                     // 튜토리얼 중엔 셔플 안 함
+      if (anyHit(gRef.current)) return;                        // 아직 터지는 칸이 있으면 대기
+      if (hasMoves(gRef.current)) return;                      // 움직일 수 있으면 OK
+      // 터트릴 수 있는 블럭이 없음 → 움직임이 생길 때까지 재생성 후 셔플
+      const types = LEVELS[lvlRef.current].types;
+      let g = mkGrid(types, mapRef.current, obstacleRef.current);
+      for (let t = 0; t < 40 && !hasMoves(g); t++) g = mkGrid(types, mapRef.current, obstacleRef.current);
+      if (!hasMoves(g)) return;   // 어떤 배치로도 움직임이 없는 맵이면 무한 셔플 방지(보류)
+      pop('🔀 섞을 블럭이 없어 자동 셔플!', 'special');
+      sfx.click();
+      push(g);
+      scheduleHint();
+    }, 650);
+    return () => clearTimeout(id);
+  }, [grid, phase, push, pop, scheduleHint]);
+
   // 이어하기 수락 — 코인 차감 후 시간/이동 보충하고 재개
   const acceptContinue = useCallback(() => {
     const cost = CONTINUE_COSTS[continuesUsedRef.current];
@@ -1010,7 +1032,8 @@ export default function LinyDoryGame() {
     const obs = genObstacles(idx, map);
     obstacleRef.current = obs;
     _uid = 0;
-    const g = mkGrid(lvl.types, map, obs);
+    let g = mkGrid(lvl.types, map, obs);
+    for (let t = 0; t < 30 && !hasMoves(g); t++) g = mkGrid(lvl.types, map, obs); // 시작 보드는 움직임 보장
     gRef.current=g; scoreRef.current=0; lvlRef.current=idx;
     resolvingRef.current=false; dirtyRef.current=false; comboRef.current=0;
     lastSwapRef.current=null; dragRef.current=null;
@@ -1119,12 +1142,14 @@ export default function LinyDoryGame() {
           push(applyFall(gRef.current, LEVELS[lvlRef.current].types, mapRef.current));
           await wait(200);
         }
-        // 막힌 보드면 셔플(완전히 정착된 뒤에만)
-        let reshuffles = 0;
-        while (phaseRef.current === 'play' && !hasMoves(gRef.current) && reshuffles++ < 3) {
+        // 막힌 보드면 셔플(완전히 정착된 뒤에만) — 움직임이 생기는 보드가 나올 때까지 재생성
+        if (phaseRef.current === 'play' && !anyHit(gRef.current) && !hasMoves(gRef.current)) {
           pop('🔀 셔플!', 'special');
           await wait(700);
-          push(mkGrid(LEVELS[lvlRef.current].types, mapRef.current, obstacleRef.current));
+          const types = LEVELS[lvlRef.current].types;
+          let g = mkGrid(types, mapRef.current, obstacleRef.current);
+          for (let t = 0; t < 40 && !hasMoves(g); t++) g = mkGrid(types, mapRef.current, obstacleRef.current);
+          push(g);
         }
         if (!dirtyRef.current) break; // 애니메이션 도중 새 입력이 없었으면 종료
       }
