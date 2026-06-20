@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef, useCallback, type CSSProperties } from 'react';
 import { loadCoins, spendCoins, addCoins, loadBoosters, saveBoosters, loadLives, spendLife, addLives, nextLifeMs, LIVES_MAX, questAddGameCleared, questUpdateMaxCombo, questAddSpecials, questAddBlocks, questClaim, loadQuests, QUESTS, type QuestSave, type BoosterKind } from './quest';
 import { sGet, sSet, getScope, setScope } from './store';
-import { tossLogin, fetchUserKey } from './toss';
+import { tossLogin, fetchUserKey, onBackEvent, closeApp, purchase, lockPortrait, keepScreenAwake } from './toss';
 import { sfx, buzz, primeAudio, isMuted, toggleMuted, startBgm, stopBgm } from './sfx';
-import { CHANNEL_URL } from './episodes';
-import { Icon } from './icons';
+import { Icon, type IconName } from './icons';
 
 // 부스터(블럭 제거 아이템) 상점 정보
 // price = 코인 가격, cash = 시뮬레이션 현금 결제 가격(원)
@@ -17,12 +16,20 @@ const BOOSTERS: { kind: BoosterKind; icon: string; name: string; desc: string; p
   { kind: 'shuffle',  icon: '🔀', name: '셔플',   desc: '보드 전체 섞기',       price: 150, cash: 800,  aim: false },
 ];
 
-// 코인 충전 패키지 (시뮬레이션 결제)
-const COIN_PACKS: { coins: number; cash: number; bonus?: string }[] = [
-  { coins: 1000,  cash: 1100  },
-  { coins: 3500,  cash: 3300,  bonus: '+16%' },
-  { coins: 12000, cash: 11000, bonus: '+33%' },
+// 부스터 종류별 SVG 아이콘 매핑 (하단 아이템 바)
+const BOOSTER_ICON: Record<BoosterKind, IconName> = {
+  hammer: 'hammer', bomb: 'bomb', rowClear: 'rowclear',
+  colClear: 'colclear', allClear: 'allclear', shuffle: 'shuffle',
+};
+
+// 코인 충전 패키지. sku는 앱인토스 콘솔에 등록한 상품 ID와 동일해야 실제 결제가 연결돼요.
+const COIN_PACKS: { coins: number; cash: number; bonus?: string; sku: string }[] = [
+  { coins: 1000,  cash: 1100,                sku: 'coins_1000'  },
+  { coins: 3500,  cash: 3300,  bonus: '+16%', sku: 'coins_3500'  },
+  { coins: 12000, cash: 11000, bonus: '+33%', sku: 'coins_12000' },
 ];
+// 하트 가득 충전 상품 SKU (콘솔 등록 필요)
+const SKU_HEARTS_FULL = 'hearts_full';
 
 const ROWS = 7;
 const COLS = 7;
@@ -155,10 +162,10 @@ const BOOSTER_EMOJI: Record<string, string> = { hammer:'🔨', bomb:'💣', shuf
 const CLEAR_COINS = [0, 60, 140, 300] as const;
 const FIRST_CLEAR_BONUS = 100;
 
-// 이어하기 — 코인으로 시간/이동 추가 (한 판 최대 3회, 비용 점증)
+// 이어하기 — 실패 후 이동 횟수 보충 (한 판 최대 3회). 첫 회는 무료(+5수), 이후 코인 차감
 const MAX_CONTINUES = 3;
-const CONTINUE_COSTS = [200, 400, 800] as const;
-const CONTINUE_MOVES = 5;   // 이동 모드: +5수
+const CONTINUE_COSTS = [0, 300, 600] as const;
+const CONTINUE_MOVES = 5;   // 이어하기 시 이동 +5수
 
 // 맵 화면 — 세로로 스크롤되는 지그재그 길 배치
 const MAP_X = [50, 76, 50, 24];        // 스테이지 가로 위치(%) 지그재그
@@ -580,10 +587,11 @@ export default function LinyDoryGame() {
   const [showQuests, setShowQuests] = useState(false);
   const [boosters,    setBoosters]    = useState(loadBoosters);
   const [boosterMode, setBoosterMode] = useState<BoosterKind|null>(null);
+  const [showPause,   setShowPause]   = useState(false);
+  const [showExit,    setShowExit]    = useState(false);
   const [showShop,    setShowShop]    = useState(false);
   const [showSettings,setShowSettings]= useState(false);
   const [shopTab,     setShopTab]     = useState<'coin'|'cash'>('coin');
-  const [cart,        setCart]        = useState<Record<BoosterKind,number>>({hammer:0,bomb:0,shuffle:0,rowClear:0,colClear:0,allClear:0});
   const [pay,         setPay]         = useState<{label:string;cash:number;onDone:()=>void}|null>(null);
   const [payStage,    setPayStage]    = useState<'confirm'|'processing'|'done'>('confirm');
   const [account,     setAccount]     = useState<string>(getScope());
@@ -772,6 +780,7 @@ export default function LinyDoryGame() {
 
   const endGame = useCallback(() => {
     clearHint();
+    setShowPause(false);
     if (luckyTmr.current) clearTimeout(luckyTmr.current);
     luckyRef.current = false; setIsLucky(false);
     const li = lvlRef.current;
@@ -785,7 +794,7 @@ export default function LinyDoryGame() {
     setQuests(loadQuests());
     // 클리어 보상 코인 — 기록 갱신이면 전액, 재도전이면 25%
     const prevStars = progress[li] ?? 0;
-    let earned = CLEAR_COINS[s];
+    let earned: number = CLEAR_COINS[s];
     if (s > 0 && s <= prevStars) earned = Math.floor(earned * 0.25);
     if (s > 0 && prevStars === 0) earned += FIRST_CLEAR_BONUS;
     setCoinsEarned(earned);
@@ -853,15 +862,15 @@ export default function LinyDoryGame() {
   // 이어하기 수락 — 코인 차감 후 시간/이동 보충하고 재개
   const acceptContinue = useCallback(() => {
     const cost = CONTINUE_COSTS[continuesUsedRef.current];
-    if (!spendCoins(cost)) { pop('🪙 코인이 부족해요!', 'special'); setShowShop(true); return; }
-    setCoins(loadCoins());
+    if (cost > 0 && !spendCoins(cost)) { pop('🪙 코인이 부족해요!', 'special'); setShowShop(true); return; }
+    if (cost > 0) setCoins(loadCoins());
     continuesUsedRef.current++; setContinuesUsed(c => c+1);
-    // 이동·시간 모두 보충 (어느 쪽이 떨어졌든 재개 가능하도록)
+    // 이동 +5수 보충 (+ 시간도 함께 회복해 재개 가능하도록)
     movesRef.current += CONTINUE_MOVES; setMovesLeft(movesRef.current);
     setTimeLeft(t => Math.max(t, 30));
     setContinueOffer(false);
     pausedRef.current = false;
-    sfx.coin(); pop('▶ 이어서 도전!', 'special');
+    sfx.coin(); pop(`▶ 이동 +${CONTINUE_MOVES}! 이어서 도전!`, 'special');
     scheduleHint();
   }, [pop, scheduleHint]);
 
@@ -870,6 +879,39 @@ export default function LinyDoryGame() {
     pausedRef.current = false;
     endGame();
   }, [endGame]);
+
+  // 안드로이드 하드웨어/내비게이션 뒤로가기 처리
+  //   열린 오버레이 닫기 → 게임 중 일시정지 토글 → 맵 → 메인 → 앱 종료 순으로 단계적 처리
+  const backHandlerRef = useRef<() => void>(() => {});
+  backHandlerRef.current = () => {
+    sfx.click();
+    if (showExit)      { setShowExit(false); return; }
+    if (showShop)      { setShowShop(false); return; }
+    if (showSettings)  { setShowSettings(false); return; }
+    if (showQuests)    { setShowQuests(false); return; }
+    if (continueOffer) { declineContinue(); return; }
+    const p = phaseRef.current;
+    if (p === 'play') {
+      if (showPause) { pausedRef.current = false; setShowPause(false); }
+      else           { pausedRef.current = true;  setShowPause(true); }
+      return;
+    }
+    if (p === 'map')  { setPhase('main'); return; }
+    if (p === 'main') { setShowExit(true); return; }   // 메인에서 뒤로가기 → 종료 확인 모달(검수 필수)
+  };
+  useEffect(() => {
+    const off = onBackEvent(() => backHandlerRef.current());
+    return off;
+  }, []);
+
+  // 세로 방향 고정(앱 진입 시 1회)
+  useEffect(() => { lockPortrait(); }, []);
+
+  // 게임 플레이 중에는 화면이 꺼지지 않도록 유지, 벗어나면 복구
+  useEffect(() => {
+    keepScreenAwake(phase === 'play');
+    return () => { keepScreenAwake(false); };
+  }, [phase]);
 
   // 제한 시간 — 진행 중(일시정지 아님)일 때 60초에서 1초씩 감소, 0이 되면 종료/이어하기 제안
   useEffect(() => {
@@ -922,7 +964,7 @@ export default function LinyDoryGame() {
     setLvlIdx(idx); setGrid(g); setScore(0); setTime((lvl as {sec?:number}).sec ?? 0);
     setMovesLeft(mv); setSel(null); setPopup(null); setFloats([]);
     setNearMiss(false); setIsLucky(false); luckyRef.current = false;
-    setBoosterMode(null);
+    setBoosterMode(null); setShowPause(false);
     setPhase('play');
     if (hintTmr.current) clearTimeout(hintTmr.current);
     setHintPair(null);
@@ -1168,8 +1210,20 @@ export default function LinyDoryGame() {
     handleTap(d.r, d.c); // 드래그가 아니면 탭으로 처리
   };
 
-  // ── 시뮬레이션 결제 ──────────────────────────────────
-  const startPay = (label: string, cash: number, onDone: () => void) => {
+  // ── 결제: 토스 앱이면 실제 인앱결제(IAP), 그 외(브라우저/데모)는 시뮬레이션 ──
+  const startPay = (label: string, cash: number, onDone: () => void, sku?: string) => {
+    if (sku) {
+      // 콘솔에 등록된 상품(sku)만 실제 결제 시도. 토스 앱이 아니면 시뮬레이션으로 폴백.
+      purchase(sku, () => onDone()).then(res => {
+        if (res.ok) return;                      // 결제 성공 — onDone은 지급 단계에서 이미 실행됨
+        if (res.reason === 'NOT_IN_TOSS') {      // 데모/브라우저 → 시뮬레이션 결제 모달
+          setPay({ label, cash, onDone }); setPayStage('confirm');
+        } else if (res.reason !== 'USER_CANCELED') {
+          pop('결제에 실패했어요. 다시 시도해주세요', 'special');
+        }
+      });
+      return;
+    }
     setPay({ label, cash, onDone });
     setPayStage('confirm');
   };
@@ -1182,29 +1236,11 @@ export default function LinyDoryGame() {
     }, 1100);
   };
 
-  // ── 장바구니(부스터 묶음 현금 결제) ──────────────────
-  const cartCount = BOOSTERS.reduce((s, b) => s + cart[b.kind], 0);
-  const cartTotal = BOOSTERS.reduce((s, b) => s + cart[b.kind] * b.cash, 0);
-  const setCartQty = (kind: BoosterKind, delta: number) =>
-    setCart(prev => ({ ...prev, [kind]: Math.max(0, Math.min(99, prev[kind] + delta)) }));
-  const checkoutCart = () => {
-    if (cartCount === 0) return;
-    const snapshot = { ...cart };
-    startPay(`아이템 ${cartCount}개`, cartTotal, () => {
-      setBoosters(prev => {
-        const next = { ...prev };
-        (Object.keys(snapshot) as BoosterKind[]).forEach(k => { next[k] = (prev[k] ?? 0) + snapshot[k]; });
-        saveBoosters(next); return next;
-      });
-      setCart({ hammer:0, bomb:0, shuffle:0, rowClear:0, colClear:0, allClear:0 });
-      pop('🎉 결제 완료! 아이템 지급', 'special');
-    });
-  };
-  const buyCoinPack = (coins: number, cash: number) => {
+  const buyCoinPack = (coins: number, cash: number, sku: string) => {
     startPay(`코인 ${coins.toLocaleString()}개`, cash, () => {
       addCoins(coins);
       pop(`🪙 +${coins.toLocaleString()} 충전 완료!`, 'special');
-    });
+    }, sku);
   };
 
   // ── 토스 로그인 ──────────────────────────────────────
@@ -1255,8 +1291,8 @@ export default function LinyDoryGame() {
               </div>
               <div style={{ display:'flex', gap:8, padding:'14px 16px 8px' }}>
                 <button onClick={declineContinue} style={{ flex:1, padding:'13px', borderRadius:12, border:'1px solid rgba(255,255,255,0.2)', cursor:'pointer', background:'rgba(255,255,255,0.06)', color:'rgba(255,255,255,0.8)', fontSize:13, fontWeight:800 }}>포기하기</button>
-                <button onClick={acceptContinue} style={{ flex:2, padding:'13px', borderRadius:12, border:'none', cursor:'pointer', background: afford ? 'linear-gradient(135deg,#FF8C00,#FFD700)' : 'rgba(255,255,255,0.15)', color: afford ? '#3D1C00' : 'rgba(255,255,255,0.7)', fontSize:14, fontWeight:900 }}>
-                  🪙 {cost} {afford ? '이어하기 ▶' : '· 충전'}
+                <button onClick={acceptContinue} style={{ flex:2, padding:'13px', borderRadius:12, border:'none', cursor:'pointer', background: (cost===0 || afford) ? 'linear-gradient(135deg,#FF8C00,#FFD700)' : 'rgba(255,255,255,0.15)', color: (cost===0 || afford) ? '#3D1C00' : 'rgba(255,255,255,0.7)', fontSize:14, fontWeight:900 }}>
+                  {cost===0 ? `무료 이어하기 ▶ (+${CONTINUE_MOVES}수)` : afford ? `🪙 ${cost} 이어하기 ▶` : `🪙 ${cost} · 충전`}
                 </button>
               </div>
               <div style={{ fontSize:10, color:'rgba(255,255,255,0.4)', paddingBottom:14 }}>남은 이어하기 {MAX_CONTINUES - continuesUsed}회 · 보유 🪙 {coins.toLocaleString()}</div>
@@ -1478,7 +1514,7 @@ export default function LinyDoryGame() {
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ fontSize:13, fontWeight:800, color:'white' }}>{p.coins.toLocaleString()} 코인 {p.bonus && <span style={{ fontSize:10, color:'#FFD700' }}>{p.bonus}</span>}</div>
                       </div>
-                      <button onClick={() => buyCoinPack(p.coins, p.cash)}
+                      <button onClick={() => buyCoinPack(p.coins, p.cash, p.sku)}
                         style={{ padding:'8px 12px', borderRadius:999, border:'none', cursor:'pointer', background:'linear-gradient(135deg,#1565C0,#42A5F5)', color:'white', fontSize:11, fontWeight:900, whiteSpace:'nowrap' }}>
                         ₩{p.cash.toLocaleString()}
                       </button>
@@ -1492,35 +1528,18 @@ export default function LinyDoryGame() {
                       <div style={{ fontSize:13, fontWeight:800, color:'white' }}>하트 가득 채우기 (15)</div>
                       <div style={{ fontSize:10, color:'rgba(255,255,255,0.45)' }}>지금 바로 최대치로</div>
                     </div>
-                    <button onClick={() => startPay('하트 가득 채우기', 1500, () => { addLives(LIVES_MAX); setLives(loadLives()); pop('💗 하트 가득 충전!', 'special'); })}
+                    <button onClick={() => startPay('하트 가득 채우기', 1500, () => { addLives(LIVES_MAX); setLives(loadLives()); pop('💗 하트 가득 충전!', 'special'); }, SKU_HEARTS_FULL)}
                       style={{ padding:'8px 12px', borderRadius:999, border:'none', cursor:'pointer', background:'linear-gradient(135deg,#FF5C8A,#C2185B)', color:'white', fontSize:11, fontWeight:900, whiteSpace:'nowrap' }}>
                       ₩1,500
                     </button>
                   </div>
-                  {/* 부스터 묶음 결제 (장바구니) */}
-                  <div style={{ fontSize:11, fontWeight:800, color:'rgba(255,220,100,0.85)', letterSpacing:1, padding:'6px 2px 2px' }}>🛍️ 아이템 묶음 결제</div>
-                  {BOOSTERS.map(b => (
-                    <div key={b.kind} style={{ padding:'8px 12px', borderRadius:14, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', display:'flex', alignItems:'center', gap:8 }}>
-                      <span style={{ fontSize:22 }}>{b.icon}</span>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontSize:12, fontWeight:800, color:'white' }}>{b.name}</div>
-                        <div style={{ fontSize:10, color:'rgba(255,255,255,0.45)' }}>개당 ₩{b.cash.toLocaleString()}</div>
-                      </div>
-                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                        <button onClick={() => setCartQty(b.kind,-1)} style={{ width:26, height:26, borderRadius:8, border:'none', cursor:'pointer', background:'rgba(255,255,255,0.12)', color:'white', fontSize:16, fontWeight:900, lineHeight:1 }}>−</button>
-                        <span style={{ minWidth:18, textAlign:'center', fontSize:13, fontWeight:900, color:'white' }}>{cart[b.kind]}</span>
-                        <button onClick={() => setCartQty(b.kind,1)} style={{ width:26, height:26, borderRadius:8, border:'none', cursor:'pointer', background:'rgba(255,180,0,0.85)', color:'#3D1C00', fontSize:16, fontWeight:900, lineHeight:1 }}>+</button>
-                      </div>
-                    </div>
-                  ))}
-                  <button disabled={cartCount===0} onClick={checkoutCart}
-                    style={{ marginTop:4, padding:'13px', borderRadius:14, border:'none', cursor: cartCount? 'pointer':'default',
-                      background: cartCount ? 'linear-gradient(135deg,#FF8C00,#FFD700)' : 'rgba(255,255,255,0.1)',
-                      color: cartCount ? '#3D1C00' : 'rgba(255,255,255,0.4)', fontSize:14, fontWeight:900 }}>
-                    💳 결제하기 {cartCount>0 && `· ${cartCount}개 · ₩${cartTotal.toLocaleString()}`}
+                  {/* 부스터는 코인으로 구매 — 묶음 현금결제는 단일 상품(SKU)에 매핑되지 않아 제거 */}
+                  <button onClick={() => setShopTab('coin')}
+                    style={{ marginTop:4, padding:'12px', borderRadius:14, border:'1px solid rgba(255,180,0,0.4)', cursor:'pointer', background:'rgba(255,180,0,0.12)', color:'#FFD27A', fontSize:12, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
+                    🛍️ 부스터 아이템은 코인으로 구매할 수 있어요 ▶
                   </button>
                   <div style={{ fontSize:9, color:'rgba(255,255,255,0.3)', textAlign:'center', lineHeight:1.5 }}>
-                    * 데모 환경에서는 시뮬레이션 결제로 동작해요
+                    * 코인·하트 충전은 토스 앱에서 실제 결제, 데모 환경에서는 시뮬레이션으로 동작해요
                   </div>
                 </>
               )}
@@ -1654,7 +1673,7 @@ export default function LinyDoryGame() {
   const isUnlocked = (i:number) => i===0 || progress[i-1]>=3;
   const totalStars = progress.reduce((a, b) => a + b, 0);
   const topBar = (
-    <div style={{ flexShrink:0, padding:'calc(var(--sat) + clamp(10px,2.5vh,16px)) clamp(10px,3vw,16px) 4px', display:'flex', alignItems:'center', gap:'clamp(5px,1.5vw,8px)' }}>
+    <div style={{ flexShrink:0, padding:'calc(var(--sat) + clamp(44px,8vh,52px)) clamp(10px,3vw,16px) 4px', display:'flex', alignItems:'center', gap:'clamp(5px,1.5vw,8px)' }}>
       <div style={{ position:'relative', display:'flex', alignItems:'center', gap:5, background:'rgba(0,0,0,0.4)', borderRadius:999, padding:'4px 10px 4px 6px', border:'1.5px solid rgba(255,120,150,0.5)', animation: lifeFly ? 'lifeChipPulse 0.5s ease' : undefined }}>
         <img src={`${BASE}characters/life.png`} alt="하트" style={{ width:22, height:22, borderRadius:'50%', objectFit:'cover' }}/>
         <span style={{ fontSize:13, fontWeight:900, color:'white' }}>{lives}</span>
@@ -1681,7 +1700,6 @@ export default function LinyDoryGame() {
     <div style={{ flexShrink:0, paddingBottom:'var(--sab)', background:'rgba(5,10,30,0.92)', borderTop:'1.5px solid rgba(255,255,255,0.1)', display:'flex', alignItems:'center', justifyContent:'space-around', minHeight:'clamp(54px,7.5vh,68px)' }}>
       {([
         {icon:'home'   as const, label:'홈',   fn:()=>setPhase('main'),     active: phase==='main' },
-        {icon:'tv'     as const, label:'유튜브', fn:()=>{ sfx.click(); window.open(CHANNEL_URL, '_blank', 'noopener'); }, active:false},
         {icon:'shop'   as const, label:'상점', fn:()=>setShowShop(true),    active:false},
         {icon:'gear'   as const, label:'설정', fn:()=>setShowSettings(true), active:false},
       ]).map((item,i)=>(
@@ -1827,7 +1845,7 @@ export default function LinyDoryGame() {
       </div>
 
       {/* Header white card */}
-      <div style={{ flexShrink:0, position:'relative', zIndex:10, margin:'calc(var(--sat) + 8px) 10px 0', background:'white', borderRadius:22, padding:'8px 10px', boxShadow:'0 4px 20px rgba(0,0,0,0.18)', display:'flex', alignItems:'center', gap:8 }}>
+      <div style={{ flexShrink:0, position:'relative', zIndex:10, margin:'calc(var(--sat) + 44px) 10px 0', background:'white', borderRadius:22, padding:'8px 10px', boxShadow:'0 4px 20px rgba(0,0,0,0.18)', display:'flex', alignItems:'center', gap:8 }}>
         {/* Timer / Moves badge */}
         <div style={{
           background: condBg,
@@ -1879,7 +1897,7 @@ export default function LinyDoryGame() {
               <span key={s} style={{ fontSize:15, filter:s<=curStars?'drop-shadow(0 0 5px #FFD700)':'grayscale(1) opacity(0.3)', transition:'filter 0.3s, transform 0.3s', transform:s<=curStars?'scale(1.1)':'scale(1)' }}>⭐</span>
             ))}
           </div>
-          <button onClick={()=>setPhase('main')} style={{ background:'none', border:'none', cursor:'pointer', padding:0, lineHeight:1, display:'flex' }}><Icon name="home" size={18} color="#9aa0a6" /></button>
+          <button onClick={()=>{ sfx.click(); pausedRef.current = true; setShowPause(true); }} aria-label="일시정지" style={{ background:'#eef1f5', border:'1px solid rgba(0,0,0,0.08)', borderRadius:10, cursor:'pointer', padding:'4px 7px', lineHeight:1, display:'flex', boxShadow:'0 2px 0 rgba(0,0,0,0.08)' }}><Icon name="pause" size={17} color="#4b5563" /></button>
         </div>
       </div>
 
@@ -2137,9 +2155,9 @@ export default function LinyDoryGame() {
         </div>
       )}
 
-      {/* Booster bar */}
+      {/* Booster bar — 두 줄 그리드 (SVG 아이콘) */}
       {phase==='play' && (
-        <div style={{ flexShrink:0, position:'relative', zIndex:12, display:'flex', flexWrap:'wrap', alignItems:'center', justifyContent:'center', gap:'clamp(4px,1.4vw,7px)', padding:'0 8px calc(var(--sab) + 8px)' }}>
+        <div style={{ flexShrink:0, position:'relative', zIndex:12, display:'grid', gridTemplateColumns:'repeat(4, minmax(0,1fr))', alignItems:'stretch', justifyContent:'center', gap:'clamp(4px,1.4vw,7px)', padding:'4px 10px calc(var(--sab) + 8px)', maxWidth:340, margin:'0 auto', width:'100%' }}>
           {BOOSTERS.map(b => {
             const cnt = boosters[b.kind];
             const armed = boosterMode === b.kind;
@@ -2152,15 +2170,15 @@ export default function LinyDoryGame() {
                   setBoosterMode(armed ? null : b.kind);
                 }}
                 style={{
-                  position:'relative', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
-                  width:50, height:50, borderRadius:14, cursor:'pointer',
+                  position:'relative', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:2,
+                  height:48, borderRadius:14, cursor:'pointer',
                   background: armed ? 'linear-gradient(145deg,#FF8C00,#FFD700)' : 'rgba(255,255,255,0.92)',
                   border: armed ? '2.5px solid white' : '2px solid rgba(0,0,0,0.1)',
                   boxShadow: armed ? '0 0 16px rgba(255,180,0,0.9), 0 4px 0 rgba(0,0,0,0.15)' : '0 4px 0 rgba(0,0,0,0.15)',
                   opacity: cnt <= 0 ? 0.5 : 1, transition:'all 0.15s ease',
                 }}>
-                <span style={{ fontSize:19, lineHeight:1, fontWeight:900, color: armed?'#3D1C00':'#333' }}>{b.icon}</span>
-                <span style={{ fontSize:8.5, fontWeight:800, color: armed ? '#3D1C00' : '#555' }}>{b.name}</span>
+                <Icon name={BOOSTER_ICON[b.kind]} size={20} color={armed ? '#3D1C00' : '#444'} />
+                <span style={{ fontSize:8.5, fontWeight:800, color: armed ? '#3D1C00' : '#555', lineHeight:1 }}>{b.name}</span>
                 <span style={{ position:'absolute', top:-6, right:-6, minWidth:18, height:18, padding:'0 4px', borderRadius:999,
                   background: cnt > 0 ? '#22AA55' : '#BBB', border:'1.5px solid white', color:'white', fontSize:10, fontWeight:900,
                   display:'flex', alignItems:'center', justifyContent:'center' }}>{cnt}</span>
@@ -2168,11 +2186,58 @@ export default function LinyDoryGame() {
             );
           })}
           <button onClick={() => setShowShop(true)}
-            style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
-              width:50, height:50, borderRadius:14, cursor:'pointer', background:'linear-gradient(145deg,#42A5F5,#1565C0)', border:'2px solid rgba(255,255,255,0.4)', boxShadow:'0 4px 0 #0D3B80' }}>
-            <span style={{ fontSize:18, lineHeight:1 }}>🛒</span>
-            <span style={{ fontSize:8.5, fontWeight:800, color:'white' }}>상점</span>
+            style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:2,
+              height:48, borderRadius:14, cursor:'pointer', background:'linear-gradient(145deg,#42A5F5,#1565C0)', border:'2px solid rgba(255,255,255,0.4)', boxShadow:'0 4px 0 #0D3B80' }}>
+            <Icon name="shop" size={19} color="white" />
+            <span style={{ fontSize:8.5, fontWeight:800, color:'white', lineHeight:1 }}>상점</span>
           </button>
+        </div>
+      )}
+
+      {/* 일시정지 메뉴 오버레이 */}
+      {phase==='play' && showPause && (
+        <div style={{ position:'absolute', inset:0, zIndex:40, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(8,12,30,0.78)', backdropFilter:'blur(6px)', padding:'0 28px' }}>
+          <div style={{ width:'100%', maxWidth:300, background:'linear-gradient(160deg,#ffffff,#eef2fb)', borderRadius:22, padding:'22px 20px', boxShadow:'0 16px 40px rgba(0,0,0,0.45)', display:'flex', flexDirection:'column', gap:12 }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, marginBottom:2 }}>
+              <Icon name="pause" size={22} color="#1565C0" />
+              <span style={{ fontSize:20, fontWeight:900, color:'#1a1a2e' }}>일시정지</span>
+            </div>
+            <button onClick={()=>{ sfx.click(); pausedRef.current = false; setShowPause(false); }}
+              style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, width:'100%', padding:'13px 0', borderRadius:14, border:'none', cursor:'pointer', color:'white', fontSize:16, fontWeight:900, background:'linear-gradient(145deg,#FF8C00,#FFB300)', boxShadow:'0 4px 0 #C46A00' }}>
+              <Icon name="play" size={17} color="white" /> 계속하기
+            </button>
+            <button onClick={()=>{ sfx.click(); startLevel(lvlIdx); }}
+              style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, width:'100%', padding:'11px 0', borderRadius:14, border:'none', cursor:'pointer', color:'#1a1a2e', fontSize:15, fontWeight:800, background:'#e7ebf5', boxShadow:'0 3px 0 rgba(0,0,0,0.12)' }}>
+              <Icon name="refresh" size={16} color="#1a1a2e" /> 다시하기
+            </button>
+            <button onClick={()=>{ const m = toggleMuted(); setMutedState(m); if (!m) { sfx.click(); primeAudio(); startBgm(); } else stopBgm(); }}
+              style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, width:'100%', padding:'11px 0', borderRadius:14, border:'none', cursor:'pointer', color:'#1a1a2e', fontSize:15, fontWeight:800, background:'#e7ebf5', boxShadow:'0 3px 0 rgba(0,0,0,0.12)' }}>
+              <Icon name={muted ? 'mute' : 'sound'} size={16} color="#1a1a2e" /> {muted ? '소리 켜기' : '소리 끄기'}
+            </button>
+            <button onClick={()=>{ sfx.click(); pausedRef.current = false; setShowPause(false); setSelectedWorld(Math.floor(lvlIdx/STAGES_PER_WORLD)); setPhase('map'); }}
+              style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, width:'100%', padding:'11px 0', borderRadius:14, border:'none', cursor:'pointer', color:'white', fontSize:15, fontWeight:800, background:'linear-gradient(145deg,#EF5350,#C62828)', boxShadow:'0 3px 0 #8E1818' }}>
+              <Icon name="exit" size={16} color="white" /> 나가기
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 앱 종료 확인 모달 (앱인토스 게임 검수 필수: 닫기 시 종료 확인) */}
+      {showExit && (
+        <div style={{ position:'absolute', inset:0, zIndex:70, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(8,12,30,0.8)', backdropFilter:'blur(6px)', padding:'0 28px' }}>
+          <div style={{ width:'100%', maxWidth:300, background:'linear-gradient(160deg,#ffffff,#eef2fb)', borderRadius:22, padding:'24px 20px 18px', boxShadow:'0 16px 40px rgba(0,0,0,0.45)', textAlign:'center' }}>
+            <div style={{ fontSize:17, fontWeight:900, color:'#1a1a2e', lineHeight:1.4 }}>리니와도리의 가시소동을<br/>종료할까요?</div>
+            <div style={{ display:'flex', gap:8, marginTop:18 }}>
+              <button onClick={()=>{ sfx.click(); setShowExit(false); }}
+                style={{ flex:1, padding:'13px 0', borderRadius:14, border:'none', cursor:'pointer', color:'#1a1a2e', fontSize:15, fontWeight:800, background:'#e7ebf5' }}>
+                닫기
+              </button>
+              <button onClick={()=>{ setShowExit(false); closeApp(); }}
+                style={{ flex:1, padding:'13px 0', borderRadius:14, border:'none', cursor:'pointer', color:'white', fontSize:15, fontWeight:900, background:'#1976D2' }}>
+                종료하기
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

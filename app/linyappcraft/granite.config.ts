@@ -1,11 +1,11 @@
-﻿import { defineConfig } from "@apps-in-toss/web-framework/config";
+import { defineConfig } from "@apps-in-toss/web-framework/config";
 
 export default defineConfig({
-  appName: "my-mini-app", // 肄섏넄???낅젰??appName???낅젰?섏꽭??
+  appName: "linycraft", // 콘솔에 등록한 appName
   brand: {
-    displayName: "由щ땲??꾨━ ?щ옒?꾪듃", // 肄섏넄???낅젰?????대쫫???낅젰?섏꽭??
-    primaryColor: "#1976D2", // ?붾㈃???몄텧???깆쓽 湲곕낯 ?됱긽?쇰줈 諛붽퓭二쇱꽭??
-    icon: "", // 肄섏넄?먯꽌 ?낅줈?쒗븳 ?대?吏??URL???낅젰?섏꽭??(肄섏넄?????뺣낫?먯꽌 ?낅줈?쒗븳 ?대?吏瑜??고겢由?빐 留곹겕 蹂듭궗 ???ｌ뼱二쇱꽭??
+    displayName: "리니와도리의 가시소동", // 토스 앱에 노출되는 서비스 이름
+    primaryColor: "#1976D2", // 화면에 노출되는 앱의 기본 색상
+    icon: "", // 콘솔에서 업로드한 아이콘 이미지 URL을 붙여넣으세요
   },
   web: {
     host: "localhost",
