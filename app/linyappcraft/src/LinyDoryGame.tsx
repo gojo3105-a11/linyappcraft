@@ -161,10 +161,10 @@ const BOOSTER_EMOJI: Record<string, string> = { hammer:'🔨', bomb:'💣', shuf
 const CLEAR_COINS = [0, 60, 140, 300] as const;
 const FIRST_CLEAR_BONUS = 100;
 
-// 이어하기 — 코인으로 시간/이동 추가 (한 판 최대 3회, 비용 점증)
+// 이어하기 — 실패 후 이동 횟수 보충 (한 판 최대 3회). 첫 회는 무료(+5수), 이후 코인 차감
 const MAX_CONTINUES = 3;
-const CONTINUE_COSTS = [200, 400, 800] as const;
-const CONTINUE_MOVES = 5;   // 이동 모드: +5수
+const CONTINUE_COSTS = [0, 300, 600] as const;
+const CONTINUE_MOVES = 5;   // 이어하기 시 이동 +5수
 
 // 맵 화면 — 세로로 스크롤되는 지그재그 길 배치
 const MAP_X = [50, 76, 50, 24];        // 스테이지 가로 위치(%) 지그재그
@@ -861,15 +861,15 @@ export default function LinyDoryGame() {
   // 이어하기 수락 — 코인 차감 후 시간/이동 보충하고 재개
   const acceptContinue = useCallback(() => {
     const cost = CONTINUE_COSTS[continuesUsedRef.current];
-    if (!spendCoins(cost)) { pop('🪙 코인이 부족해요!', 'special'); setShowShop(true); return; }
-    setCoins(loadCoins());
+    if (cost > 0 && !spendCoins(cost)) { pop('🪙 코인이 부족해요!', 'special'); setShowShop(true); return; }
+    if (cost > 0) setCoins(loadCoins());
     continuesUsedRef.current++; setContinuesUsed(c => c+1);
-    // 이동·시간 모두 보충 (어느 쪽이 떨어졌든 재개 가능하도록)
+    // 이동 +5수 보충 (+ 시간도 함께 회복해 재개 가능하도록)
     movesRef.current += CONTINUE_MOVES; setMovesLeft(movesRef.current);
     setTimeLeft(t => Math.max(t, 30));
     setContinueOffer(false);
     pausedRef.current = false;
-    sfx.coin(); pop('▶ 이어서 도전!', 'special');
+    sfx.coin(); pop(`▶ 이동 +${CONTINUE_MOVES}! 이어서 도전!`, 'special');
     scheduleHint();
   }, [pop, scheduleHint]);
 
@@ -1263,8 +1263,8 @@ export default function LinyDoryGame() {
               </div>
               <div style={{ display:'flex', gap:8, padding:'14px 16px 8px' }}>
                 <button onClick={declineContinue} style={{ flex:1, padding:'13px', borderRadius:12, border:'1px solid rgba(255,255,255,0.2)', cursor:'pointer', background:'rgba(255,255,255,0.06)', color:'rgba(255,255,255,0.8)', fontSize:13, fontWeight:800 }}>포기하기</button>
-                <button onClick={acceptContinue} style={{ flex:2, padding:'13px', borderRadius:12, border:'none', cursor:'pointer', background: afford ? 'linear-gradient(135deg,#FF8C00,#FFD700)' : 'rgba(255,255,255,0.15)', color: afford ? '#3D1C00' : 'rgba(255,255,255,0.7)', fontSize:14, fontWeight:900 }}>
-                  🪙 {cost} {afford ? '이어하기 ▶' : '· 충전'}
+                <button onClick={acceptContinue} style={{ flex:2, padding:'13px', borderRadius:12, border:'none', cursor:'pointer', background: (cost===0 || afford) ? 'linear-gradient(135deg,#FF8C00,#FFD700)' : 'rgba(255,255,255,0.15)', color: (cost===0 || afford) ? '#3D1C00' : 'rgba(255,255,255,0.7)', fontSize:14, fontWeight:900 }}>
+                  {cost===0 ? `무료 이어하기 ▶ (+${CONTINUE_MOVES}수)` : afford ? `🪙 ${cost} 이어하기 ▶` : `🪙 ${cost} · 충전`}
                 </button>
               </div>
               <div style={{ fontSize:10, color:'rgba(255,255,255,0.4)', paddingBottom:14 }}>남은 이어하기 {MAX_CONTINUES - continuesUsed}회 · 보유 🪙 {coins.toLocaleString()}</div>
