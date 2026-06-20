@@ -64,16 +64,39 @@ export function buzz(ms = 12) {
   try { if ('vibrate' in navigator) navigator.vibrate(ms); } catch { /* noop */ }
 }
 
-// ── 배경음악(BGM) — Web Audio로 합성한 가벼운 루프 ──────────
+// ── 배경음악(BGM) — Web Audio로 합성한 귀여운 뮤직박스 루프 ──────────
 let bgmTimer: ReturnType<typeof setInterval> | null = null;
 let bgmStep = 0;
-// C장조 펜타토닉 계열의 밝은 루프(16스텝)
-const BGM_NOTES = [
-  523.25, 659.25, 783.99, 659.25, 587.33, 698.46, 880.00, 698.46,
-  523.25, 659.25, 783.99, 1046.5, 880.00, 783.99, 659.25, 587.33,
+const STEP_MS = 200;            // 빠르고 통통 튀는 템포
+// C장조의 밝고 깜찍한 멜로디(32스텝, 0은 쉼표) — I-vi-IV-V 진행
+const C5=523.25, D5=587.33, E5=659.25, F5=698.46, G5=783.99, A5=880.0, C6=1046.5;
+const BGM_MELODY = [
+  E5, G5, C6, G5,  A5, G5, E5, 0,
+  D5, E5, F5, E5,  D5, C5, 0,  0,
+  E5, D5, C5, D5,  E5, E5, D5, 0,
+  C5, E5, G5, C6,  A5, G5, E5, 0,
 ];
+// 각 4스텝(마디)마다 베이스 음 — C, Am, F, G ×2
+const BGM_BASS = [130.81, 110.0, 87.31, 98.0, 130.81, 110.0, 87.31, 98.0];
 
 export function isBgmOn() { return bgmTimer !== null; }
+
+// 뮤직박스 톤: 빠른 어택 + 부드러운 감쇠 + 한 옥타브 위 반짝임
+function bgmNote(c: AudioContext, t0: number, f: number, vol: number, dur: number) {
+  const osc = c.createOscillator(); const g = c.createGain();
+  osc.type = 'triangle'; osc.frequency.value = f;
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(vol, t0 + 0.015);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  osc.connect(g).connect(c.destination); osc.start(t0); osc.stop(t0 + dur + 0.03);
+  // 옥타브 위 사인으로 반짝(뮤직박스 느낌)
+  const s = c.createOscillator(); const sg = c.createGain();
+  s.type = 'sine'; s.frequency.value = f * 2;
+  sg.gain.setValueAtTime(0.0001, t0);
+  sg.gain.exponentialRampToValueAtTime(vol * 0.35, t0 + 0.01);
+  sg.gain.exponentialRampToValueAtTime(0.0001, t0 + dur * 0.6);
+  s.connect(sg).connect(c.destination); s.start(t0); s.stop(t0 + dur);
+}
 
 export function startBgm() {
   if (muted || bgmTimer) return;
@@ -82,25 +105,24 @@ export function startBgm() {
   bgmTimer = setInterval(() => {
     const c = ac(); if (!c) return;
     const t0 = c.currentTime;
-    const f = BGM_NOTES[bgmStep % BGM_NOTES.length];
+    const step = bgmStep % 32;
+    const bar = Math.floor(step / 4);
     bgmStep++;
-    // 멜로디 음
-    const osc = c.createOscillator(); const g = c.createGain();
-    osc.type = 'triangle'; osc.frequency.value = f;
-    g.gain.setValueAtTime(0.0001, t0);
-    g.gain.exponentialRampToValueAtTime(0.05, t0 + 0.03);
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.34);
-    osc.connect(g).connect(c.destination); osc.start(t0); osc.stop(t0 + 0.4);
-    // 4스텝마다 베이스
-    if (bgmStep % 4 === 1) {
+    // 멜로디(쉼표면 건너뜀)
+    const f = BGM_MELODY[step];
+    if (f) bgmNote(c, t0, f, 0.05, 0.26);
+    // 마디 첫 스텝에 통통 튀는 베이스
+    if (step % 4 === 0) {
       const b = c.createOscillator(); const bg = c.createGain();
-      b.type = 'sine'; b.frequency.value = f / 2;
+      b.type = 'sine'; b.frequency.value = BGM_BASS[bar];
       bg.gain.setValueAtTime(0.0001, t0);
-      bg.gain.exponentialRampToValueAtTime(0.04, t0 + 0.04);
-      bg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.55);
-      b.connect(bg).connect(c.destination); b.start(t0); b.stop(t0 + 0.6);
+      bg.gain.exponentialRampToValueAtTime(0.05, t0 + 0.03);
+      bg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.42);
+      b.connect(bg).connect(c.destination); b.start(t0); b.stop(t0 + 0.45);
     }
-  }, 370);
+    // 엇박(홀수 스텝)에 살짝 '톡' 하이햇 — 통통 튀는 리듬감
+    if (step % 2 === 1) noise(0.03, 0.012, 0, 7000, 1.2);
+  }, STEP_MS);
 }
 
 export function stopBgm() {
