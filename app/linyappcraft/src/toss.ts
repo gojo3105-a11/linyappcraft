@@ -7,6 +7,8 @@ type SDK = {
   appLogin?: () => Promise<{ authorizationCode: string; referrer: string }>;
   closeView?: () => void;
   openURL?: (url: string) => Promise<unknown>;
+  setDeviceOrientation?: (o: { type: 'portrait' | 'landscape' }) => Promise<void>;
+  setScreenAwakeMode?: (o: { enabled: boolean }) => unknown;
   graniteEvent?: {
     addEventListener: (
       event: 'backEvent' | 'homeEvent',
@@ -102,6 +104,22 @@ export async function closeApp(): Promise<void> {
   try {
     const m = await sdk();
     m.closeView?.();
+  } catch { /* 무시 */ }
+}
+
+/** 화면 방향을 세로로 고정해요(토스 앱 환경). */
+export async function lockPortrait(): Promise<void> {
+  try {
+    const m = await sdk();
+    await m.setDeviceOrientation?.({ type: 'portrait' });
+  } catch { /* 무시 */ }
+}
+
+/** 게임 중 화면이 꺼지지 않도록 설정해요. enabled=false면 기본 동작으로 복구. */
+export async function keepScreenAwake(enabled: boolean): Promise<void> {
+  try {
+    const m = await sdk();
+    m.setScreenAwakeMode?.({ enabled });
   } catch { /* 무시 */ }
 }
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, type CSSProperties } from 'react';
 import { loadCoins, spendCoins, addCoins, loadBoosters, saveBoosters, loadLives, spendLife, addLives, nextLifeMs, LIVES_MAX, questAddGameCleared, questUpdateMaxCombo, questAddSpecials, questAddBlocks, questClaim, loadQuests, QUESTS, type QuestSave, type BoosterKind } from './quest';
 import { sGet, sSet, getScope, setScope } from './store';
-import { tossLogin, fetchUserKey, onBackEvent, closeApp, purchase } from './toss';
+import { tossLogin, fetchUserKey, onBackEvent, closeApp, purchase, lockPortrait, keepScreenAwake } from './toss';
 import { sfx, buzz, primeAudio, isMuted, toggleMuted, startBgm, stopBgm } from './sfx';
 import { Icon, type IconName } from './icons';
 
@@ -588,10 +588,10 @@ export default function LinyDoryGame() {
   const [boosters,    setBoosters]    = useState(loadBoosters);
   const [boosterMode, setBoosterMode] = useState<BoosterKind|null>(null);
   const [showPause,   setShowPause]   = useState(false);
+  const [showExit,    setShowExit]    = useState(false);
   const [showShop,    setShowShop]    = useState(false);
   const [showSettings,setShowSettings]= useState(false);
   const [shopTab,     setShopTab]     = useState<'coin'|'cash'>('coin');
-  const [cart,        setCart]        = useState<Record<BoosterKind,number>>({hammer:0,bomb:0,shuffle:0,rowClear:0,colClear:0,allClear:0});
   const [pay,         setPay]         = useState<{label:string;cash:number;onDone:()=>void}|null>(null);
   const [payStage,    setPayStage]    = useState<'confirm'|'processing'|'done'>('confirm');
   const [account,     setAccount]     = useState<string>(getScope());
@@ -885,6 +885,7 @@ export default function LinyDoryGame() {
   const backHandlerRef = useRef<() => void>(() => {});
   backHandlerRef.current = () => {
     sfx.click();
+    if (showExit)      { setShowExit(false); return; }
     if (showShop)      { setShowShop(false); return; }
     if (showSettings)  { setShowSettings(false); return; }
     if (showQuests)    { setShowQuests(false); return; }
@@ -896,12 +897,21 @@ export default function LinyDoryGame() {
       return;
     }
     if (p === 'map')  { setPhase('main'); return; }
-    if (p === 'main') { closeApp(); return; }   // 메인에서 뒤로가기 → 미니앱 종료(토스 환경)
+    if (p === 'main') { setShowExit(true); return; }   // 메인에서 뒤로가기 → 종료 확인 모달(검수 필수)
   };
   useEffect(() => {
     const off = onBackEvent(() => backHandlerRef.current());
     return off;
   }, []);
+
+  // 세로 방향 고정(앱 진입 시 1회)
+  useEffect(() => { lockPortrait(); }, []);
+
+  // 게임 플레이 중에는 화면이 꺼지지 않도록 유지, 벗어나면 복구
+  useEffect(() => {
+    keepScreenAwake(phase === 'play');
+    return () => { keepScreenAwake(false); };
+  }, [phase]);
 
   // 제한 시간 — 진행 중(일시정지 아님)일 때 60초에서 1초씩 감소, 0이 되면 종료/이어하기 제안
   useEffect(() => {
@@ -1226,24 +1236,6 @@ export default function LinyDoryGame() {
     }, 1100);
   };
 
-  // ── 장바구니(부스터 묶음 현금 결제) ──────────────────
-  const cartCount = BOOSTERS.reduce((s, b) => s + cart[b.kind], 0);
-  const cartTotal = BOOSTERS.reduce((s, b) => s + cart[b.kind] * b.cash, 0);
-  const setCartQty = (kind: BoosterKind, delta: number) =>
-    setCart(prev => ({ ...prev, [kind]: Math.max(0, Math.min(99, prev[kind] + delta)) }));
-  const checkoutCart = () => {
-    if (cartCount === 0) return;
-    const snapshot = { ...cart };
-    startPay(`아이템 ${cartCount}개`, cartTotal, () => {
-      setBoosters(prev => {
-        const next = { ...prev };
-        (Object.keys(snapshot) as BoosterKind[]).forEach(k => { next[k] = (prev[k] ?? 0) + snapshot[k]; });
-        saveBoosters(next); return next;
-      });
-      setCart({ hammer:0, bomb:0, shuffle:0, rowClear:0, colClear:0, allClear:0 });
-      pop('🎉 결제 완료! 아이템 지급', 'special');
-    });
-  };
   const buyCoinPack = (coins: number, cash: number, sku: string) => {
     startPay(`코인 ${coins.toLocaleString()}개`, cash, () => {
       addCoins(coins);
@@ -1541,30 +1533,13 @@ export default function LinyDoryGame() {
                       ₩1,500
                     </button>
                   </div>
-                  {/* 부스터 묶음 결제 (장바구니) */}
-                  <div style={{ fontSize:11, fontWeight:800, color:'rgba(255,220,100,0.85)', letterSpacing:1, padding:'6px 2px 2px' }}>🛍️ 아이템 묶음 결제</div>
-                  {BOOSTERS.map(b => (
-                    <div key={b.kind} style={{ padding:'8px 12px', borderRadius:14, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', display:'flex', alignItems:'center', gap:8 }}>
-                      <span style={{ fontSize:22 }}>{b.icon}</span>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontSize:12, fontWeight:800, color:'white' }}>{b.name}</div>
-                        <div style={{ fontSize:10, color:'rgba(255,255,255,0.45)' }}>개당 ₩{b.cash.toLocaleString()}</div>
-                      </div>
-                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                        <button onClick={() => setCartQty(b.kind,-1)} style={{ width:26, height:26, borderRadius:8, border:'none', cursor:'pointer', background:'rgba(255,255,255,0.12)', color:'white', fontSize:16, fontWeight:900, lineHeight:1 }}>−</button>
-                        <span style={{ minWidth:18, textAlign:'center', fontSize:13, fontWeight:900, color:'white' }}>{cart[b.kind]}</span>
-                        <button onClick={() => setCartQty(b.kind,1)} style={{ width:26, height:26, borderRadius:8, border:'none', cursor:'pointer', background:'rgba(255,180,0,0.85)', color:'#3D1C00', fontSize:16, fontWeight:900, lineHeight:1 }}>+</button>
-                      </div>
-                    </div>
-                  ))}
-                  <button disabled={cartCount===0} onClick={checkoutCart}
-                    style={{ marginTop:4, padding:'13px', borderRadius:14, border:'none', cursor: cartCount? 'pointer':'default',
-                      background: cartCount ? 'linear-gradient(135deg,#FF8C00,#FFD700)' : 'rgba(255,255,255,0.1)',
-                      color: cartCount ? '#3D1C00' : 'rgba(255,255,255,0.4)', fontSize:14, fontWeight:900 }}>
-                    💳 결제하기 {cartCount>0 && `· ${cartCount}개 · ₩${cartTotal.toLocaleString()}`}
+                  {/* 부스터는 코인으로 구매 — 묶음 현금결제는 단일 상품(SKU)에 매핑되지 않아 제거 */}
+                  <button onClick={() => setShopTab('coin')}
+                    style={{ marginTop:4, padding:'12px', borderRadius:14, border:'1px solid rgba(255,180,0,0.4)', cursor:'pointer', background:'rgba(255,180,0,0.12)', color:'#FFD27A', fontSize:12, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
+                    🛍️ 부스터 아이템은 코인으로 구매할 수 있어요 ▶
                   </button>
                   <div style={{ fontSize:9, color:'rgba(255,255,255,0.3)', textAlign:'center', lineHeight:1.5 }}>
-                    * 데모 환경에서는 시뮬레이션 결제로 동작해요
+                    * 코인·하트 충전은 토스 앱에서 실제 결제, 데모 환경에서는 시뮬레이션으로 동작해요
                   </div>
                 </>
               )}
@@ -1698,7 +1673,7 @@ export default function LinyDoryGame() {
   const isUnlocked = (i:number) => i===0 || progress[i-1]>=3;
   const totalStars = progress.reduce((a, b) => a + b, 0);
   const topBar = (
-    <div style={{ flexShrink:0, padding:'calc(var(--sat) + clamp(10px,2.5vh,16px)) clamp(10px,3vw,16px) 4px', display:'flex', alignItems:'center', gap:'clamp(5px,1.5vw,8px)' }}>
+    <div style={{ flexShrink:0, padding:'calc(var(--sat) + clamp(44px,8vh,52px)) clamp(10px,3vw,16px) 4px', display:'flex', alignItems:'center', gap:'clamp(5px,1.5vw,8px)' }}>
       <div style={{ position:'relative', display:'flex', alignItems:'center', gap:5, background:'rgba(0,0,0,0.4)', borderRadius:999, padding:'4px 10px 4px 6px', border:'1.5px solid rgba(255,120,150,0.5)', animation: lifeFly ? 'lifeChipPulse 0.5s ease' : undefined }}>
         <img src={`${BASE}characters/life.png`} alt="하트" style={{ width:22, height:22, borderRadius:'50%', objectFit:'cover' }}/>
         <span style={{ fontSize:13, fontWeight:900, color:'white' }}>{lives}</span>
@@ -1870,7 +1845,7 @@ export default function LinyDoryGame() {
       </div>
 
       {/* Header white card */}
-      <div style={{ flexShrink:0, position:'relative', zIndex:10, margin:'calc(var(--sat) + 8px) 10px 0', background:'white', borderRadius:22, padding:'8px 10px', boxShadow:'0 4px 20px rgba(0,0,0,0.18)', display:'flex', alignItems:'center', gap:8 }}>
+      <div style={{ flexShrink:0, position:'relative', zIndex:10, margin:'calc(var(--sat) + 44px) 10px 0', background:'white', borderRadius:22, padding:'8px 10px', boxShadow:'0 4px 20px rgba(0,0,0,0.18)', display:'flex', alignItems:'center', gap:8 }}>
         {/* Timer / Moves badge */}
         <div style={{
           background: condBg,
@@ -2243,6 +2218,25 @@ export default function LinyDoryGame() {
               style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, width:'100%', padding:'11px 0', borderRadius:14, border:'none', cursor:'pointer', color:'white', fontSize:15, fontWeight:800, background:'linear-gradient(145deg,#EF5350,#C62828)', boxShadow:'0 3px 0 #8E1818' }}>
               <Icon name="exit" size={16} color="white" /> 나가기
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* 앱 종료 확인 모달 (앱인토스 게임 검수 필수: 닫기 시 종료 확인) */}
+      {showExit && (
+        <div style={{ position:'absolute', inset:0, zIndex:70, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(8,12,30,0.8)', backdropFilter:'blur(6px)', padding:'0 28px' }}>
+          <div style={{ width:'100%', maxWidth:300, background:'linear-gradient(160deg,#ffffff,#eef2fb)', borderRadius:22, padding:'24px 20px 18px', boxShadow:'0 16px 40px rgba(0,0,0,0.45)', textAlign:'center' }}>
+            <div style={{ fontSize:17, fontWeight:900, color:'#1a1a2e', lineHeight:1.4 }}>리니와도리의 가시소동을<br/>종료할까요?</div>
+            <div style={{ display:'flex', gap:8, marginTop:18 }}>
+              <button onClick={()=>{ sfx.click(); setShowExit(false); }}
+                style={{ flex:1, padding:'13px 0', borderRadius:14, border:'none', cursor:'pointer', color:'#1a1a2e', fontSize:15, fontWeight:800, background:'#e7ebf5' }}>
+                닫기
+              </button>
+              <button onClick={()=>{ setShowExit(false); closeApp(); }}
+                style={{ flex:1, padding:'13px 0', borderRadius:14, border:'none', cursor:'pointer', color:'white', fontSize:15, fontWeight:900, background:'#1976D2' }}>
+                종료하기
+              </button>
+            </div>
           </div>
         </div>
       )}
