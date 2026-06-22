@@ -2,7 +2,8 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches: [main, claude/icon-change-block-combos-mci4or]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -27,6 +28,8 @@ jobs:
         working-directory: app/linyappcraft
         run: npx vite build
       - uses: actions/configure-pages@v4
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: app/linyappcraft/dist

@@ -1733,7 +1733,13 @@ export default function LinyDoryGame() {
   if (phase === 'splash') return (
     <div style={{ position:'relative', width:'100%', height:'100dvh', overflow:'hidden', userSelect:'none' }}>
       <style>{GAME_CSS}</style>
-      <img src={`${BASE}characters/MAIN.png`} alt="리니와도리의 가시소동" style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'top center' }} />
+      <video
+        src={`${BASE}loading.mp4`}
+        poster={`${BASE}characters/MAIN.png`}
+        autoPlay muted loop playsInline preload="auto"
+        aria-label="리니와도리의 가시소동"
+        style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'top center' }}
+      />
       <div style={{ position:'absolute', top:0, left:0, right:0, padding:'calc(var(--sat) + clamp(28px,6vh,48px)) clamp(16px,5vw,32px) clamp(40px,8vh,80px)', background:'linear-gradient(180deg,rgba(5,10,40,0.85) 0%,transparent 100%)', display:'flex', flexDirection:'column', alignItems:'center' }}>
         <h1 style={{ margin:0, fontSize:'clamp(26px,7.5vw,40px)', fontWeight:900, letterSpacing:'clamp(1px,0.5vw,3px)', color:'#FFE566', WebkitTextStroke:'2px #FFA500', textShadow:'0 4px 0 rgba(0,0,0,0.5),0 0 30px rgba(255,200,0,0.8)', animation:'splashPulse 2s ease infinite', textAlign:'center', whiteSpace:'nowrap' }}>리니와도리의 가시소동</h1>
         <p style={{ margin:'6px 0 0', fontSize:'clamp(10px,2.8vw,13px)', fontWeight:700, letterSpacing:'clamp(2px,1vw,4px)', color:'white', opacity:0.7 }}>ANIMAL PUZZLE</p>
