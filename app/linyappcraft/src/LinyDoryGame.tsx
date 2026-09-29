@@ -2140,9 +2140,8 @@ export default function LinyDoryGame() {
               const active = curMap[row]?.[col] === 1;
 
               if (!active) {
-                return (
-                  <div key={`hole-${row}-${col}`} style={{ aspectRatio:'1', borderRadius:'50%', background:'rgba(0,0,0,0.38)', boxShadow:'inset 0 3px 8px rgba(0,0,0,0.75)' }}/>
-                );
+                // 블럭이 없는 칸은 틀 없이 비워 둬요(자리만 유지)
+                return <div key={`hole-${row}-${col}`} style={{ aspectRatio:'1' }}/>;
               }
 
               if (!cell) return <div key={`empty-${row}-${col}`} style={{ aspectRatio:'1' }}/>;
