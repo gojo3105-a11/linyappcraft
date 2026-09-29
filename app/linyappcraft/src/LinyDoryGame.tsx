@@ -113,10 +113,10 @@ function genMap(i: number): (0|1)[][] {
 }
 
 // 스테이지 난이도에 따른 장애물(돌) 배치 마스크 — 후반으로 갈수록 개수 증가
-// (초반 12스테이지는 0개, 이후 점증, 최대 9개). 시드 기반이라 같은 스테이지는 항상 동일 배치.
+// (초반 8스테이지는 0개, 이후 6스테이지마다 +1, 최대 11개). 시드 기반이라 같은 스테이지는 항상 동일 배치.
 function genObstacles(i: number, map: (0|1)[][]): boolean[][] {
   const mask: boolean[][] = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
-  const count = i < 12 ? 0 : Math.min(9, 1 + Math.floor((i - 12) / 8));
+  const count = i < 8 ? 0 : Math.min(11, 1 + Math.floor((i - 8) / 6));
   if (count === 0) return mask;
   const rnd = mulberry((i + 1) * 40503);
   const perCol: number[] = Array(COLS).fill(0);
