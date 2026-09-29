@@ -2075,13 +2075,22 @@ export default function LinyDoryGame() {
 
       {/* Grid */}
       <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', position:'relative', zIndex:10, padding:'6px 10px clamp(10px,2.5vh,16px)' }}>
-        <div style={{ width:'100%', maxWidth:390, borderRadius:24, padding:'clamp(6px,1.8vw,10px)', background:'rgba(25,15,75,0.72)', boxShadow:'0 8px 36px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1)', backdropFilter:'blur(2px)' }}>
+        <div style={{ width:'100%', maxWidth:390, borderRadius:30, padding:'clamp(8px,2.2vw,13px)', background:'linear-gradient(160deg, rgba(58,36,128,0.9) 0%, rgba(28,16,66,0.93) 55%, rgba(42,18,74,0.9) 100%)', border:'3px solid rgba(255,196,86,0.55)', boxShadow:'0 14px 44px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.06), inset 0 3px 0 rgba(255,255,255,0.16), inset 0 -9px 20px rgba(0,0,0,0.42)' }}>
           <div
             onPointerMove={onGridPointerMove}
             onPointerUp={onGridPointerUp}
             onPointerLeave={onGridPointerUp}
             onPointerCancel={() => { dragRef.current = null; }}
             style={{ position:'relative', display:'grid', gridTemplateColumns:`repeat(${COLS},1fr)`, gap:'clamp(3px,1vw,5px)', touchAction:'none' }}>
+            {/* 판 배경: 블럭이 있는 칸(레벨 모양)에만 홈(socket)을 깔아 판이 블럭 모양을 따라가도록 */}
+            <div aria-hidden style={{ position:'absolute', inset:0, display:'grid', gridTemplateColumns:`repeat(${COLS},1fr)`, gap:'clamp(3px,1vw,5px)', zIndex:0, pointerEvents:'none' }}>
+              {Array.from({ length: ROWS * COLS }, (_, i) => {
+                const rr = Math.floor(i / COLS), cc = i % COLS;
+                return curMap[rr]?.[cc] === 1
+                  ? <div key={i} style={{ aspectRatio:'1', borderRadius:'28%', background:'rgba(12,7,40,0.5)', boxShadow:'inset 0 2px 6px rgba(0,0,0,0.55), inset 0 -2px 4px rgba(255,255,255,0.05)' }}/>
+                  : <div key={i} style={{ aspectRatio:'1' }}/>;
+              })}
+            </div>
             {/* 폭탄·아이템 사용 시 터지는 칸에 불길 효과 */}
             {flames.map(f => (
               <span key={f.id} style={{
