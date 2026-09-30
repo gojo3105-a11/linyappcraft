@@ -34,7 +34,7 @@ html, body {
 @media (min-width: 481px) {
   body { background: #12121c; }
   #root {
-    width: min(100vw, calc(100dvh * 0.52));
+    width: min(100vw, calc(100dvh * 0.62));
     box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 24px 70px rgba(0, 0, 0, 0.75);
   }
 }

@@ -2377,8 +2377,9 @@ export default function LinyDoryGame() {
       )}
 
       {/* Grid */}
-      <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', position:'relative', zIndex:10, padding:'6px 10px clamp(10px,2.5vh,16px)' }}>
-        <div style={{ width:'100%', maxWidth:390, padding:'clamp(5px,1.6vw,9px)', borderRadius:26, background:'rgba(18,24,44,0.5)', border:'3px solid rgba(232,238,250,0.55)', boxShadow:'inset 0 2px 10px rgba(0,0,0,0.4), 0 8px 26px rgba(0,0,0,0.4)' }}>
+      <div style={{ flex:1, minHeight:0, display:'flex', alignItems:'center', justifyContent:'center', position:'relative', zIndex:10, padding:'6px 6px clamp(8px,2vh,14px)' }}>
+        {/* 보드: 정사각. 가로 폭·상한(470)·세로 가용공간 중 작은 값에 맞춰 리사이징 (모든 폰 대응) */}
+        <div style={{ width:'min(100%, 470px, calc(100dvh - 316px))', maxWidth:'100%', maxHeight:'100%', aspectRatio:'1', padding:'clamp(5px,1.6vw,9px)', borderRadius:26, background:'rgba(18,24,44,0.5)', border:'3px solid rgba(232,238,250,0.55)', boxShadow:'inset 0 2px 10px rgba(0,0,0,0.4), 0 8px 26px rgba(0,0,0,0.4)' }}>
           <div
             onPointerMove={onGridPointerMove}
             onPointerUp={onGridPointerUp}
