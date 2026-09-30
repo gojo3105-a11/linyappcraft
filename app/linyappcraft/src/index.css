@@ -22,15 +22,19 @@ html, body {
   background: #07090f;
 }
 
+/* 모바일/APK: 화면 전체를 채움 (APK WebView도 이 경로) */
 #root {
   width: 100%;
   height: 100dvh;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
   overflow: hidden;
+  margin: 0 auto;
 }
 
+/* 데스크톱/넓은 웹: 세로 폰 프레임으로 감싸 가운데 정렬 → APK와 동일한 모바일 비율 */
 @media (min-width: 481px) {
-  body { background: #1a1a2e; }
+  body { background: #12121c; }
+  #root {
+    width: min(100vw, calc(100dvh * 0.52));
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 24px 70px rgba(0, 0, 0, 0.75);
+  }
 }
