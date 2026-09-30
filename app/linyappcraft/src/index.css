@@ -30,8 +30,9 @@ html, body {
   margin: 0 auto;
 }
 
-/* 데스크톱/넓은 웹: 세로 폰 프레임으로 감싸 가운데 정렬 → APK와 동일한 모바일 비율 */
-@media (min-width: 481px) {
+/* 데스크톱(마우스 사용 + 넓은 화면)에서만 세로 폰 프레임으로 감싸 가운데 정렬.
+   pointer:fine 조건으로 터치 폰/태블릿(인앱 브라우저 포함)은 항상 전체 화면을 사용해요. */
+@media (min-width: 820px) and (pointer: fine) {
   body { background: #12121c; }
   #root {
     width: min(100vw, calc(100dvh * 0.62));
