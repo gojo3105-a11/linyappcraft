@@ -2087,6 +2087,15 @@ export default function LinyDoryGame() {
             onPointerLeave={onGridPointerUp}
             onPointerCancel={() => { dragRef.current = null; }}
             style={{ position:'relative', display:'grid', gridTemplateColumns:`repeat(${COLS},1fr)`, gap:'clamp(3px,1vw,5px)', touchAction:'none' }}>
+            {/* 블럭 소켓(홈): 블럭이 있는 칸에만 표시되고, 블럭이 터지면 함께 터져요 */}
+            <div aria-hidden style={{ position:'absolute', inset:0, display:'grid', gridTemplateColumns:`repeat(${COLS},1fr)`, gap:'clamp(3px,1vw,5px)', zIndex:0, pointerEvents:'none' }}>
+              {Array.from({ length: ROWS * COLS }, (_, i) => {
+                const r = Math.floor(i / COLS), c = i % COLS;
+                const socketCell = grid[r]?.[c];
+                if (!socketCell) return <div key={i} style={{ aspectRatio:'1' }}/>;
+                return <div key={i} style={{ aspectRatio:'1', borderRadius:'26%', background:'rgba(12,7,40,0.5)', boxShadow:'inset 0 2px 6px rgba(0,0,0,0.55), inset 0 -2px 4px rgba(255,255,255,0.06)', animation: socketCell.hit ? 'popOut 0.6s ease-out forwards' : undefined }}/>;
+              })}
+            </div>
             {/* 폭탄·아이템 사용 시 터지는 칸에 불길 효과 */}
             {flames.map(f => (
               <span key={f.id} style={{
