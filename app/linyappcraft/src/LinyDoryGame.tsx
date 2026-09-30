@@ -435,22 +435,7 @@ function buildCycle(g: Grid, mkSpecials: boolean, swapTo?: [number,number]): { h
     if (cell && !newSpec.has(key)) cell.hit=true;
   });
   newSpec.forEach((cell,key) => { const [r,c]=key.split(',').map(Number); nextG[r][c]=cell; });
-  // 터진 칸과 인접한 장애물(돌)을 파손 — hp 감소, 0이면 제거(부서짐)
-  const dmg = new Set<string>();
-  for (const key of [...hits]) {
-    const [r,c] = key.split(',').map(Number);
-    for (const [dr,dc] of [[-1,0],[1,0],[0,-1],[0,1]] as const) {
-      const nr=r+dr, nc=c+dc;
-      if (nr<0||nr>=ROWS||nc<0||nc>=COLS) continue;
-      const nk = `${nr},${nc}`;
-      const nb = nextG[nr][nc];
-      if (nb && nb.kind === 'rock' && !nb.hit && !dmg.has(nk)) {
-        dmg.add(nk);
-        nb.hp = (nb.hp ?? 1) - 1;
-        if ((nb.hp ?? 0) <= 0) { nb.hit = true; hits.add(nk); }  // 부서짐 → 제거/연출
-      }
-    }
-  }
+  // 장애물(돌)은 파괴되지 않는 영구 장애물 — 인접 매치로도 제거되지 않아요
   return { hits, newSpec, nextG };
 }
 
@@ -601,6 +586,39 @@ const GAME_CSS = `
     0%   { opacity:0; transform:translateY(0) scale(0.8); }
     25%  { opacity:1; transform:translateY(-6px) scale(1.1); }
     100% { opacity:0; transform:translateY(-34px) scale(1); }
+  }
+  @keyframes idleBob {
+    0%,100% { transform:translateY(0); }
+    50%     { transform:translateY(-5px); }
+  }
+  @keyframes bgDrift {
+    0%   { transform:scale(1.12) translate(0,0); }
+    50%  { transform:scale(1.18) translate(-1.6%, -1.1%); }
+    100% { transform:scale(1.12) translate(0,0); }
+  }
+  @keyframes petalFall {
+    0%   { transform:translateY(-10%) translateX(0) rotate(0deg); opacity:0; }
+    10%  { opacity:0.85; }
+    90%  { opacity:0.85; }
+    100% { transform:translateY(88vh) translateX(var(--px,24px)) rotate(400deg); opacity:0; }
+  }
+  @keyframes twinkle {
+    0%,100% { opacity:0.15; transform:scale(0.6); }
+    50%     { opacity:1; transform:scale(1.2); }
+  }
+  @keyframes avatarPop {
+    0%,100% { transform:translateY(0) rotate(0deg); }
+    25%     { transform:translateY(-4px) rotate(-3deg); }
+    75%     { transform:translateY(-2px) rotate(3deg); }
+  }
+  @keyframes popIn {
+    0%   { opacity:0; transform:scale(0.8) translateY(12px); }
+    60%  { opacity:1; transform:scale(1.04) translateY(-2px); }
+    100% { opacity:1; transform:scale(1) translateY(0); }
+  }
+  @keyframes badgeBounce {
+    0%,100% { transform:translateY(0); }
+    50%     { transform:translateY(-2px); }
   }
 `;
 
@@ -1370,7 +1388,7 @@ export default function LinyDoryGame() {
           <div style={{ position:'absolute', inset:0, zIndex:66, background:'rgba(8,10,35,0.82)', backdropFilter:'blur(6px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
             <div style={{ width:'100%', maxWidth:330, position:'relative' }}>
               <div style={{ position:'relative', zIndex:2, margin:'0 auto -14px', width:'fit-content', background:'linear-gradient(135deg,#FF6F3C,#FF3D6E)', color:'white', fontWeight:900, fontSize:18, letterSpacing:1, padding:'8px 26px', borderRadius:14, boxShadow:'0 6px 16px rgba(255,60,90,0.45)', border:'2px solid rgba(255,255,255,0.5)' }}>STAGE {idx+1}</div>
-              <div style={{ background:'linear-gradient(160deg,#ffffff,#eef3fb)', borderRadius:24, padding:'26px 18px 18px', boxShadow:'0 20px 60px rgba(0,0,0,0.6)', border:'3px solid #cfe0ff' }}>
+              <div style={{ background:'linear-gradient(160deg,#ffffff,#eef3fb)', borderRadius:24, padding:'26px 18px 18px', boxShadow:'0 20px 60px rgba(0,0,0,0.6)', border:'3px solid #cfe0ff', animation:'popIn 0.34s cubic-bezier(0.34,1.56,0.64,1) both' }}>
                 <div style={{ background:'#f4f7ff', border:'1.5px solid #e0e8f7', borderRadius:16, padding:'14px', display:'flex', justifyContent:'space-around', textAlign:'center' }}>
                   <div><div style={{ fontSize:22 }}>⭐</div><div style={{ fontSize:11, color:'#888', fontWeight:700, marginTop:2 }}>목표</div><div style={{ fontSize:15, fontWeight:900, color:'#FF6F00' }}>{L.goal[2].toLocaleString()}</div></div>
                   <div><div style={{ fontSize:22 }}>🎯</div><div style={{ fontSize:11, color:'#888', fontWeight:700, marginTop:2 }}>이동</div><div style={{ fontSize:15, fontWeight:900, color:'#1565C0' }}>{mv}</div></div>
@@ -1884,7 +1902,7 @@ export default function LinyDoryGame() {
           const curStage = (() => { const i = progress.findIndex(s => s < 3); return i === -1 ? LEVELS.length - 1 : i; })();
           return (
             <button onClick={() => { sfx.click(); setSelectedWorld(Math.floor(curStage / STAGES_PER_WORLD)); setStagePopup(curStage); }}
-              style={{ flexShrink:0, margin:'2px 12px 8px', padding:'14px', borderRadius:20, border:'3px solid rgba(255,255,255,0.85)', cursor:'pointer', background:'linear-gradient(180deg,#3B9BFF,#1565C0)', color:'white', fontSize:20, fontWeight:900, letterSpacing:1, boxShadow:'0 6px 0 #0D3B80, 0 10px 24px rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+              style={{ flexShrink:0, margin:'2px 12px 8px', padding:'14px', borderRadius:20, border:'3px solid rgba(255,255,255,0.85)', cursor:'pointer', background:'linear-gradient(180deg,#3B9BFF,#1565C0)', color:'white', fontSize:20, fontWeight:900, letterSpacing:1, boxShadow:'0 6px 0 #0D3B80, 0 10px 24px rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', gap:8, animation:'idleBob 1.8s ease-in-out infinite' }}>
               ▶ STAGE {curStage + 1}
             </button>
           );
@@ -1983,8 +2001,17 @@ export default function LinyDoryGame() {
       <style>{GAME_CSS}</style>
 
       {/* 업로드된 월드 이미지 배경(흐리게) — 블럭은 위 레이어라 흐려지지 않아요 */}
-      <div aria-hidden style={{ position:'absolute', inset:0, zIndex:0, backgroundImage:`url(${worldImg(Math.floor(lvlIdx / STAGES_PER_WORLD))})`, backgroundSize:'cover', backgroundPosition:'center', filter:'blur(9px) brightness(0.9) saturate(1.05)', transform:'scale(1.12)' }}/>
+      <div aria-hidden style={{ position:'absolute', inset:0, zIndex:0, backgroundImage:`url(${worldImg(Math.floor(lvlIdx / STAGES_PER_WORLD))})`, backgroundSize:'cover', backgroundPosition:'center', filter:'blur(9px) brightness(0.9) saturate(1.05)', transform:'scale(1.12)', animation:'bgDrift 22s ease-in-out infinite' }}/>
       <div aria-hidden style={{ position:'absolute', inset:0, zIndex:0, background:'linear-gradient(180deg, rgba(8,16,50,0.42) 0%, rgba(8,16,50,0.30) 45%, rgba(8,16,50,0.58) 100%)' }}/>
+      {/* 떠다니는 장식(꽃잎·반짝임) */}
+      <div aria-hidden style={{ position:'absolute', inset:0, zIndex:1, pointerEvents:'none', overflow:'hidden' }}>
+        {['🌸','🍃','🌼','✨','🌸','🍃'].map((e,i) => (
+          <span key={i} style={{ position:'absolute', top:'-8%', left:`${7+i*15}%`, fontSize:`${13+(i%3)*5}px`, opacity:0.85, animation:`petalFall ${9+i*1.7}s linear ${i*1.3}s infinite` }}>{e}</span>
+        ))}
+        {[0,1,2,3].map(i => (
+          <span key={`t${i}`} style={{ position:'absolute', top:`${13+i*21}%`, left:`${i%2?86:9}%`, fontSize:12, animation:`twinkle ${1.8+i*0.4}s ease-in-out ${i*0.5}s infinite` }}>✨</span>
+        ))}
+      </div>
 
       {/* Header white card */}
       <div style={{ flexShrink:0, position:'relative', zIndex:10, margin:'calc(var(--sat) + 44px) 10px 0', background:'white', borderRadius:26, padding:'9px 11px', boxShadow:'0 6px 22px rgba(0,0,0,0.22)', border:'2px solid rgba(255,255,255,0.9)', display:'flex', alignItems:'center', gap:8 }}>
@@ -2124,7 +2151,7 @@ export default function LinyDoryGame() {
 
       {/* Grid */}
       <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', position:'relative', zIndex:10, padding:'6px 10px clamp(10px,2.5vh,16px)' }}>
-        <div style={{ width:'100%', maxWidth:390, padding:'clamp(2px,1vw,6px)', background:'transparent' }}>
+        <div style={{ width:'100%', maxWidth:390, padding:'clamp(5px,1.6vw,9px)', borderRadius:26, background:'rgba(18,24,44,0.5)', border:'3px solid rgba(232,238,250,0.55)', boxShadow:'inset 0 2px 10px rgba(0,0,0,0.4), 0 8px 26px rgba(0,0,0,0.4)' }}>
           <div
             onPointerMove={onGridPointerMove}
             onPointerUp={onGridPointerUp}
@@ -2293,7 +2320,7 @@ export default function LinyDoryGame() {
       {phase==='play' && (
         <div style={{ flexShrink:0, position:'relative', zIndex:12, display:'flex', alignItems:'flex-end', gap:'clamp(6px,2vw,12px)', padding:'6px 10px calc(var(--sab) + 10px)', maxWidth:440, margin:'0 auto', width:'100%' }}>
           {/* 캐릭터 아바타 */}
-          <div style={{ flexShrink:0, width:'clamp(50px,14vw,62px)', aspectRatio:'1', borderRadius:16, overflow:'hidden', border:'3px solid #ffffff', boxShadow:'0 5px 12px rgba(0,0,0,0.35)', background:'radial-gradient(circle at 50% 30%, #FFF3D6, #FFD98A)' }}>
+          <div style={{ flexShrink:0, width:'clamp(50px,14vw,62px)', aspectRatio:'1', borderRadius:16, overflow:'hidden', border:'3px solid #ffffff', boxShadow:'0 5px 12px rgba(0,0,0,0.35)', background:'radial-gradient(circle at 50% 30%, #FFF3D6, #FFD98A)', animation:'avatarPop 3.2s ease-in-out infinite' }}>
             <img src={`${BASE}characters/block1.png`} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
           </div>
           {/* 원형 부스터들 */}
