@@ -648,6 +648,7 @@ export default function LinyDoryGame() {
   const [boosterMode, setBoosterMode] = useState<BoosterKind|null>(null);
   const [showPause,   setShowPause]   = useState(false);
   const [showExit,    setShowExit]    = useState(false);
+  const [stagePopup,  setStagePopup]  = useState<number|null>(null); // 시작 전 아이템 선택 팝업(스테이지 인덱스)
   const [showShop,    setShowShop]    = useState(false);
   const [showSettings,setShowSettings]= useState(false);
   const [shopTab,     setShopTab]     = useState<'coin'|'cash'>('coin');
@@ -976,6 +977,7 @@ export default function LinyDoryGame() {
   backHandlerRef.current = () => {
     sfx.click();
     if (showExit)      { setShowExit(false); return; }
+    if (stagePopup !== null) { setStagePopup(null); return; }
     if (showShop)      { setShowShop(false); return; }
     if (showSettings)  { setShowSettings(false); return; }
     if (showQuests)    { setShowQuests(false); return; }
@@ -1358,6 +1360,42 @@ export default function LinyDoryGame() {
 
   const renderModals = () => (
     <>
+      {/* 스테이지 시작 전 아이템 선택 팝업 */}
+      {stagePopup !== null && (() => {
+        const idx = stagePopup;
+        const L = LEVELS[idx];
+        const diff = difficultyOf(idx);
+        const mv = (L as {moves?:number}).moves ?? 0;
+        return (
+          <div style={{ position:'absolute', inset:0, zIndex:66, background:'rgba(8,10,35,0.82)', backdropFilter:'blur(6px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+            <div style={{ width:'100%', maxWidth:330, position:'relative' }}>
+              <div style={{ position:'relative', zIndex:2, margin:'0 auto -14px', width:'fit-content', background:'linear-gradient(135deg,#FF6F3C,#FF3D6E)', color:'white', fontWeight:900, fontSize:18, letterSpacing:1, padding:'8px 26px', borderRadius:14, boxShadow:'0 6px 16px rgba(255,60,90,0.45)', border:'2px solid rgba(255,255,255,0.5)' }}>STAGE {idx+1}</div>
+              <div style={{ background:'linear-gradient(160deg,#ffffff,#eef3fb)', borderRadius:24, padding:'26px 18px 18px', boxShadow:'0 20px 60px rgba(0,0,0,0.6)', border:'3px solid #cfe0ff' }}>
+                <div style={{ background:'#f4f7ff', border:'1.5px solid #e0e8f7', borderRadius:16, padding:'14px', display:'flex', justifyContent:'space-around', textAlign:'center' }}>
+                  <div><div style={{ fontSize:22 }}>⭐</div><div style={{ fontSize:11, color:'#888', fontWeight:700, marginTop:2 }}>목표</div><div style={{ fontSize:15, fontWeight:900, color:'#FF6F00' }}>{L.goal[2].toLocaleString()}</div></div>
+                  <div><div style={{ fontSize:22 }}>🎯</div><div style={{ fontSize:11, color:'#888', fontWeight:700, marginTop:2 }}>이동</div><div style={{ fontSize:15, fontWeight:900, color:'#1565C0' }}>{mv}</div></div>
+                  <div><div style={{ fontSize:22 }}>🔥</div><div style={{ fontSize:11, color:'#888', fontWeight:700, marginTop:2 }}>난이도</div><div style={{ fontSize:13, fontWeight:900, color:diff.color }}>{diff.label}</div></div>
+                </div>
+                <div style={{ marginTop:14, textAlign:'center' }}>
+                  <div style={{ fontSize:12, fontWeight:800, color:'#666', marginBottom:8 }}>보유 아이템</div>
+                  <div style={{ display:'flex', justifyContent:'center', flexWrap:'wrap', gap:8 }}>
+                    {BOOSTERS.map(b => (
+                      <div key={b.kind} style={{ position:'relative', width:44, height:44, borderRadius:'50%', background:'radial-gradient(circle at 50% 32%, #F2F7FF, #C4D8F7)', border:'2px solid #fff', boxShadow:'0 3px 6px rgba(0,0,0,0.2)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                        <Icon name={BOOSTER_ICON[b.kind]} size={20} color="#2B4C8C" />
+                        <span style={{ position:'absolute', bottom:-2, right:-2, minWidth:16, height:16, padding:'0 3px', borderRadius:999, background:'#FF8A3D', border:'1.5px solid white', color:'white', fontSize:9, fontWeight:900, display:'flex', alignItems:'center', justifyContent:'center' }}>{boosters[b.kind]}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ fontSize:9, color:'rgba(0,0,0,0.35)', marginTop:8 }}>아이템은 게임 중 하단 버튼으로 사용해요</div>
+                </div>
+                <button onClick={()=>{ const i=idx; setStagePopup(null); sfx.click(); tryStartLevel(i); }} style={{ marginTop:16, width:'100%', padding:'15px', borderRadius:16, border:'none', cursor:'pointer', background:'linear-gradient(180deg,#3B9BFF,#1565C0)', color:'white', fontSize:19, fontWeight:900, boxShadow:'0 5px 0 #0D3B80' }}>게임시작</button>
+              </div>
+              <button onClick={()=>{ sfx.click(); setStagePopup(null); }} aria-label="닫기" style={{ position:'absolute', top:-6, right:-6, zIndex:3, width:34, height:34, borderRadius:'50%', border:'2px solid white', background:'#5B8DEF', color:'white', fontSize:16, fontWeight:900, cursor:'pointer', boxShadow:'0 3px 8px rgba(0,0,0,0.4)' }}>✕</button>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* 이어하기 제안 (시간/이동 소진) */}
       {continueOffer && (() => {
         const cost = CONTINUE_COSTS[Math.min(continuesUsed, MAX_CONTINUES-1)];
@@ -1878,7 +1916,7 @@ export default function LinyDoryGame() {
               const diff = difficultyOf(gi); const rw = stageReward(gi); const earned = s>=3;
               return (
                 <div key={gi}>
-                  <button onClick={()=>unlocked&&tryStartLevel(gi)} disabled={!unlocked}
+                  <button onClick={()=>{ if(unlocked){ sfx.click(); setStagePopup(gi); } }} disabled={!unlocked}
                     style={{ position:'absolute', width:64, height:64, left:`calc(${mapNodeX(k)}% - 32px)`, top:localY(k)-32, zIndex:2, borderRadius:'50%', cursor:unlocked?'pointer':'default', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
                       background:!unlocked?'rgba(10,10,40,0.8)':s===3?'linear-gradient(135deg,#FF6F00,#FFB300)':s>=1?'linear-gradient(135deg,#6A1B9A,#CE93D8)':'linear-gradient(135deg,#0D47A1,#1976D2)',
                       border: isCur&&unlocked?'3px solid #FFE566':unlocked?'3px solid rgba(255,255,255,0.55)':'2px solid rgba(255,255,255,0.12)',
@@ -1940,7 +1978,7 @@ export default function LinyDoryGame() {
       <div aria-hidden style={{ position:'absolute', inset:0, zIndex:0, background:'linear-gradient(180deg, rgba(8,16,50,0.42) 0%, rgba(8,16,50,0.30) 45%, rgba(8,16,50,0.58) 100%)' }}/>
 
       {/* Header white card */}
-      <div style={{ flexShrink:0, position:'relative', zIndex:10, margin:'calc(var(--sat) + 44px) 10px 0', background:'white', borderRadius:22, padding:'8px 10px', boxShadow:'0 4px 20px rgba(0,0,0,0.18)', display:'flex', alignItems:'center', gap:8 }}>
+      <div style={{ flexShrink:0, position:'relative', zIndex:10, margin:'calc(var(--sat) + 44px) 10px 0', background:'white', borderRadius:26, padding:'9px 11px', boxShadow:'0 6px 22px rgba(0,0,0,0.22)', border:'2px solid rgba(255,255,255,0.9)', display:'flex', alignItems:'center', gap:8 }}>
         {/* Timer / Moves badge */}
         <div style={{
           background: condBg,
@@ -2242,9 +2280,15 @@ export default function LinyDoryGame() {
         </div>
       )}
 
-      {/* Booster bar — 원형 버튼 (레퍼런스 스타일) */}
+      {/* Booster bar — 캐릭터 아바타 + 원형 부스터 (레퍼런스 스타일) */}
       {phase==='play' && (
-        <div style={{ flexShrink:0, position:'relative', zIndex:12, display:'flex', flexWrap:'wrap', alignItems:'center', justifyContent:'center', gap:'clamp(8px,2.6vw,14px)', padding:'6px 10px calc(var(--sab) + 10px)', maxWidth:380, margin:'0 auto', width:'100%' }}>
+        <div style={{ flexShrink:0, position:'relative', zIndex:12, display:'flex', alignItems:'flex-end', gap:'clamp(6px,2vw,12px)', padding:'6px 10px calc(var(--sab) + 10px)', maxWidth:440, margin:'0 auto', width:'100%' }}>
+          {/* 캐릭터 아바타 */}
+          <div style={{ flexShrink:0, width:'clamp(50px,14vw,62px)', aspectRatio:'1', borderRadius:16, overflow:'hidden', border:'3px solid #ffffff', boxShadow:'0 5px 12px rgba(0,0,0,0.35)', background:'radial-gradient(circle at 50% 30%, #FFF3D6, #FFD98A)' }}>
+            <img src={`${BASE}characters/block1.png`} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
+          </div>
+          {/* 원형 부스터들 */}
+          <div style={{ flex:1, display:'flex', flexWrap:'wrap', alignItems:'center', justifyContent:'center', gap:'clamp(8px,2.6vw,14px)' }}>
           {BOOSTERS.map(b => {
             const cnt = boosters[b.kind];
             const armed = boosterMode === b.kind;
@@ -2279,6 +2323,7 @@ export default function LinyDoryGame() {
               boxShadow:'0 5px 10px rgba(0,0,0,0.3), inset 0 2px 5px rgba(255,255,255,0.4)' }}>
             <Icon name="shop" size={24} color="white" />
           </button>
+          </div>
         </div>
       )}
 
