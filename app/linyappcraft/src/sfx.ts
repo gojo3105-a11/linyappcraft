@@ -58,11 +58,18 @@ function noise(dur: number, vol: number, when = 0, freq = 1100, q = 0.8) {
   src.start(t0);
 }
 
-// 짧은 모바일 진동(있을 때만)
-export function buzz(ms = 12) {
+// 짧은 모바일 진동(있을 때만). 숫자 = 단발, 배열 = 패턴([대기,진동,대기,…]).
+export function buzz(pattern: number | number[] = 12) {
   if (muted) return;
-  try { if ('vibrate' in navigator) navigator.vibrate(ms); } catch { /* noop */ }
+  try { if ('vibrate' in navigator) navigator.vibrate(pattern as number | number[]); } catch { /* noop */ }
 }
+// 햅틱 프리셋
+export const haptic = {
+  light()   { buzz(8); },                    // 일반 매칭
+  medium()  { buzz(18); },
+  heavy()   { buzz([0, 32, 40, 32]); },      // 특수/폭탄
+  success() { buzz([0, 20, 30, 20, 30, 45]); }, // 피버/클리어
+};
 
 // ── 배경음악(BGM) — Web Audio로 합성한 귀여운 뮤직박스 루프 ──────────
 let bgmTimer: ReturnType<typeof setInterval> | null = null;
@@ -129,19 +136,35 @@ export function stopBgm() {
   if (bgmTimer) { clearInterval(bgmTimer); bgmTimer = null; }
 }
 
+// 콤보 상승음 — 연속 매칭마다 음높이(피치)가 올라가고, 잠시 끊기면 기본값으로 리셋
+let matchPitch = 1.0;
+let pitchTimer: ReturnType<typeof setTimeout> | null = null;
+const PITCH_STEP = 0.08, PITCH_MAX = 2.4, PITCH_RESET_MS = 1300;
+function bumpPitch() {
+  matchPitch = Math.min(PITCH_MAX, matchPitch + PITCH_STEP);
+  if (pitchTimer) clearTimeout(pitchTimer);
+  pitchTimer = setTimeout(() => { matchPitch = 1.0; }, PITCH_RESET_MS);
+}
+export function resetComboPitch() { matchPitch = 1.0; if (pitchTimer) { clearTimeout(pitchTimer); pitchTimer = null; } }
+
 export const sfx = {
   swap()        { tone(520, 0.06, 'sine', 0.10); },
   invalid()     { tone(200, 0.10, 'square', 0.10, 0, 130); },
-  // 귀여운 "팡!" — 살짝 떨어지는 블립 + 반짝 + 톡 터지는 노이즈
+  // 귀여운 "팡!" — 콤보가 이어질수록 음높이가 상승(옥타브 상승음)
   pop(combo = 1){
-    const base = 680 + Math.min(combo, 10) * 60;
+    bumpPitch();
+    const p = matchPitch;
+    const base = (640 + Math.min(combo, 12) * 45) * p;
     tone(base, 0.10, 'sine', 0.20, 0, base * 0.55);
     tone(base * 1.8, 0.05, 'triangle', 0.10, 0.0);
     noise(0.06, 0.10, 0, 1600, 0.7);
   },
   combo(n: number) { const f = 520 + Math.min(n, 10) * 60; tone(f, 0.13, 'triangle', 0.2); tone(f * 1.5, 0.13, 'sine', 0.12, 0.03); },
   special()     { tone(300, 0.16, 'sawtooth', 0.16); tone(660, 0.20, 'square', 0.12, 0.05); noise(0.1, 0.12, 0, 2000, 0.5); },
-  explode()     { tone(160, 0.34, 'square', 0.24, 0, 50); tone(80, 0.36, 'sawtooth', 0.18, 0.02, 38); noise(0.22, 0.22, 0, 600, 0.6); },
+  // 타격감 있는 파열음(폭탄/특수/피버 파괴)
+  explode()     { tone(160, 0.34, 'square', 0.24, 0, 50); tone(80, 0.38, 'sawtooth', 0.20, 0.02, 36); tone(52, 0.22, 'sine', 0.32, 0, 40); noise(0.24, 0.28, 0, 560, 0.6); noise(0.10, 0.18, 0, 2600, 0.5); },
+  // 피버 진입 팡파레(상승 스윕 + 밝은 코드)
+  fever()       { [440,554,659,880,1047].forEach((f,i)=>tone(f,0.5,'sawtooth',0.13,i*0.05)); noise(0.4,0.16,0,1200,0.4); },
   ding(i = 0)   { tone(880 + i * 220, 0.16, 'triangle', 0.22, 0); tone(1320 + i * 260, 0.18, 'sine', 0.12, 0.04); },
   coin()        { tone(880, 0.07, 'square', 0.14); tone(1320, 0.10, 'square', 0.13, 0.06); },
   win()         { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.20, 'triangle', 0.2, i * 0.12)); },
