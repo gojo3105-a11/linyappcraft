@@ -206,6 +206,10 @@ const loadProg = (): number[] => {
 const saveProg = (p: number[]) => sSet(LS_BASE, p);
 
 const TUT_BASE = 'linydory_tutorial_v1';
+// 일일 이벤트(출석·룰렛) 마지막 수령 날짜 저장 키
+const ATT_BASE = 'linydory_attend_v1';
+const ROU_BASE = 'linydory_roulette_v1';
+const todayStr = () => new Date().toISOString().slice(0, 10);
 const loadTutorialDone = (): boolean => sGet<boolean>(TUT_BASE, false);
 const saveTutorialDone = () => sSet(TUT_BASE, true);
 
@@ -650,6 +654,11 @@ const GAME_CSS = `
     0%,100% { transform:rotate(0deg); }
     50%     { transform:rotate(1.6deg); }
   }
+  @keyframes spinCoin {
+    0%   { transform:rotateY(0deg) scale(1); }
+    80%  { transform:rotateY(1400deg) scale(1.1); }
+    100% { transform:rotateY(1440deg) scale(1); }
+  }
 `;
 
 export default function LinyDoryGame() {
@@ -698,6 +707,9 @@ export default function LinyDoryGame() {
   const [showPause,   setShowPause]   = useState(false);
   const [showExit,    setShowExit]    = useState(false);
   const [stagePopup,  setStagePopup]  = useState<number|null>(null); // 시작 전 아이템 선택 팝업(스테이지 인덱스)
+  const [showRoulette, setShowRoulette] = useState(false);
+  const [rouletteSpin, setRouletteSpin] = useState(false);
+  const [rouletteWin,  setRouletteWin]  = useState<number|null>(null);
   const [showShop,    setShowShop]    = useState(false);
   const [showSettings,setShowSettings]= useState(false);
   const [shopTab,     setShopTab]     = useState<'coin'|'cash'>('coin');
@@ -1027,6 +1039,7 @@ export default function LinyDoryGame() {
     sfx.click();
     if (showExit)      { setShowExit(false); return; }
     if (stagePopup !== null) { setStagePopup(null); return; }
+    if (showRoulette)  { setShowRoulette(false); return; }
     if (showShop)      { setShowShop(false); return; }
     if (showSettings)  { setShowSettings(false); return; }
     if (showQuests)    { setShowQuests(false); return; }
@@ -1422,6 +1435,22 @@ export default function LinyDoryGame() {
   };
   const handleGuest = () => { loginGuest(); pop('게스트로 전환했어요', 'special'); };
 
+  // ── 홈 이벤트: 출석 / 룰렛 ────────────────────────────
+  const claimAttendance = () => {
+    if (sGet<string>(ATT_BASE, '') === todayStr()) { pop('오늘 출석은 이미 완료했어요', 'special'); return; }
+    sSet(ATT_BASE, todayStr()); addCoins(100); setCoins(loadCoins()); sfx.coin();
+    pop('📅 출석 보상 +100🪙!', 'special');
+  };
+  const openRoulette = () => { setRouletteWin(null); setRouletteSpin(false); setShowRoulette(true); };
+  const spinRoulette = () => {
+    if (rouletteSpin) return;
+    if (sGet<string>(ROU_BASE, '') === todayStr()) { pop('오늘 룰렛은 이미 돌렸어요', 'special'); return; }
+    setRouletteSpin(true); setRouletteWin(null);
+    const prizes = [50, 100, 150, 200, 300, 500];
+    const win = prizes[Math.floor(Math.random() * prizes.length)];
+    setTimeout(() => { sSet(ROU_BASE, todayStr()); addCoins(win); setCoins(loadCoins()); setRouletteWin(win); setRouletteSpin(false); sfx.coin(); }, 1500);
+  };
+
   const lvl      = LEVELS[lvlIdx];
   const isTime   = lvl.mode === 'time';
   const maxCond  = isTime ? (lvl as {sec?:number}).sec ?? 60 : (lvl as {moves?:number}).moves ?? 1;
@@ -1440,6 +1469,24 @@ export default function LinyDoryGame() {
 
   const renderModals = () => (
     <>
+      {/* 행운 룰렛 */}
+      {showRoulette && (
+        <div style={{ position:'absolute', inset:0, zIndex:66, background:'rgba(8,10,35,0.82)', backdropFilter:'blur(6px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+          <div style={{ width:'100%', maxWidth:300, position:'relative', background:'linear-gradient(160deg,#ffffff,#eef3fb)', borderRadius:24, padding:'22px 18px 18px', boxShadow:'0 20px 60px rgba(0,0,0,0.6)', border:'3px solid #FFD27A', textAlign:'center', animation:'popIn 0.34s cubic-bezier(0.34,1.56,0.64,1) both' }}>
+            <div style={{ fontSize:17, fontWeight:900, color:'#1a1a2e', marginBottom:6 }}>🎰 행운 룰렛</div>
+            <div style={{ fontSize:56, margin:'8px 0', animation: rouletteSpin ? 'spinCoin 1.5s cubic-bezier(0.2,0.8,0.2,1) forwards' : undefined }}>🪙</div>
+            <div style={{ minHeight:24, fontSize:15, fontWeight:900, color:'#FF6F00' }}>
+              {rouletteWin!=null ? `+${rouletteWin.toLocaleString()} 코인 당첨! 🎉` : rouletteSpin ? '두구두구…' : '하루 한 번 무료로 돌려요!'}
+            </div>
+            <button onClick={rouletteWin!=null ? ()=>setShowRoulette(false) : spinRoulette} disabled={rouletteSpin}
+              style={{ marginTop:14, width:'100%', padding:'14px', borderRadius:14, border:'none', cursor: rouletteSpin?'default':'pointer', background: rouletteSpin ? '#c7ccd6' : 'linear-gradient(180deg,#FF8C00,#FF6F00)', color:'white', fontSize:17, fontWeight:900, boxShadow: rouletteSpin ? 'none' : '0 5px 0 #B84800' }}>
+              {rouletteWin!=null ? '받기' : rouletteSpin ? '돌리는 중…' : '돌리기'}
+            </button>
+            <button onClick={()=>setShowRoulette(false)} aria-label="닫기" style={{ position:'absolute', top:-6, right:-6, width:32, height:32, borderRadius:'50%', border:'2px solid white', background:'#5B8DEF', color:'white', fontSize:15, fontWeight:900, cursor:'pointer', boxShadow:'0 3px 8px rgba(0,0,0,0.4)' }}>✕</button>
+          </div>
+        </div>
+      )}
+
       {/* 스테이지 시작 전 아이템 선택 팝업 */}
       {stagePopup !== null && (() => {
         const idx = stagePopup;
@@ -1933,6 +1980,20 @@ export default function LinyDoryGame() {
       <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100dvh', userSelect:'none', background:`linear-gradient(180deg, rgba(10,26,72,0.5) 0%, rgba(8,20,60,0.82) 55%, rgba(6,16,48,0.94) 100%), url(${BASE}characters/mapbg.png) center top / cover no-repeat`, overflow:'hidden' }}>
         <style>{GAME_CSS}</style>
         {topBar}
+        {/* 이벤트 사이드 레일 (출석·룰렛·세일) */}
+        <div style={{ position:'absolute', left:8, top:'calc(var(--sat) + 92px)', zIndex:15, display:'flex', flexDirection:'column', gap:10 }}>
+          {([
+            { e:'📅', label:'출석', fn:claimAttendance,  badge: sGet<string>(ATT_BASE,'') !== todayStr() },
+            { e:'🎰', label:'룰렛', fn:openRoulette,      badge: sGet<string>(ROU_BASE,'') !== todayStr() },
+            { e:'🏷️', label:'세일', fn:()=>{ setShopTab('cash'); setShowShop(true); }, badge:false },
+          ]).map((it,ix)=>(
+            <button key={ix} onClick={()=>{ sfx.click(); it.fn(); }} style={{ position:'relative', width:56, display:'flex', flexDirection:'column', alignItems:'center', gap:2, background:'rgba(255,255,255,0.14)', border:'1.5px solid rgba(255,255,255,0.3)', borderRadius:14, padding:'7px 2px', cursor:'pointer', animation:`idleBob ${2.2+ix*0.3}s ease-in-out ${ix*0.2}s infinite` }}>
+              <span style={{ fontSize:24 }}>{it.e}</span>
+              <span style={{ fontSize:8.5, fontWeight:800, color:'white', textShadow:'0 1px 2px rgba(0,0,0,0.6)' }}>{it.label}</span>
+              {it.badge && <span style={{ position:'absolute', top:-4, right:-4, width:14, height:14, borderRadius:'50%', background:'#FF3030', border:'1.5px solid white', fontSize:8, color:'white', fontWeight:900, display:'flex', alignItems:'center', justifyContent:'center', animation:'questBadge 1s ease infinite' }}>!</span>}
+            </button>
+          ))}
+        </div>
         <div style={{ flexShrink:0, display:'flex', flexDirection:'column', alignItems:'center', padding:'2px 0 8px' }}>
           <div style={{ background:'linear-gradient(135deg,#FF6F3C,#FF3D6E)', color:'white', fontWeight:900, fontSize:15, letterSpacing:1, padding:'6px 24px', borderRadius:12, boxShadow:'0 5px 14px rgba(255,60,90,0.4)', border:'2px solid rgba(255,255,255,0.5)' }}>맵 선택</div>
           <div style={{ fontSize:11, fontWeight:800, color:'#FFE566', marginTop:5, textShadow:'0 1px 3px rgba(0,0,0,0.7)' }}>⭐ {totalStars} / {LEVELS.length*3}</div>
