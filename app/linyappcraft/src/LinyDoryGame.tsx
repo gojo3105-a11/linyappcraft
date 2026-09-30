@@ -1932,15 +1932,12 @@ export default function LinyDoryGame() {
 
   // ── Play / End ────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100dvh', overflow:'hidden', position:'relative', background:'linear-gradient(180deg,#7EC8F0 0%,#AEE4F8 30%,#C5F0A4 70%,#8BC34A 100%)', userSelect:'none', animation: screenShake ? 'screenShake 0.32s ease' : undefined }}>
+    <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100dvh', overflow:'hidden', position:'relative', background:'#0c1330', userSelect:'none', animation: screenShake ? 'screenShake 0.32s ease' : undefined }}>
       <style>{GAME_CSS}</style>
 
-      {/* Cloud decorations */}
-      <div style={{ position:'absolute', inset:0, pointerEvents:'none', zIndex:0 }}>
-        <div style={{ position:'absolute', top:'7%', left:'5%',  width:100, height:50, borderRadius:'50%', background:'rgba(255,255,255,0.6)', filter:'blur(10px)' }}/>
-        <div style={{ position:'absolute', top:'5%', left:'18%', width:65,  height:32, borderRadius:'50%', background:'rgba(255,255,255,0.5)', filter:'blur(7px)'  }}/>
-        <div style={{ position:'absolute', top:'9%', right:'7%', width:85,  height:42, borderRadius:'50%', background:'rgba(255,255,255,0.55)',filter:'blur(9px)'  }}/>
-      </div>
+      {/* 업로드된 월드 이미지 배경(흐리게) — 블럭은 위 레이어라 흐려지지 않아요 */}
+      <div aria-hidden style={{ position:'absolute', inset:0, zIndex:0, backgroundImage:`url(${worldImg(Math.floor(lvlIdx / STAGES_PER_WORLD))})`, backgroundSize:'cover', backgroundPosition:'center', filter:'blur(9px) brightness(0.9) saturate(1.05)', transform:'scale(1.12)' }}/>
+      <div aria-hidden style={{ position:'absolute', inset:0, zIndex:0, background:'linear-gradient(180deg, rgba(8,16,50,0.42) 0%, rgba(8,16,50,0.30) 45%, rgba(8,16,50,0.58) 100%)' }}/>
 
       {/* Header white card */}
       <div style={{ flexShrink:0, position:'relative', zIndex:10, margin:'calc(var(--sat) + 44px) 10px 0', background:'white', borderRadius:22, padding:'8px 10px', boxShadow:'0 4px 20px rgba(0,0,0,0.18)', display:'flex', alignItems:'center', gap:8 }}>
