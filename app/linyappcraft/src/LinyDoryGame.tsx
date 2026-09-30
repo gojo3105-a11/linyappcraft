@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useCallback, type CSSProperties } from 'react';
 import { loadCoins, spendCoins, addCoins, loadBoosters, saveBoosters, loadLives, spendLife, addLives, nextLifeMs, LIVES_MAX, questAddGameCleared, questUpdateMaxCombo, questAddSpecials, questAddBlocks, questClaim, loadQuests, QUESTS, type QuestSave, type BoosterKind } from './quest';
-import { sGet, sSet, getScope, setScope } from './store';
-import { tossLogin, fetchUserKey, onBackEvent, closeApp, purchase, lockPortrait, keepScreenAwake } from './toss';
+import { sGet, sSet } from './store';
+import { onBackEvent, closeApp, lockPortrait, keepScreenAwake } from './platform';
+import { purchase } from './billing';
+import { loginGoogle, loginKakao, loginGuest, getAccountLabel } from './auth';
 import { sfx, buzz, primeAudio, isMuted, toggleMuted, startBgm, stopBgm } from './sfx';
 import { Icon, type IconName } from './icons';
 
@@ -651,7 +653,7 @@ export default function LinyDoryGame() {
   const [shopTab,     setShopTab]     = useState<'coin'|'cash'>('coin');
   const [pay,         setPay]         = useState<{label:string;cash:number;onDone:()=>void}|null>(null);
   const [payStage,    setPayStage]    = useState<'confirm'|'processing'|'done'>('confirm');
-  const [account,     setAccount]     = useState<string>(getScope());
+  const [account,     setAccount]     = useState<string>(getAccountLabel());
 
   const gRef     = useRef<Grid>(grid);
   const scoreRef = useRef(0);
@@ -805,7 +807,7 @@ export default function LinyDoryGame() {
   // 로그인(계정 전환)으로 스코프가 바뀌면 계정별 저장 데이터를 다시 불러옴
   useEffect(() => {
     const onScope = () => {
-      setAccount(getScope());
+      setAccount(getAccountLabel());
       setProgress(loadProg());
       setCoins(loadCoins());
       setBoosters(loadBoosters());
@@ -1301,7 +1303,7 @@ export default function LinyDoryGame() {
       // 콘솔에 등록된 상품(sku)만 실제 결제 시도. 토스 앱이 아니면 시뮬레이션으로 폴백.
       purchase(sku, () => onDone()).then(res => {
         if (res.ok) return;                      // 결제 성공 — onDone은 지급 단계에서 이미 실행됨
-        if (res.reason === 'NOT_IN_TOSS') {      // 데모/브라우저 → 시뮬레이션 결제 모달
+        if (res.reason === 'NOT_AVAILABLE') {    // 스토어 결제 미연동 → 시뮬레이션 결제 모달
           setPay({ label, cash, onDone }); setPayStage('confirm');
         } else if (res.reason !== 'USER_CANCELED') {
           pop('결제에 실패했어요. 다시 시도해주세요', 'special');
@@ -1329,14 +1331,14 @@ export default function LinyDoryGame() {
   };
 
   // ── 토스 로그인 ──────────────────────────────────────
-  const handleLogin = async () => {
-    const r = await tossLogin();
-    if (!r.ok) { pop('토스 앱에서만 로그인할 수 있어요', 'special'); return; }
-    const key = await fetchUserKey();
-    if (key) { setScope(key); pop('✅ 로그인 완료! 계정에 저장돼요', 'special'); }
-    else pop('로그인은 됐지만 키를 못 받았어요', 'special');
+  const handleLogin = async (provider: 'google' | 'kakao') => {
+    const label = provider === 'google' ? 'Google' : '카카오';
+    const r = provider === 'google' ? await loginGoogle() : await loginKakao();
+    if (r.ok) { pop(`✅ ${label} 로그인 완료!`, 'special'); return; }
+    if (r.reason === 'NOT_CONFIGURED') pop(`${label} 로그인은 키 연동 후 사용할 수 있어요`, 'special');
+    else pop(`${label} 로그인을 완료하지 못했어요`, 'special');
   };
-  const handleLogout = () => { setScope('guest'); pop('게스트로 전환했어요', 'special'); };
+  const handleGuest = () => { loginGuest(); pop('게스트로 전환했어요', 'special'); };
 
   const lvl      = LEVELS[lvlIdx];
   const isTime   = lvl.mode === 'time';
@@ -1626,7 +1628,7 @@ export default function LinyDoryGame() {
                     🛍️ 부스터 아이템은 코인으로 구매할 수 있어요 ▶
                   </button>
                   <div style={{ fontSize:9, color:'rgba(255,255,255,0.3)', textAlign:'center', lineHeight:1.5 }}>
-                    * 코인·하트 충전은 토스 앱에서 실제 결제, 데모 환경에서는 시뮬레이션으로 동작해요
+                    * 현재 결제는 시뮬레이션으로 동작해요 (스토어 결제 연동 예정)
                   </div>
                 </>
               )}
@@ -1647,15 +1649,18 @@ export default function LinyDoryGame() {
               {/* 계정 */}
               <div style={{ padding:'12px', borderRadius:14, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)' }}>
                 <div style={{ fontSize:11, color:'rgba(255,255,255,0.45)', marginBottom:4 }}>계정</div>
-                <div style={{ fontSize:13, fontWeight:800, color:'white', marginBottom:10 }}>
-                  {account === 'guest' ? '게스트 (로컬 저장)' : `토스 계정 · ${account.slice(0,8)}…`}
+                <div style={{ fontSize:13, fontWeight:800, color:'white', marginBottom:10 }}>{account}</div>
+                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                  <button onClick={() => handleLogin('google')} style={{ width:'100%', padding:'11px', borderRadius:12, border:'1px solid rgba(0,0,0,0.1)', cursor:'pointer', background:'#ffffff', color:'#1f1f1f', fontSize:13, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+                    <span style={{ fontWeight:900, color:'#4285F4' }}>G</span> Google로 로그인
+                  </button>
+                  <button onClick={() => handleLogin('kakao')} style={{ width:'100%', padding:'11px', borderRadius:12, border:'none', cursor:'pointer', background:'#FEE500', color:'#191600', fontSize:13, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+                    <span>💬</span> 카카오로 로그인
+                  </button>
+                  <button onClick={handleGuest} style={{ width:'100%', padding:'11px', borderRadius:12, border:'1px solid rgba(255,255,255,0.2)', cursor:'pointer', background:'rgba(255,255,255,0.06)', color:'rgba(255,255,255,0.8)', fontSize:13, fontWeight:800 }}>게스트로 시작</button>
                 </div>
-                {account === 'guest'
-                  ? <button onClick={handleLogin} style={{ width:'100%', padding:'11px', borderRadius:12, border:'none', cursor:'pointer', background:'linear-gradient(135deg,#0064FF,#3B8BFF)', color:'white', fontSize:13, fontWeight:900 }}>토스로 로그인</button>
-                  : <button onClick={handleLogout} style={{ width:'100%', padding:'11px', borderRadius:12, border:'1px solid rgba(255,255,255,0.2)', cursor:'pointer', background:'rgba(255,255,255,0.06)', color:'rgba(255,255,255,0.8)', fontSize:13, fontWeight:800 }}>게스트로 전환</button>
-                }
                 <div style={{ fontSize:9, color:'rgba(255,255,255,0.3)', marginTop:8, lineHeight:1.5 }}>
-                  로그인하면 스테이지·코인·아이템이 계정별로 저장돼요. (토스 앱에서 동작)
+                  로그인하면 진행도·코인·아이템이 계정별로 저장돼요. (Google·카카오는 키 연동 후 활성화)
                 </div>
               </div>
               {/* 진행도 요약 */}
@@ -1698,7 +1703,7 @@ export default function LinyDoryGame() {
         <div style={{ position:'absolute', inset:0, zIndex:60, background:'rgba(0,0,0,0.82)', backdropFilter:'blur(6px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
           <div style={{ width:'100%', maxWidth:320, background:'linear-gradient(160deg,#101830,#0a0d18)', borderRadius:22, border:'2px solid rgba(0,100,255,0.45)', boxShadow:'0 20px 60px rgba(0,0,0,0.8)', overflow:'hidden' }}>
             <div style={{ padding:'18px 18px 8px', textAlign:'center' }}>
-              <div style={{ fontSize:13, fontWeight:900, color:'#3B8BFF', letterSpacing:1 }}>toss pay</div>
+              <div style={{ fontSize:13, fontWeight:900, color:'#3B8BFF', letterSpacing:1 }}>리니 페이</div>
             </div>
             <div style={{ padding:'4px 18px 18px', textAlign:'center' }}>
               {payStage === 'done' ? (
@@ -2307,7 +2312,7 @@ export default function LinyDoryGame() {
         </div>
       )}
 
-      {/* 앱 종료 확인 모달 (앱인토스 게임 검수 필수: 닫기 시 종료 확인) */}
+      {/* 앱 종료 확인 모달 (안드로이드 뒤로가기 시 종료 확인) */}
       {showExit && (
         <div style={{ position:'absolute', inset:0, zIndex:70, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(8,12,30,0.8)', backdropFilter:'blur(6px)', padding:'0 28px' }}>
           <div style={{ width:'100%', maxWidth:300, background:'linear-gradient(160deg,#ffffff,#eef2fb)', borderRadius:22, padding:'24px 20px 18px', boxShadow:'0 16px 40px rgba(0,0,0,0.45)', textAlign:'center' }}>

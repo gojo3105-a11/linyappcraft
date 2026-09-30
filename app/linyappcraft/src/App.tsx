@@ -1,16 +1,11 @@
 import { useEffect } from 'react';
 import LinyDoryGame from './LinyDoryGame';
 import DailyReward from './DailyReward';
-import { fetchUserKey } from './toss';
-import { setScope } from './store';
+import { initAccount } from './auth';
 
 export default function App() {
-  // 토스 익명키로 저장 스코프를 계정별로 분리 (없으면 게스트)
-  useEffect(() => {
-    let alive = true;
-    fetchUserKey().then(key => { if (alive && key) setScope(key); });
-    return () => { alive = false; };
-  }, []);
+  // 저장된 로그인 상태 복원(없으면 게스트) → 계정별 저장 스코프 설정
+  useEffect(() => { initAccount(); }, []);
 
   return (
     <>

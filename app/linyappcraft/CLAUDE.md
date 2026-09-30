@@ -4,18 +4,23 @@ This is a match-3 puzzle game built with React + TypeScript + Vite.
 
 ## Key files
 - `src/LinyDoryGame.tsx` — main game component (match-3, shop, settings, boosters, bottom nav)
-- `src/App.tsx` — renders LinyDoryGame + DailyReward, resolves Toss account scope on mount
+- `src/App.tsx` — renders LinyDoryGame + DailyReward, restores saved login/scope on mount (`auth.initAccount`)
 - `src/DailyReward.tsx` — daily login streak reward popup
 - `src/quest.ts` — coins wallet, boosters inventory, daily quests
-- `src/store.ts` — account-scoped localStorage wrapper (keys suffixed by Toss anonymous key)
-- `src/toss.ts` — Apps in Toss SDK wrapper (appLogin / getAnonymousKey) with browser fallback
+- `src/store.ts` — account-scoped localStorage wrapper (keys suffixed by account scope)
+- `src/auth.ts` — login: guest (fully working) + Google/Kakao (scaffolded; activate via VITE_GOOGLE_CLIENT_ID / VITE_KAKAO_JS_KEY)
+- `src/platform.ts` — device bridge (Capacitor native back/exit on APK, no-op on web)
+- `src/billing.ts` — purchase shim (simulated; wire real store billing here)
 - `src/index.css` — minimal global styles
-- `granite.config.ts` — brand color #1976D2
+- `capacitor.config.ts` — Android APK config (appId `com.linydory.game`)
 
 ## Notes
-- Storage is scoped per account via `store.ts` (`base::scope`). Scope = Toss anonymous key hash, or `guest` outside the Toss app.
-- Payment: `toss.ts#purchase(sku, onGrant)` wraps real Toss IAP (`IAP.createOneTimePurchaseOrder`). `startPay(label, cash, onDone, sku?)` uses real IAP when a `sku` is given AND running in the Toss app, else falls back to the simulated `pay` modal. Coin pack / heart SKUs (`coins_1000`/`coins_3500`/`coins_12000`/`hearts_full`) must be registered in the console to charge for real; server-side order verification is recommended before granting.
-- Back button: `toss.ts#onBackEvent` subscribes to the Toss `backEvent`; `LinyDoryGame` closes overlays → pause → map → main → `closeApp()` step by step.
+- Storage is scoped per account via `store.ts` (`base::scope`). Scope = `guest` (default) or `google:<id>` / `kakao:<id>` after login.
+- Build: plain Vite. `npm run build` → `dist/`. Web (GitHub Pages) build uses base `/linyappcraft/` (set by `GITHUB_ACTIONS`); APK build uses base `/` (set by `CAP=1`).
+- APK: Capacitor. CI workflow `.github/workflows/build-apk.yml` runs `cap add android` + `gradlew assembleDebug` and uploads the debug APK artifact. The `android/` folder is generated in CI, not tracked. A signed release APK needs your own keystore.
+- Login (`auth.ts`): guest works with no keys. Google/Kakao are scaffolded — set `VITE_GOOGLE_CLIENT_ID` / `VITE_KAKAO_JS_KEY` and implement the TODO OAuth flow to activate.
+- Payment: `billing.ts#purchase` is a shim that always falls back to the simulated `pay` modal (no external store billing yet).
+- Back button: `platform.ts#onBackEvent` uses Capacitor hardware back on APK (no-op on web); `LinyDoryGame` closes overlays → pause → map → main → `closeApp()` step by step.
 
 ## Reference docs (load only when needed)
 - `docs/skills/apps-in-toss.md` — Apps in Toss platform guide
