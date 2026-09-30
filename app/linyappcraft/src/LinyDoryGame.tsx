@@ -53,7 +53,7 @@ const TILES = [
 ] as const;
 
 // 특수 블럭 종류: 가로 1줄 / 세로 1줄 / 주변 폭탄 / 전체 제거
-type TileKind = 'normal' | 'row' | 'col' | 'bomb' | 'rainbow' | 'rock';
+type TileKind = 'normal' | 'row' | 'col' | 'bomb' | 'rainbow' | 'rock' | 'crate';
 const SPECIAL_ICON: Record<string, string> = { row:'↔', col:'↕', bomb:'💣', rainbow:'🌈' };
 const SPECIAL_COLOR: Record<string, string> = { row:'#4FC3F7', col:'#7E57C2', bomb:'#FF7043', rainbow:'#EC407A' };
 const SPECIAL_LABEL: Record<string, string> = { row:'↔ 가로 한 줄!', col:'↕ 세로 한 줄!', bomb:'💣 폭탄!', rainbow:'🌈 전체 제거!' };
@@ -114,10 +114,11 @@ function genMap(i: number): (0|1)[][] {
   return base;
 }
 
-// 스테이지 난이도에 따른 장애물(돌) 배치 마스크 — 후반으로 갈수록 개수 증가
+// 스테이지 난이도에 따른 장애물 배치 마스크 — 후반으로 갈수록 개수 증가
+// 값: 0=없음, 1=돌(영구), 2=상자(여러 번 부숴야 열림). 15스테이지부터 일부가 상자.
 // (초반 8스테이지는 0개, 이후 6스테이지마다 +1, 최대 11개). 시드 기반이라 같은 스테이지는 항상 동일 배치.
-function genObstacles(i: number, map: (0|1)[][]): boolean[][] {
-  const mask: boolean[][] = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
+function genObstacles(i: number, map: (0|1)[][]): (0|1|2)[][] {
+  const mask: (0|1|2)[][] = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
   const count = i < 8 ? 0 : Math.min(11, 1 + Math.floor((i - 8) / 6));
   if (count === 0) return mask;
   const rnd = mulberry((i + 1) * 40503);
@@ -131,7 +132,8 @@ function genObstacles(i: number, map: (0|1)[][]): boolean[][] {
     // 해당 열의 플레이 가능 칸 수보다 적게(최소 2칸은 색 블럭으로 남김)
     let colCells = 0; for (let rr = 0; rr < ROWS; rr++) colCells += map[rr]?.[c] ? 1 : 0;
     if (perCol[c] + 1 > colCells - 2) continue;
-    mask[r][c] = true; perCol[c]++; placed++;
+    mask[r][c] = (i >= 15 && rnd() < 0.45) ? 2 : 1;  // 15스테이지+부터 약 45%는 상자
+    perCol[c]++; placed++;
   }
   return mask;
 }
@@ -226,15 +228,19 @@ let _fid = 0;
 const mk = (t: number, kind: TileKind = 'normal'): Cell => ({ id: _uid++, t, kind, hit: false });
 // 장애물(돌) — 색이 없어 매치되지 않고, 인접한 블럭이 터지면 부서져요. hp만큼 맞아야 제거.
 const mkRock = (hp = 1): Cell => ({ id: _uid++, t: -1, kind: 'rock', hit: false, hp });
+// 상자(crate) — 여러 번 인접 매치로 부숴야 열리는 단계형 장애물
+const mkCrate = (hp = 2): Cell => ({ id: _uid++, t: -2, kind: 'crate', hit: false, hp });
+// 이동/매치 불가 고정 장애물(돌·상자 공통)
+const isObstacle = (c: GridCell): boolean => !!c && (c.kind === 'rock' || c.kind === 'crate');
 const rnd = (n: number) => Math.floor(Math.random() * n);
 const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 const calcStars = (score: number, goal: readonly [number,number,number]) =>
   score >= goal[2] ? 3 : score >= goal[1] ? 2 : score >= goal[0] ? 1 : 0;
 
-function mkGrid(types: number, map: readonly (0|1)[][], obMask?: readonly boolean[][]): Grid {
+function mkGrid(types: number, map: readonly (0|1)[][], obMask?: readonly (0|1|2)[][]): Grid {
   const g: Grid = Array.from({ length: ROWS }, (_, r) =>
     Array.from({ length: COLS }, (_, c) =>
-      map[r]?.[c] ? (obMask?.[r]?.[c] ? mkRock(1) : mk(rnd(types))) : null)
+      map[r]?.[c] ? (obMask?.[r]?.[c] === 2 ? mkCrate(2) : obMask?.[r]?.[c] === 1 ? mkRock(1) : mk(rnd(types))) : null)
   );
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
@@ -260,15 +266,15 @@ function hasMoves(g: Grid): boolean {
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       const cur = g[r]?.[c];
-      if (!cur || cur.kind === 'rock') continue;        // 돌은 이동 불가
+      if (!cur || isObstacle(cur)) continue;        // 돌은 이동 불가
       const right = g[r]?.[c+1];
-      if (c+1 < COLS && right && right.kind !== 'rock') {
+      if (c+1 < COLS && right && !isObstacle(right)) {
         const sw: Grid = g.map(row => [...row]);
         [sw[r][c], sw[r][c+1]] = [sw[r][c+1], sw[r][c]];
         if (hasAnyMatch(sw)) return true;
       }
       const down = g[r+1]?.[c];
-      if (r+1 < ROWS && down && down.kind !== 'rock') {
+      if (r+1 < ROWS && down && !isObstacle(down)) {
         const sw: Grid = g.map(row => [...row]);
         [sw[r][c], sw[r+1][c]] = [sw[r+1][c], sw[r][c]];
         if (hasAnyMatch(sw)) return true;
@@ -282,15 +288,15 @@ function findHint(g: Grid): [[number,number],[number,number]] | null {
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       const cur = g[r]?.[c];
-      if (!cur || cur.kind === 'rock') continue;
+      if (!cur || isObstacle(cur)) continue;
       const right = g[r]?.[c+1];
-      if (c+1 < COLS && right && right.kind !== 'rock') {
+      if (c+1 < COLS && right && !isObstacle(right)) {
         const sw: Grid = g.map(row => [...row]);
         [sw[r][c], sw[r][c+1]] = [sw[r][c+1], sw[r][c]];
         if (hasAnyMatch(sw)) return [[r,c],[r,c+1]];
       }
       const down = g[r+1]?.[c];
-      if (r+1 < ROWS && down && down.kind !== 'rock') {
+      if (r+1 < ROWS && down && !isObstacle(down)) {
         const sw: Grid = g.map(row => [...row]);
         [sw[r][c], sw[r+1][c]] = [sw[r+1][c], sw[r][c]];
         if (hasAnyMatch(sw)) return [[r,c],[r+1,c]];
@@ -432,10 +438,25 @@ function buildCycle(g: Grid, mkSpecials: boolean, swapTo?: [number,number]): { h
   hits.forEach(key => {
     const [r,c]=key.split(',').map(Number);
     const cell=nextG[r][c];
-    if (cell && !newSpec.has(key)) cell.hit=true;
+    if (cell && cell.kind!=='rock' && !newSpec.has(key)) cell.hit=true;
   });
   newSpec.forEach((cell,key) => { const [r,c]=key.split(',').map(Number); nextG[r][c]=cell; });
-  // 장애물(돌)은 파괴되지 않는 영구 장애물 — 인접 매치로도 제거되지 않아요
+  // 돌(rock)은 영구 장애물이라 제외. 상자(crate)만 인접 매치로 hp가 줄고 0이면 부서져요.
+  const dmg = new Set<string>();
+  for (const key of [...hits]) {
+    const [r,c] = key.split(',').map(Number);
+    for (const [dr,dc] of [[-1,0],[1,0],[0,-1],[0,1]] as const) {
+      const nr=r+dr, nc=c+dc;
+      if (nr<0||nr>=ROWS||nc<0||nc>=COLS) continue;
+      const nk = `${nr},${nc}`;
+      const nb = nextG[nr][nc];
+      if (nb && nb.kind === 'crate' && !nb.hit && !dmg.has(nk)) {
+        dmg.add(nk);
+        nb.hp = (nb.hp ?? 1) - 1;
+        if ((nb.hp ?? 0) <= 0) { nb.hit = true; hits.add(nk); }  // 다 부서짐 → 제거
+      }
+    }
+  }
   return { hits, newSpec, nextG };
 }
 
@@ -455,7 +476,7 @@ function applyFall(g: Grid, types: number, map: readonly (0|1)[][]): Grid {
     let seg: number[] = [];
     for (const r of activeRows) {
       const cell = g[r][c];
-      if (cell && cell.kind === 'rock' && !cell.hit) {  // 고정 장애물 = 경계
+      if (cell && isObstacle(cell) && !cell.hit) {  // 고정 장애물(돌·상자) = 경계
         settle(seg); seg = [];
         n[r][c] = {...cell, hit:false};
       } else {
@@ -620,6 +641,15 @@ const GAME_CSS = `
     0%,100% { transform:translateY(0); }
     50%     { transform:translateY(-2px); }
   }
+  @keyframes screenFlash {
+    0%   { opacity:0; }
+    30%  { opacity:1; }
+    100% { opacity:0; }
+  }
+  @keyframes tileIdle {
+    0%,100% { transform:rotate(0deg); }
+    50%     { transform:rotate(1.6deg); }
+  }
 `;
 
 export default function LinyDoryGame() {
@@ -641,6 +671,7 @@ export default function LinyDoryGame() {
   const [selectedWorld, setSelectedWorld] = useState(0);
   const [blocksPopped, setBlocksPopped] = useState(0);
   const [screenShake, setScreenShake] = useState(false);
+  const [flash, setFlash] = useState<{id:number;color:string}|null>(null); // 콤보 컬러 플래시
   const [confetti, setConfetti]   = useState<{id:number;left:number;delay:number;color:string;e:string}[]>([]);
   const [coinsEarned, setCoinsEarned] = useState(0);
   const [muted, setMutedState]    = useState(isMuted());
@@ -679,7 +710,7 @@ export default function LinyDoryGame() {
   const lvlRef   = useRef(0);
   const movesRef = useRef(0);
   const mapRef   = useRef<readonly (0|1)[][]>(genMap(0));
-  const obstacleRef = useRef<readonly boolean[][]>(genObstacles(0, genMap(0)));
+  const obstacleRef = useRef<readonly (0|1|2)[][]>(genObstacles(0, genMap(0)));
   const freeStartRef = useRef<number | null>(null);  // 클리어 직후 다음 스테이지 1회 무료 시작
   const popT     = useRef<ReturnType<typeof setTimeout>|null>(null);
   const hintTmr  = useRef<ReturnType<typeof setTimeout>|null>(null);
@@ -909,7 +940,7 @@ export default function LinyDoryGame() {
     while (bonus > 0 && phaseRef.current === 'play') {
       const g = gRef.current;
       const cells: [number,number][] = [];
-      for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) { const cc=g[r][c]; if (cc && !cc.hit) cells.push([r,c]); }
+      for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) { const cc=g[r][c]; if (cc && !cc.hit && cc.kind!=='rock') cells.push([r,c]); }
       if (!cells.length) break;
       const [r,c] = cells[Math.floor(Math.random()*cells.length)];
       spawnLights([`${r},${c}`]); spawnSparks([`${r},${c}`]); // 빛이 위에서 블럭으로 날아옴
@@ -1144,7 +1175,13 @@ export default function LinyDoryGame() {
             pop(`${SPECIAL_ICON[k] ?? '✨'} 특수 블럭 생성!`, 'special');
           } else if (combo >= 2) {
             sfx.combo(combo);
-            pop(`${combo}x COMBO! +${pts.toLocaleString()}`, 'combo');
+            const grade = combo>=8 ? 'AMAZING!' : combo>=6 ? 'EXCELLENT!' : combo>=4 ? 'GREAT!' : `${combo}x COMBO!`;
+            pop(`${grade} +${pts.toLocaleString()}`, combo>=4 ? 'special' : 'combo');
+            if (combo>=4) {
+              const fc = combo>=8 ? 'rgba(255,193,7,0.5)' : combo>=6 ? 'rgba(186,104,255,0.45)' : 'rgba(66,165,245,0.4)';
+              const fid = ++_fid; setFlash({ id:fid, color:fc });
+              setTimeout(() => setFlash(f => f?.id===fid ? null : f), 420);
+            }
             if (combo >= 5) questUpdateMaxCombo(combo);
           }
           // 가이드 플레이: 플레이어가 직접 만든 매치 수 카운트 → 목표 달성 시 튜토리얼 종료
@@ -1193,7 +1230,7 @@ export default function LinyDoryGame() {
     const g = gRef.current;
     const a = g[sr]?.[sc], b = g[r]?.[c];
     if (!a || !b || a.hit || b.hit) return; // 터지는 중인 칸은 이동 불가
-    if (a.kind === 'rock' || b.kind === 'rock') return; // 장애물(돌)은 이동 불가
+    if (isObstacle(a) || isObstacle(b)) return; // 장애물(돌·상자)은 이동 불가
     const sw: Grid = g.map(row => row.map(x => x ? {...x} : null));
     [sw[sr][sc], sw[r][c]] = [sw[r][c], sw[sr][sc]];
     const srcSpec = sw[r][c]?.kind !== 'normal';
@@ -1214,12 +1251,37 @@ export default function LinyDoryGame() {
     }
     sfx.swap(); buzz(8);
     // 특수 블럭이 관여하면 매치 여부와 무관하게 항상 즉시 발동
-    if (srcSpec || dstSpec) {
+    if (srcSpec && dstSpec) {
+      // 두 특수블럭 조합 → 초대형 효과
+      const ka = sw[r][c]?.kind, kb = sw[sr][sc]?.kind;
+      const set = new Set<string>();
+      const add = (rr:number, cc:number) => { const t=sw[rr]?.[cc]; if (rr>=0&&rr<ROWS&&cc>=0&&cc<COLS&&t&&t.kind!=='rock') set.add(`${rr},${cc}`); };
+      const both = (x:TileKind, y:TileKind) => (ka===x&&kb===y)||(ka===y&&kb===x);
+      if (ka==='rainbow'||kb==='rainbow') {
+        for (let y=0;y<ROWS;y++) for (let x=0;x<COLS;x++) add(y,x);            // 레인보우 조합 → 전체 제거
+      } else if (ka==='bomb'&&kb==='bomb') {
+        for (let dr=-2;dr<=2;dr++) for (let dc=-2;dc<=2;dc++) add(r+dr,c+dc);  // 폭탄+폭탄 → 5x5
+      } else if (both('bomb','row')||both('bomb','col')) {
+        for (let x=0;x<COLS;x++){ add(r-1,x); add(r,x); add(r+1,x); }          // 폭탄+라인 → 3줄 십자
+        for (let y=0;y<ROWS;y++){ add(y,c-1); add(y,c); add(y,c+1); }
+      } else {
+        for (let x=0;x<COLS;x++) add(r,x);                                     // 라인 조합 → 십자
+        for (let y=0;y<ROWS;y++) add(y,c);
+        if (ka==='row'&&kb==='row') for (let x=0;x<COLS;x++){ add(r-1,x); add(r+1,x); }
+        if (ka==='col'&&kb==='col') for (let y=0;y<ROWS;y++){ add(y,c-1); add(y,c+1); }
+      }
+      set.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell=sw[rr][cc]; if(cell&&cell.kind!=='rock') cell.hit=true; });
+      inc(set.size*150);
+      setBlocksPopped(n => n + set.size); sessionBlocksRef.current += set.size;
+      spawnFlames(set); spawnDust([...set], sw); kickScreen(); sfx.explode(); buzz(45);
+      const fid=++_fid; setFlash({ id:fid, color:'rgba(255,120,0,0.5)' }); setTimeout(()=>setFlash(f=>f?.id===fid?null:f),460);
+      pop('💥 초대형 폭발!', 'special');
+    } else if (srcSpec || dstSpec) {
       const hits = new Set<string>();
       if (srcSpec) hits.add(`${r},${c}`);
       if (dstSpec) hits.add(`${sr},${sc}`);
       expandSpecials(hits, sw);
-      hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell=sw[rr][cc]; if(cell) cell.hit=true; });
+      hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell=sw[rr][cc]; if(cell&&cell.kind!=='rock') cell.hit=true; });
       inc(hits.size*120);
       setBlocksPopped(n => n + hits.size); sessionBlocksRef.current += hits.size;
       spawnFlames(hits); spawnDust([...hits], sw); kickScreen(); sfx.explode(); buzz(25);
@@ -1253,7 +1315,7 @@ export default function LinyDoryGame() {
       if (nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&sw[nr]?.[nc]) hits.add(`${nr},${nc}`);
     }
     expandSpecials(hits, sw);
-    hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell2=sw[rr][cc]; if(cell2) cell2.hit=true; });
+    hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell2=sw[rr][cc]; if(cell2 && cell2.kind!=='rock') cell2.hit=true; });
     inc(hits.size*80);
     setBlocksPopped(n => n + hits.size); sessionBlocksRef.current += hits.size;
     spawnFlames(hits); spawnDust([...hits], sw); kickScreen(); sfx.explode(); buzz(25);
@@ -1280,7 +1342,7 @@ export default function LinyDoryGame() {
     const cell = gRef.current[r]?.[c];
     if (!cell || cell.hit) return;
     if (boosterMode) { triggerBooster(boosterMode, r, c); return; }
-    if (cell.kind === 'rock') return;   // 장애물은 스왑 선택 불가(부스터로만 제거)
+    if (isObstacle(cell)) return;   // 장애물은 스왑 선택 불가
     if (!sel) { setSel([r,c]); return; }
     const [sr,sc] = sel; setSel(null);
     if (sr===r && sc===c) return;
@@ -1292,7 +1354,7 @@ export default function LinyDoryGame() {
     if (phaseRef.current !== 'play' || pausedRef.current) return;
     const cell = gRef.current[r]?.[c];
     if (!cell || cell.hit) return;
-    if (cell.kind === 'rock' && !boosterMode) return;   // 장애물은 드래그 불가
+    if (isObstacle(cell) && !boosterMode) return;   // 장애물은 드래그 불가
     dragRef.current = { r, c, x:e.clientX, y:e.clientY, moved:false };
   };
   const onGridPointerMove = (e: { clientX:number; clientY:number }) => {
@@ -2012,6 +2074,8 @@ export default function LinyDoryGame() {
           <span key={`t${i}`} style={{ position:'absolute', top:`${13+i*21}%`, left:`${i%2?86:9}%`, fontSize:12, animation:`twinkle ${1.8+i*0.4}s ease-in-out ${i*0.5}s infinite` }}>✨</span>
         ))}
       </div>
+      {/* 콤보 컬러 플래시 */}
+      {flash && <div key={flash.id} aria-hidden style={{ position:'absolute', inset:0, zIndex:35, pointerEvents:'none', background:`radial-gradient(circle at 50% 45%, transparent 25%, ${flash.color} 100%)`, animation:'screenFlash 0.42s ease-out forwards' }}/>}
 
       {/* Header white card */}
       <div style={{ flexShrink:0, position:'relative', zIndex:10, margin:'calc(var(--sat) + 44px) 10px 0', background:'white', borderRadius:26, padding:'9px 11px', boxShadow:'0 6px 22px rgba(0,0,0,0.22)', border:'2px solid rgba(255,255,255,0.9)', display:'flex', alignItems:'center', gap:8 }}>
@@ -2248,6 +2312,26 @@ export default function LinyDoryGame() {
                 );
               }
 
+              // 장애물(상자) — 인접 매치로 hp가 줄고, 다 부수면 열려요(단계형)
+              if (cell.kind === 'crate') {
+                const hp = cell.hp ?? 1;
+                return (
+                  <div key={cell.id} style={{
+                    aspectRatio:'1', position:'relative', overflow:'hidden', borderRadius:'22%',
+                    background: hp >= 2 ? 'linear-gradient(150deg,#D8A263 0%,#A9723C 60%,#7E5227 100%)' : 'linear-gradient(150deg,#E7BE86 0%,#C08A4E 60%,#8E5F2E 100%)',
+                    border:'3px solid #6E4520',
+                    boxShadow:'inset 0 4px 8px rgba(255,255,255,0.3), inset 0 -5px 10px rgba(0,0,0,0.45), 0 3px 8px rgba(0,0,0,0.4)',
+                    display:'flex', alignItems:'center', justifyContent:'center',
+                    animation: cell.hit ? 'popOut 0.6s ease-out forwards' : undefined,
+                  }}>
+                    <span style={{ fontSize:'clamp(18px,5vw,26px)', lineHeight:1, filter:'drop-shadow(0 1px 2px rgba(0,0,0,0.55))' }}>📦</span>
+                    {hp < 2 && <span style={{ position:'absolute', inset:0, pointerEvents:'none', background:'repeating-linear-gradient(48deg, transparent 0 7px, rgba(0,0,0,0.16) 7px 9px)' }}/>}
+                    <span style={{ position:'absolute', bottom:2, right:3, fontSize:9, fontWeight:900, color:'#fff', textShadow:'0 1px 2px rgba(0,0,0,0.7)' }}>{hp}</span>
+                    {cell.hit && <div style={{ position:'absolute', inset:'-20%', borderRadius:'50%', zIndex:4, pointerEvents:'none', background:'radial-gradient(circle, #fff 0%, #e0b070 45%, transparent 70%)', animation:'popFlash 0.32s ease-out forwards' }}/>}
+                  </div>
+                );
+              }
+
               const tile = TILES[cell.t];
               const isSel = sel?.[0]===row && sel?.[1]===col;
               const isSpecial = cell.kind !== 'normal';
@@ -2287,6 +2371,8 @@ export default function LinyDoryGame() {
                       ? 'popOut 0.6s ease-out forwards'
                       : isHint && !isSel
                       ? 'hintGlow 0.75s ease infinite'
+                      : (!isSel && !isSpecial)
+                      ? `tileIdle 2.8s ease-in-out ${((row*COLS+col)%9)*0.17}s infinite`
                       : undefined,
                   }}>
                   {/* 4개 이상 매치로 생성된 특수 블럭은 캐릭터 이미지 대신 전용 아이콘으로 교체 */}
