@@ -2242,9 +2242,9 @@ export default function LinyDoryGame() {
         </div>
       )}
 
-      {/* Booster bar — 두 줄 그리드 (SVG 아이콘) */}
+      {/* Booster bar — 원형 버튼 (레퍼런스 스타일) */}
       {phase==='play' && (
-        <div style={{ flexShrink:0, position:'relative', zIndex:12, display:'grid', gridTemplateColumns:'repeat(4, minmax(0,1fr))', alignItems:'stretch', justifyContent:'center', gap:'clamp(4px,1.4vw,7px)', padding:'4px 10px calc(var(--sab) + 8px)', maxWidth:340, margin:'0 auto', width:'100%' }}>
+        <div style={{ flexShrink:0, position:'relative', zIndex:12, display:'flex', flexWrap:'wrap', alignItems:'center', justifyContent:'center', gap:'clamp(8px,2.6vw,14px)', padding:'6px 10px calc(var(--sab) + 10px)', maxWidth:380, margin:'0 auto', width:'100%' }}>
           {BOOSTERS.map(b => {
             const cnt = boosters[b.kind];
             const armed = boosterMode === b.kind;
@@ -2256,27 +2256,28 @@ export default function LinyDoryGame() {
                   if (b.kind === 'allClear') { const g=gRef.current; for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++) if(g[y]?.[x] && !g[y][x]!.hit){ triggerBooster('allClear',y,x); return; } return; }
                   setBoosterMode(armed ? null : b.kind);
                 }}
+                aria-label={b.name}
                 style={{
-                  position:'relative', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:2,
-                  height:48, borderRadius:14, cursor:'pointer',
-                  background: armed ? 'linear-gradient(145deg,#FF8C00,#FFD700)' : 'rgba(255,255,255,0.92)',
-                  border: armed ? '2.5px solid white' : '2px solid rgba(0,0,0,0.1)',
-                  boxShadow: armed ? '0 0 16px rgba(255,180,0,0.9), 0 4px 0 rgba(0,0,0,0.15)' : '0 4px 0 rgba(0,0,0,0.15)',
-                  opacity: cnt <= 0 ? 0.5 : 1, transition:'all 0.15s ease',
+                  position:'relative', width:'clamp(48px,14vw,58px)', aspectRatio:'1', borderRadius:'50%', cursor:'pointer', padding:0,
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  background: armed ? 'radial-gradient(circle at 50% 32%, #FFE499, #FF9E2C)' : 'radial-gradient(circle at 50% 32%, #F2F7FF, #C4D8F7)',
+                  border: armed ? '3px solid #ffffff' : '3px solid rgba(255,255,255,0.9)',
+                  boxShadow: armed ? '0 0 16px rgba(255,180,0,0.9), 0 5px 10px rgba(0,0,0,0.3)' : '0 5px 10px rgba(0,0,0,0.28), inset 0 2px 5px rgba(255,255,255,0.7)',
+                  opacity: cnt <= 0 ? 0.55 : 1, transition:'all 0.15s ease',
                 }}>
-                <Icon name={BOOSTER_ICON[b.kind]} size={20} color={armed ? '#3D1C00' : '#444'} />
-                <span style={{ fontSize:8.5, fontWeight:800, color: armed ? '#3D1C00' : '#555', lineHeight:1 }}>{b.name}</span>
-                <span style={{ position:'absolute', top:-6, right:-6, minWidth:18, height:18, padding:'0 4px', borderRadius:999,
-                  background: cnt > 0 ? '#22AA55' : '#BBB', border:'1.5px solid white', color:'white', fontSize:10, fontWeight:900,
-                  display:'flex', alignItems:'center', justifyContent:'center' }}>{cnt}</span>
+                <Icon name={BOOSTER_ICON[b.kind]} size={26} color={armed ? '#7A3B00' : '#2B4C8C'} />
+                <span style={{ position:'absolute', bottom:-3, right:-3, minWidth:20, height:20, padding:'0 4px', borderRadius:999,
+                  background: cnt > 0 ? '#FF8A3D' : '#B0B0B0', border:'2px solid white', color:'white', fontSize:11, fontWeight:900,
+                  display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 4px rgba(0,0,0,0.3)' }}>{cnt}</span>
               </button>
             );
           })}
-          <button onClick={() => setShowShop(true)}
-            style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:2,
-              height:48, borderRadius:14, cursor:'pointer', background:'linear-gradient(145deg,#42A5F5,#1565C0)', border:'2px solid rgba(255,255,255,0.4)', boxShadow:'0 4px 0 #0D3B80' }}>
-            <Icon name="shop" size={19} color="white" />
-            <span style={{ fontSize:8.5, fontWeight:800, color:'white', lineHeight:1 }}>상점</span>
+          <button onClick={() => setShowShop(true)} aria-label="상점"
+            style={{ position:'relative', width:'clamp(48px,14vw,58px)', aspectRatio:'1', borderRadius:'50%', cursor:'pointer', padding:0,
+              display:'flex', alignItems:'center', justifyContent:'center',
+              background:'radial-gradient(circle at 50% 32%, #5BB6FF, #1565C0)', border:'3px solid rgba(255,255,255,0.9)',
+              boxShadow:'0 5px 10px rgba(0,0,0,0.3), inset 0 2px 5px rgba(255,255,255,0.4)' }}>
+            <Icon name="shop" size={24} color="white" />
           </button>
         </div>
       )}
