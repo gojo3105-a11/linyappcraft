@@ -2080,7 +2080,7 @@ export default function LinyDoryGame() {
 
       {/* Grid */}
       <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', position:'relative', zIndex:10, padding:'6px 10px clamp(10px,2.5vh,16px)' }}>
-        <div style={{ width:'100%', maxWidth:390, borderRadius:30, padding:'clamp(8px,2.2vw,13px)', background:'linear-gradient(160deg, rgba(58,36,128,0.9) 0%, rgba(28,16,66,0.93) 55%, rgba(42,18,74,0.9) 100%)', border:'3px solid rgba(255,196,86,0.55)', boxShadow:'0 14px 44px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.06), inset 0 3px 0 rgba(255,255,255,0.16), inset 0 -9px 20px rgba(0,0,0,0.42)' }}>
+        <div style={{ width:'100%', maxWidth:390, padding:'clamp(2px,1vw,6px)', background:'transparent' }}>
           <div
             onPointerMove={onGridPointerMove}
             onPointerUp={onGridPointerUp}
