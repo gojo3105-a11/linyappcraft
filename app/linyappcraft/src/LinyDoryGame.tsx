@@ -1853,9 +1853,9 @@ export default function LinyDoryGame() {
       <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100dvh', userSelect:'none', background:`linear-gradient(180deg, rgba(10,26,72,0.5) 0%, rgba(8,20,60,0.82) 55%, rgba(6,16,48,0.94) 100%), url(${BASE}characters/mapbg.png) center top / cover no-repeat`, overflow:'hidden' }}>
         <style>{GAME_CSS}</style>
         {topBar}
-        <div style={{ flexShrink:0, textAlign:'center', padding:'2px 0 8px' }}>
-          <div style={{ fontSize:16, fontWeight:900, letterSpacing:1, color:'#FFE566', WebkitTextStroke:'0.5px #FFA500' }}>맵 선택 <span style={{ fontSize:11, color:'white', WebkitTextStroke:'0' }}>⭐ {totalStars}/{LEVELS.length*3}</span></div>
-          <div style={{ fontSize:10.5, color:'rgba(255,255,255,0.6)', marginTop:2 }}>미니맵을 골라 스테이지에 도전하세요!</div>
+        <div style={{ flexShrink:0, display:'flex', flexDirection:'column', alignItems:'center', padding:'2px 0 8px' }}>
+          <div style={{ background:'linear-gradient(135deg,#FF6F3C,#FF3D6E)', color:'white', fontWeight:900, fontSize:15, letterSpacing:1, padding:'6px 24px', borderRadius:12, boxShadow:'0 5px 14px rgba(255,60,90,0.4)', border:'2px solid rgba(255,255,255,0.5)' }}>맵 선택</div>
+          <div style={{ fontSize:11, fontWeight:800, color:'#FFE566', marginTop:5, textShadow:'0 1px 3px rgba(0,0,0,0.7)' }}>⭐ {totalStars} / {LEVELS.length*3}</div>
         </div>
         <div style={{ flex:1, minHeight:0, overflow:'hidden', padding:'4px 10px 8px', display:'grid', gridTemplateColumns:'repeat(2,1fr)', gridAutoRows:'1fr', gap:'clamp(4px,1.5vw,10px)' }}>
           {WORLDS.map((w, wi) => {
@@ -1864,7 +1864,7 @@ export default function LinyDoryGame() {
             const wMax = (w.to - w.from) * 3;
             const cleared = progress.slice(w.from, w.to).every(s => s >= 3);
             return (
-              <div key={wi} style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:3, minHeight:0 }}>
+              <div key={wi} style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:4, minHeight:0, padding:'8px 4px', borderRadius:16, background: unlocked ? 'rgba(255,255,255,0.09)' : 'rgba(0,0,0,0.18)', border:'1.5px solid rgba(255,255,255,0.12)' }}>
                 {/* 스테이지와 동일한 원형 이미지 */}
                 <button disabled={!unlocked} onClick={() => { if(!unlocked) return; sfx.click(); setSelectedWorld(wi); setPhase('map'); }}
                   style={{ position:'relative', width:'clamp(46px,13vw,64px)', aspectRatio:'1', borderRadius:'50%', overflow:'hidden', padding:0, flexShrink:0, cursor:unlocked?'pointer':'default',
@@ -1880,6 +1880,15 @@ export default function LinyDoryGame() {
             );
           })}
         </div>
+        {(() => {
+          const curStage = (() => { const i = progress.findIndex(s => s < 3); return i === -1 ? LEVELS.length - 1 : i; })();
+          return (
+            <button onClick={() => { sfx.click(); setSelectedWorld(Math.floor(curStage / STAGES_PER_WORLD)); setStagePopup(curStage); }}
+              style={{ flexShrink:0, margin:'2px 12px 8px', padding:'14px', borderRadius:20, border:'3px solid rgba(255,255,255,0.85)', cursor:'pointer', background:'linear-gradient(180deg,#3B9BFF,#1565C0)', color:'white', fontSize:20, fontWeight:900, letterSpacing:1, boxShadow:'0 6px 0 #0D3B80, 0 10px 24px rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+              ▶ STAGE {curStage + 1}
+            </button>
+          );
+        })()}
         {bottomNav}
         {renderModals()}
       </div>
