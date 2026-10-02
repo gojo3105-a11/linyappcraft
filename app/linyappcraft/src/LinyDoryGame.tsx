@@ -116,10 +116,10 @@ function genMap(i: number): (0|1)[][] {
 
 // 스테이지 난이도에 따른 장애물 배치 마스크 — 후반으로 갈수록 개수 증가
 // 값: 0=없음, 1=돌(영구), 2=상자(여러 번 부숴야 열림). 15스테이지부터 일부가 상자.
-// (초반 8스테이지는 0개, 이후 6스테이지마다 +1, 최대 11개). 시드 기반이라 같은 스테이지는 항상 동일 배치.
+// (초반 12스테이지는 0개, 이후 8스테이지마다 +1, 최대 9개). 시드 기반이라 같은 스테이지는 항상 동일 배치.
 function genObstacles(i: number, map: (0|1)[][]): (0|1|2)[][] {
   const mask: (0|1|2)[][] = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
-  const count = i < 8 ? 0 : Math.min(11, 1 + Math.floor((i - 8) / 6));
+  const count = i < 12 ? 0 : Math.min(9, 1 + Math.floor((i - 12) / 8));
   if (count === 0) return mask;
   const rnd = mulberry((i + 1) * 40503);
   const perCol: number[] = Array(COLS).fill(0);
@@ -146,8 +146,8 @@ const TOTAL_STAGES = WORLD_COUNT * STAGES_PER_WORLD; // 2,500 스테이지
 // 스테이지 설정은 인덱스 기반으로 절차 생성(블럭 종류↑, 수집 목표는 genTargets에서 생성)
 const LEVELS: { mode: 'time' | 'moves'; sec?: number; moves?: number; types: number; goal: readonly [number, number, number] }[] =
   Array.from({ length: TOTAL_STAGES }, (_, i) => {
-    const types = 4 + Math.min(5, Math.floor(i / 12));   // 4 → 9
-    const moves = 26 + ((i * 7) % 9);                     // 26 ~ 34
+    const types = 4 + Math.min(2, Math.floor(i / 20));   // 4 → 6 (색이 많으면 매치가 급격히 어려워짐)
+    const moves = 28 + ((i * 7) % 9) + ((i >= 14 && i % 4 === 3) ? 4 : 0); // 28 ~ 36 (도토리 판 +4)
     // 별 기준(목표 달성 후): goal[0] 이상 ⭐⭐, goal[1] 이상 ⭐⭐⭐ — 이동 수에 비례
     const g2 = moves * 450, g3 = moves * 800;
     return { mode: 'moves' as const, moves, types, goal: [g2, g3, g3] as const };
@@ -264,7 +264,7 @@ function genJelly(i: number, map: readonly (0|1)[][], obs: readonly (0|1|2)[][])
   if (!isJellyStage(i)) return jm;
   const free: [number, number][] = [];
   for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (map[r]?.[c] && !obs[r]?.[c]) free.push([r, c]);
-  const want = Math.min(free.length, 8 + Math.floor(Math.min(i, 60) / 4));
+  const want = Math.min(free.length, 6 + Math.floor(Math.min(i, 60) / 6));
   const rnd = mulberry((i + 1) * 15485863);
   for (let k = 0; k < want; k++) { const [r, c] = free.splice(Math.floor(rnd() * free.length), 1)[0]; jm[r][c] = true; }
   return jm;
@@ -282,9 +282,9 @@ function ingColumns(map: readonly (0|1)[][], obs: readonly (0|1|2)[][]): number[
 function genTargets(i: number, types: number, map: readonly (0|1)[][], obs: readonly (0|1|2)[][]): Target[] {
   const r = mulberry((i + 1) * 7919);
   const special = isJellyStage(i) || isIngStage(i);
-  const k = Math.max(special ? 1 : 0, (i < 6 ? 1 : i < 40 ? 2 : 3) - (special ? 1 : 0)); // 젤리/도토리 판은 색 목표 1개 줄임
-  const f = 0.35 + Math.min(i, 80) / 80 * 0.4;               // 난이도 계수
-  const per = Math.max(8, Math.round(f * 140 / types));      // 색당 개수
+  const k = Math.max(0, (i < 15 ? 1 : i < 50 ? 2 : 3) - (special ? 1 : 0)); // 젤리/도토리 판은 색 목표 1개 줄임
+  const f = 0.28 + Math.min(i, 100) / 100 * 0.27;            // 난이도 계수(완만하게 상승)
+  const per = Math.max(7, Math.round(f * 130 / types));      // 색당 개수
   const pool = Array.from({ length: types }, (_, x) => x);
   const out: Target[] = [];
   for (let j = 0; j < k && pool.length; j++) out.push({ t: pool.splice(Math.floor(r() * pool.length), 1)[0], n: per });
@@ -293,9 +293,10 @@ function genTargets(i: number, types: number, map: readonly (0|1)[][], obs: read
   let jelly = 0; for (const row of genJelly(i, map, obs)) for (const v of row) if (v) jelly++;
   if (jelly > 0) out.push({ t: -3, n: jelly });              // 젤리 지우기
   if (isIngStage(i)) {                                        // 도토리 떨어뜨리기
-    const n = Math.min(ingColumns(map, obs).length, i < 40 ? 2 : 3);
+    const n = Math.min(ingColumns(map, obs).length, i < 30 ? 1 : i < 60 ? 2 : 3);   // 첫 도토리 판들은 1개로 쉽게 소개
     if (n > 0) out.push({ t: -4, n });
   }
+  if (!out.length) out.push({ t: Math.floor(r() * types), n: per });   // 목표가 비지 않도록 안전장치
   return out;
 }
 const targetsForStage = (i: number) => { const m = genMap(i); return genTargets(i, LEVELS[i].types, m, genObstacles(i, m)); };
@@ -1245,8 +1246,9 @@ export default function LinyDoryGame() {
       const cols = ingColumns(map, obs);
       for (let k = 0; k < ingT.n && cols.length; k++) {
         const c = cols.splice(Math.floor(Math.random() * cols.length), 1)[0];
-        let r = 0; while (r < ROWS && !map[r]?.[c]) r++;
-        if (r < ROWS) g[r][c] = mkIng();
+        const act: number[] = []; for (let r = 0; r < ROWS; r++) if (map[r]?.[c]) act.push(r);
+        const r = act[Math.floor(act.length / 2)];             // 열의 가운데쯤에서 시작(떨어뜨릴 거리 단축)
+        if (r !== undefined) g[r][c] = mkIng();
       }
     }
     // 연승 보너스(1: 라인, 2: +폭탄, 3: +레인보우) + 시작 전 선택한 부스터 → 시작 시 특수블럭 배치
@@ -1363,12 +1365,13 @@ export default function LinyDoryGame() {
             await wait(200);
             continue;
           }
-          // 도토리가 출구(아래로 더 갈 칸이 없거나 바로 아래가 돌)에 닿으면 수집
+          // 도토리가 출구(열의 맨 아래 2칸 안, 또는 바로 아래가 돌)에 닿으면 수집
           { let arrived: [number, number][] = [];
             for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
               const x = g[r]?.[c]; if (!x || x.kind !== 'ing' || x.hit) continue;
-              let rr = r + 1; while (rr < ROWS && !mapRef.current[rr]?.[c]) rr++;
-              if (rr >= ROWS || g[rr]?.[c]?.kind === 'rock') arrived.push([r, c]);
+              let below = 0; for (let rr = r + 1; rr < ROWS; rr++) if (mapRef.current[rr]?.[c]) below++;
+              let nb = r + 1; while (nb < ROWS && !mapRef.current[nb]?.[c]) nb++;
+              if (below <= 1 || g[nb]?.[c]?.kind === 'rock') arrived.push([r, c]);
             }
             if (arrived.length) {
               const ng = g.map(row => row.map(x => x ? { ...x } : null));
@@ -2616,6 +2619,16 @@ export default function LinyDoryGame() {
                 animation:'lightDive 0.32s ease-in forwards',
               }}>💫</span>
             ))}
+            {/* 도토리 출구 표시 — 도토리가 있는 열의 맨 아래 칸 아래쪽에 ⬇ (블럭 위 레이어) */}
+            {Array.from({ length: COLS }, (_, c) => {
+              if (!grid.some(row => row[c]?.kind === 'ing')) return null;
+              let lowest = -1; for (let rr = ROWS - 1; rr >= 0; rr--) if (curMap[rr]?.[c]) { lowest = rr; break; }
+              if (lowest < 0) return null;
+              return (
+                <span key={`exit${c}`} aria-hidden style={{ position:'absolute', left:`${((c+0.5)/COLS)*100}%`, top:`${((lowest+1)/ROWS)*100}%`, transform:'translate(-50%,-55%)', zIndex:9, pointerEvents:'none',
+                  fontSize:'clamp(16px,4.6vw,22px)', lineHeight:1, color:'#FFD54A', fontWeight:900, textShadow:'0 0 6px #000, 0 0 10px rgba(255,200,0,0.95)', animation:'idleBob 0.9s ease-in-out infinite' }}>⬇</span>
+              );
+            })}
             {/* 위치별 점수/콤보 팝업 */}
             {scorePops.map(s => (
               <span key={s.id} style={{
