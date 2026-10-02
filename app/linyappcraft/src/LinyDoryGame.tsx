@@ -53,7 +53,7 @@ const TILES = [
 ] as const;
 
 // 특수 블럭 종류: 가로 1줄 / 세로 1줄 / 주변 폭탄 / 전체 제거
-type TileKind = 'normal' | 'row' | 'col' | 'bomb' | 'rainbow' | 'rock' | 'crate';
+type TileKind = 'normal' | 'row' | 'col' | 'bomb' | 'rainbow' | 'rock' | 'crate' | 'ing';
 const SPECIAL_ICON: Record<string, string> = { row:'↔', col:'↕', bomb:'💣', rainbow:'🌈' };
 const SPECIAL_COLOR: Record<string, string> = { row:'#4FC3F7', col:'#7E57C2', bomb:'#FF7043', rainbow:'#EC407A' };
 const SPECIAL_LABEL: Record<string, string> = { row:'↔ 가로 한 줄!', col:'↕ 세로 한 줄!', bomb:'💣 폭탄!', rainbow:'🌈 전체 제거!' };
@@ -223,7 +223,7 @@ const TUTORIAL_STEPS = [
   { kind: 'drag'    as const, title: '① 드래그로 이동', desc: '옮길 블럭을 누른 채 바꾸고 싶은 방향(상하좌우)으로 살짝 끌면 옆 블럭과 자리가 바뀌어요. 탭해서 선택한 뒤 옆 칸을 탭해도 됩니다.' },
   { kind: 'match'   as const, title: '② 3개 맞춰 터트리기', desc: '같은 친구가 가로 또는 세로로 3개 이상 나란히 모이면 펑! 하고 터지고, 위 블럭이 내려와 빈자리를 채워요. 연쇄로 터지면 콤보 보너스!' },
   { kind: 'special' as const, title: '③ 특수 블럭 만들기', desc: '한 번에 4개 = ⚡라이트닝(가로·세로 줄 제거), 5개 이상 = 💣폭탄(주변 3×3 제거)! 2×2 정사각형으로 모아도 특수 블럭이 생겨요.' },
-  { kind: 'goal'    as const, title: '④ 목표 블럭 모으기', desc: '화면 위에 보이는 목표 블럭을 정해진 이동 안에 모두 모으면 클리어! 다음 스테이지가 열려요. 점수가 높을수록 별이 늘어나고, 연속 클리어하면 특수블럭을 들고 시작해요.' },
+  { kind: 'goal'    as const, title: '④ 목표 블럭 모으기', desc: '화면 위에 보이는 목표(블럭·상자·분홍 젤리·🌰도토리)를 정해진 이동 안에 모두 달성하면 클리어! 젤리는 그 위 블럭을 터뜨리면 지워지고, 도토리는 맨 아래까지 떨어뜨리면 모아져요. 다음 스테이지가 열려요. 점수가 높을수록 별이 늘어나고, 연속 클리어하면 특수블럭을 들고 시작해요.' },
 ];
 
 interface Cell { id: number; t: number; kind: TileKind; hit: boolean; hp?: number; }
@@ -240,6 +240,12 @@ const mkRock = (hp = 1): Cell => ({ id: _uid++, t: -1, kind: 'rock', hit: false,
 const mkCrate = (hp = 2): Cell => ({ id: _uid++, t: -2, kind: 'crate', hit: false, hp });
 // 이동/매치 불가 고정 장애물(돌·상자 공통)
 const isObstacle = (c: GridCell): boolean => !!c && (c.kind === 'rock' || c.kind === 'crate');
+// 도토리(ing) — 매치·파괴 불가, 아래로 떨어뜨려 맨 아래(출구)에 닿으면 수집
+const mkIng = (): Cell => ({ id: _uid++, t: -4, kind: 'ing', hit: false });
+// 특수/부스터 효과로도 제거되지 않는 조각(돌·도토리)
+const isHard = (c: GridCell): boolean => !!c && (c.kind === 'rock' || c.kind === 'ing');
+// 특수블럭(라인·폭탄·레인보우)인지
+const isSpecialCell = (c: GridCell): boolean => !!c && (c.kind === 'row' || c.kind === 'col' || c.kind === 'bomb' || c.kind === 'rainbow');
 const rnd = (n: number) => Math.floor(Math.random() * n);
 const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 // 클리어 시 별 — 목표 달성 = 최소 1개, 점수 구간(goal[0]/goal[1])에 따라 2·3개
@@ -249,9 +255,34 @@ const clearStars = (score: number, goal: readonly [number,number,number]) =>
 // 수집 목표(Royal Match·애니팡4 스타일) — t: 블럭 색 인덱스(-2 = 상자), n: 모아야 할 개수
 interface Target { t: number; n: number; }
 interface TargetLive extends Target { left: number; }
-function genTargets(i: number, types: number, obs: readonly (0|1|2)[][]): Target[] {
+// 스테이지 유형 — 젤리(10스테이지~, 4판마다) / 도토리 떨어뜨리기(15스테이지~, 4판마다)
+const isJellyStage = (i: number) => i >= 9 && i % 4 === 1;
+const isIngStage   = (i: number) => i >= 14 && i % 4 === 3;
+// 젤리 배치(칸 단위) — 장애물 없는 칸에 시드 기반으로 깔기
+function genJelly(i: number, map: readonly (0|1)[][], obs: readonly (0|1|2)[][]): boolean[][] {
+  const jm: boolean[][] = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
+  if (!isJellyStage(i)) return jm;
+  const free: [number, number][] = [];
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (map[r]?.[c] && !obs[r]?.[c]) free.push([r, c]);
+  const want = Math.min(free.length, 8 + Math.floor(Math.min(i, 60) / 4));
+  const rnd = mulberry((i + 1) * 15485863);
+  for (let k = 0; k < want; k++) { const [r, c] = free.splice(Math.floor(rnd() * free.length), 1)[0]; jm[r][c] = true; }
+  return jm;
+}
+// 도토리를 놓을 수 있는 열 — 돌·상자가 없는 열(막혀서 못 내려오는 일이 없도록)
+function ingColumns(map: readonly (0|1)[][], obs: readonly (0|1|2)[][]): number[] {
+  const cols: number[] = [];
+  for (let c = 0; c < COLS; c++) {
+    let active = 0, blocked = false;
+    for (let r = 0; r < ROWS; r++) { if (map[r]?.[c]) active++; if (obs[r]?.[c]) blocked = true; }
+    if (active >= 3 && !blocked) cols.push(c);
+  }
+  return cols;
+}
+function genTargets(i: number, types: number, map: readonly (0|1)[][], obs: readonly (0|1|2)[][]): Target[] {
   const r = mulberry((i + 1) * 7919);
-  const k = i < 6 ? 1 : i < 40 ? 2 : 3;                       // 목표 색 수 1 → 3
+  const special = isJellyStage(i) || isIngStage(i);
+  const k = Math.max(special ? 1 : 0, (i < 6 ? 1 : i < 40 ? 2 : 3) - (special ? 1 : 0)); // 젤리/도토리 판은 색 목표 1개 줄임
   const f = 0.35 + Math.min(i, 80) / 80 * 0.4;               // 난이도 계수
   const per = Math.max(8, Math.round(f * 140 / types));      // 색당 개수
   const pool = Array.from({ length: types }, (_, x) => x);
@@ -259,9 +290,29 @@ function genTargets(i: number, types: number, obs: readonly (0|1|2)[][]): Target
   for (let j = 0; j < k && pool.length; j++) out.push({ t: pool.splice(Math.floor(r() * pool.length), 1)[0], n: per });
   let crates = 0; for (const row of obs) for (const v of row) if (v === 2) crates++;
   if (crates > 0) out.push({ t: -2, n: crates });            // 상자가 있으면 '상자 부수기' 목표 추가
+  let jelly = 0; for (const row of genJelly(i, map, obs)) for (const v of row) if (v) jelly++;
+  if (jelly > 0) out.push({ t: -3, n: jelly });              // 젤리 지우기
+  if (isIngStage(i)) {                                        // 도토리 떨어뜨리기
+    const n = Math.min(ingColumns(map, obs).length, i < 40 ? 2 : 3);
+    if (n > 0) out.push({ t: -4, n });
+  }
   return out;
 }
-const targetsForStage = (i: number) => genTargets(i, LEVELS[i].types, genObstacles(i, genMap(i)));
+const targetsForStage = (i: number) => { const m = genMap(i); return genTargets(i, LEVELS[i].types, m, genObstacles(i, m)); };
+
+// 셔플 — 색 블럭만 다시 섞고, 남아 있는 돌·상자·도토리는 제자리 유지(목표가 사라지지 않게)
+function reshuffle(types: number, map: readonly (0|1)[][], old: Grid): Grid {
+  let g = mkGrid(types, map);
+  for (let t = 0; t < 40; t++) {
+    g = mkGrid(types, map);
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+      const o = old[r]?.[c];
+      if (o && !o.hit && (o.kind === 'rock' || o.kind === 'crate' || o.kind === 'ing')) g[r][c] = { ...o };
+    }
+    if (hasMoves(g)) break;
+  }
+  return g;
+}
 
 function mkGrid(types: number, map: readonly (0|1)[][], obMask?: readonly (0|1|2)[][]): Grid {
   const g: Grid = Array.from({ length: ROWS }, (_, r) =>
@@ -464,7 +515,7 @@ function buildCycle(g: Grid, mkSpecials: boolean, swapTo?: [number,number]): { h
   hits.forEach(key => {
     const [r,c]=key.split(',').map(Number);
     const cell=nextG[r][c];
-    if (cell && cell.kind!=='rock' && !newSpec.has(key)) cell.hit=true;
+    if (cell && !isHard(cell) && !newSpec.has(key)) cell.hit=true;
   });
   newSpec.forEach((cell,key) => { const [r,c]=key.split(',').map(Number); nextG[r][c]=cell; });
   // 돌(rock)은 영구 장애물이라 제외. 상자(crate)만 인접 매치로 hp가 줄고 0이면 부서져요.
@@ -700,6 +751,11 @@ const GAME_CSS = `
     0%,100% { transform:scale(1); filter:hue-rotate(0deg); }
     50%     { transform:scale(1.06); filter:hue-rotate(20deg); }
   }
+  @keyframes ingDrop {
+    0%   { transform:translateY(0) scale(1); opacity:1; }
+    60%  { transform:translateY(35%) scale(1.15); opacity:1; }
+    100% { transform:translateY(90%) scale(0.4); opacity:0; }
+  }
   @keyframes scorePopUp {
     0%   { opacity:0; transform:translate(-50%,-50%) scale(0.6); }
     25%  { opacity:1; transform:translate(-50%,-72%) scale(1.15); }
@@ -759,6 +815,7 @@ export default function LinyDoryGame() {
   const [showRoulette, setShowRoulette] = useState(false);
   const [targets, setTargets] = useState<TargetLive[]>([]);           // 수집 목표(남은 개수)
   const [goalsDone, setGoalsDone] = useState(false);
+  const [jelly, setJelly] = useState<boolean[][]>([]);               // 젤리 칸
   const [streak, setStreak] = useState<number>(() => sGet<number>(STREAK_BASE, 0));
   const [chestClaimed, setChestClaimed] = useState<number>(() => sGet<number>(CHEST_BASE, 0));
   const [preBoost, setPreBoost] = useState<BoosterKind[]>([]);        // 시작 전 선택한 부스터
@@ -786,6 +843,7 @@ export default function LinyDoryGame() {
   const comboRef     = useRef(0);            // 리졸버 세션 동안 누적 콤보
   const targetsRef   = useRef<TargetLive[]>([]);
   const goalsDoneRef = useRef(false);
+  const jellyRef     = useRef<boolean[][]>([]);
   const preBoostRef  = useRef<BoosterKind[]>([]);
   const feverRef       = useRef(0);          // 피버 게이지(로직용)
   const feverActiveRef = useRef(false);      // 피버 활성 여부(로직용)
@@ -1062,7 +1120,7 @@ export default function LinyDoryGame() {
     while (bonus > 0 && phaseRef.current === 'play') {
       const g = gRef.current;
       const cells: [number,number][] = [];
-      for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) { const cc=g[r][c]; if (cc && !cc.hit && cc.kind!=='rock') cells.push([r,c]); }
+      for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) { const cc=g[r][c]; if (cc && !cc.hit && !isHard(cc)) cells.push([r,c]); }
       if (!cells.length) break;
       const [r,c] = cells[Math.floor(Math.random()*cells.length)];
       spawnLights([`${r},${c}`]); spawnSparks([`${r},${c}`]); // 빛이 위에서 블럭으로 날아옴
@@ -1100,8 +1158,7 @@ export default function LinyDoryGame() {
       if (hasMoves(gRef.current)) return;                      // 움직일 수 있으면 OK
       // 터트릴 수 있는 블럭이 없음 → 자동 셔플. 셔플 후에는 장애물을 다시 만들지 않음
       const types = LEVELS[lvlRef.current].types;
-      let g = mkGrid(types, mapRef.current);
-      for (let t = 0; t < 40 && !hasMoves(g); t++) g = mkGrid(types, mapRef.current);
+      const g = reshuffle(types, mapRef.current, gRef.current);
       if (!hasMoves(g)) return;   // 어떤 배치로도 움직임이 없는 맵이면 무한 셔플 방지(보류)
       pop('🔀 섞을 블럭이 없어 자동 셔플!', 'special');
       sfx.click();
@@ -1201,8 +1258,19 @@ export default function LinyDoryGame() {
     let g = mkGrid(lvl.types, map, obs);
     for (let t = 0; t < 30 && !hasMoves(g); t++) g = mkGrid(lvl.types, map, obs); // 시작 보드는 움직임 보장
     // 수집 목표
-    const tg: TargetLive[] = genTargets(idx, lvl.types, obs).map(x => ({ ...x, left: x.n }));
+    const tg: TargetLive[] = genTargets(idx, lvl.types, map, obs).map(x => ({ ...x, left: x.n }));
     targetsRef.current = tg; setTargets(tg); goalsDoneRef.current = false; setGoalsDone(false);
+    const jm = genJelly(idx, map, obs); jellyRef.current = jm; setJelly(jm);
+    // 도토리: 돌·상자 없는 열의 맨 위 칸에 배치
+    const ingT = tg.find(x => x.t === -4);
+    if (ingT) {
+      const cols = ingColumns(map, obs);
+      for (let k = 0; k < ingT.n && cols.length; k++) {
+        const c = cols.splice(Math.floor(Math.random() * cols.length), 1)[0];
+        let r = 0; while (r < ROWS && !map[r]?.[c]) r++;
+        if (r < ROWS) g[r][c] = mkIng();
+      }
+    }
     // 연승 보너스(1: 라인, 2: +폭탄, 3: +레인보우) + 시작 전 선택한 부스터 → 시작 시 특수블럭 배치
     const bonus: TileKind[] = (['row', 'bomb', 'rainbow'] as TileKind[]).slice(0, Math.min(3, sGet<number>(STREAK_BASE, 0)));
     const pb = preBoostRef.current; preBoostRef.current = [];
@@ -1276,13 +1344,21 @@ export default function LinyDoryGame() {
     const cur = targetsRef.current;
     if (!cur.length || goalsDoneRef.current) return;
     const next = cur.map(x => ({ ...x }));
-    let changed = false;
+    let changed = false, jChanged = false;
+    const jm = jellyRef.current.map(row => [...row]);
     for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
       const cell = g[r]?.[c];
       if (!cell || !cell.hit || cell.kind === 'rock') continue;
       const tg = next.find(x => x.t === cell.t && x.left > 0);
       if (tg) { tg.left--; changed = true; }
+      // 젤리 칸 위의 블럭이 터지면 젤리 제거(도토리 도착은 제외)
+      if (cell.kind !== 'ing' && jm[r]?.[c]) {
+        jm[r][c] = false; jChanged = true;
+        const jt = next.find(x => x.t === -3 && x.left > 0);
+        if (jt) { jt.left--; changed = true; }
+      }
     }
+    if (jChanged) { jellyRef.current = jm; setJelly(jm); }
     if (!changed) return;
     targetsRef.current = next; setTargets(next);
     if (next.every(x => x.left <= 0)) {
@@ -1310,6 +1386,20 @@ export default function LinyDoryGame() {
             await wait(200);
             continue;
           }
+          // 도토리가 출구(아래로 더 갈 칸이 없거나 바로 아래가 돌)에 닿으면 수집
+          { let arrived: [number, number][] = [];
+            for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+              const x = g[r]?.[c]; if (!x || x.kind !== 'ing' || x.hit) continue;
+              let rr = r + 1; while (rr < ROWS && !mapRef.current[rr]?.[c]) rr++;
+              if (rr >= ROWS || g[rr]?.[c]?.kind === 'rock') arrived.push([r, c]);
+            }
+            if (arrived.length) {
+              const ng = g.map(row => row.map(x => x ? { ...x } : null));
+              arrived.forEach(([r, c]) => { ng[r][c]!.hit = true; spawnScorePop(r, c, '🌰 +500', true); spawnSparks([`${r},${c}`]); });
+              push(ng); inc(500 * arrived.length); sfx.coin(); haptic.medium();
+              arrived = [];
+              continue;
+            } }
           const swp = lastSwapRef.current; lastSwapRef.current = null;
           const res = buildCycle(g, true, swp ?? undefined);
           if (!res) break;
@@ -1366,8 +1456,7 @@ export default function LinyDoryGame() {
           pop('🔀 셔플!', 'special');
           await wait(700);
           const types = LEVELS[lvlRef.current].types;
-          let g = mkGrid(types, mapRef.current);   // 셔플 후에는 장애물 재생성 안 함
-          for (let t = 0; t < 40 && !hasMoves(g); t++) g = mkGrid(types, mapRef.current);
+          const g = reshuffle(types, mapRef.current, gRef.current);   // 남은 장애물·도토리는 유지(부서진 건 재생성 안 함)
           push(g);
         }
         if (!dirtyRef.current) break; // 애니메이션 도중 새 입력이 없었으면 종료
@@ -1397,8 +1486,8 @@ export default function LinyDoryGame() {
     if (isObstacle(a) || isObstacle(b)) return; // 장애물(돌·상자)은 이동 불가
     const sw: Grid = g.map(row => row.map(x => x ? {...x} : null));
     [sw[sr][sc], sw[r][c]] = [sw[r][c], sw[sr][sc]];
-    const srcSpec = sw[r][c]?.kind !== 'normal';
-    const dstSpec = sw[sr][sc]?.kind !== 'normal';
+    const srcSpec = isSpecialCell(sw[r][c]);
+    const dstSpec = isSpecialCell(sw[sr][sc]);
     const miss = !hasAnyMatch(sw) && !srcSpec && !dstSpec;
     clearHint();
     // 매치도 없고 특수 블럭도 아니면 → 잠깐 바꿨다가 제자리로 원위치 (헛스왑은 이동 차감 안 함)
@@ -1419,7 +1508,7 @@ export default function LinyDoryGame() {
       // 두 특수블럭 조합 → 초대형 효과
       const ka = sw[r][c]?.kind, kb = sw[sr][sc]?.kind;
       const set = new Set<string>();
-      const add = (rr:number, cc:number) => { const t=sw[rr]?.[cc]; if (rr>=0&&rr<ROWS&&cc>=0&&cc<COLS&&t&&t.kind!=='rock') set.add(`${rr},${cc}`); };
+      const add = (rr:number, cc:number) => { const t=sw[rr]?.[cc]; if (rr>=0&&rr<ROWS&&cc>=0&&cc<COLS&&t&&!isHard(t)) set.add(`${rr},${cc}`); };
       const both = (x:TileKind, y:TileKind) => (ka===x&&kb===y)||(ka===y&&kb===x);
       if (ka==='rainbow'||kb==='rainbow') {
         for (let y=0;y<ROWS;y++) for (let x=0;x<COLS;x++) add(y,x);            // 레인보우 조합 → 전체 제거
@@ -1434,7 +1523,7 @@ export default function LinyDoryGame() {
         if (ka==='row'&&kb==='row') for (let x=0;x<COLS;x++){ add(r-1,x); add(r+1,x); }
         if (ka==='col'&&kb==='col') for (let y=0;y<ROWS;y++){ add(y,c-1); add(y,c+1); }
       }
-      set.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell=sw[rr][cc]; if(cell&&cell.kind!=='rock') cell.hit=true; });
+      set.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell=sw[rr][cc]; if(cell&&!isHard(cell)) cell.hit=true; });
       inc(set.size*150);
       setBlocksPopped(n => n + set.size); sessionBlocksRef.current += set.size;
       spawnFlames(set); spawnDust([...set], sw); kickScreen(); sfx.explode(); haptic.heavy(); addFever(28);
@@ -1445,7 +1534,7 @@ export default function LinyDoryGame() {
       if (srcSpec) hits.add(`${r},${c}`);
       if (dstSpec) hits.add(`${sr},${sc}`);
       expandSpecials(hits, sw);
-      hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell=sw[rr][cc]; if(cell&&cell.kind!=='rock') cell.hit=true; });
+      hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell=sw[rr][cc]; if(cell&&!isHard(cell)) cell.hit=true; });
       inc(hits.size*120);
       setBlocksPopped(n => n + hits.size); sessionBlocksRef.current += hits.size;
       spawnFlames(hits); spawnDust([...hits], sw); kickScreen(); sfx.explode(); haptic.heavy(); addFever(16);
@@ -1479,7 +1568,7 @@ export default function LinyDoryGame() {
       if (nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&sw[nr]?.[nc]) hits.add(`${nr},${nc}`);
     }
     expandSpecials(hits, sw);
-    hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell2=sw[rr][cc]; if(cell2 && cell2.kind!=='rock') cell2.hit=true; });
+    hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell2=sw[rr][cc]; if(cell2 && !isHard(cell2)) cell2.hit=true; });
     inc(hits.size*80);
     setBlocksPopped(n => n + hits.size); sessionBlocksRef.current += hits.size;
     spawnFlames(hits); spawnDust([...hits], sw); kickScreen(); sfx.explode(); buzz(25);
@@ -1495,7 +1584,7 @@ export default function LinyDoryGame() {
     if ((boostersRef.current.shuffle ?? 0) <= 0) { setShowShop(true); return; }
     setBoosters(prev => { const next={...prev,shuffle:Math.max(0,prev.shuffle-1)}; saveBoosters(next); return next; });
     clearHint();
-    push(mkGrid(LEVELS[lvlRef.current].types, mapRef.current));   // 셔플 후에는 장애물 재생성 안 함
+    push(reshuffle(LEVELS[lvlRef.current].types, mapRef.current, gRef.current));   // 남은 장애물·도토리는 유지
     pop('🔀 셔플!', 'special');
     scheduleHint();
   }, [push, pop, clearHint, scheduleHint]);
@@ -1626,6 +1715,10 @@ export default function LinyDoryGame() {
   const remainTotal = targets.reduce((a, x) => a + Math.max(0, x.left), 0);
   const targetIcon = (t: number, size: number) => t === -2
     ? <span style={{ fontSize: size * 0.82, lineHeight: 1 }}>📦</span>
+    : t === -3
+    ? <span style={{ display:'inline-block', width: size * 0.86, height: size * 0.86, borderRadius: size * 0.24, background:'linear-gradient(145deg,#FF9AD5,#E0479E)', border:'2px solid #fff', boxShadow:'0 0 6px rgba(255,105,180,0.7), inset 0 2px 4px rgba(255,255,255,0.6)' }}/>
+    : t === -4
+    ? <span style={{ fontSize: size * 0.82, lineHeight: 1 }}>🌰</span>
     : <img src={TILES[t]?.img} alt="" style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${TILES[t]?.glow ?? '#fff'}`, background: TILES[t]?.bg }}/>;
   const condLabel = isTime ? `${time}` : `${movesLeft}`;
   const isWarning = condPct < 25;
@@ -2497,8 +2590,10 @@ export default function LinyDoryGame() {
               {Array.from({ length: ROWS * COLS }, (_, i) => {
                 const r = Math.floor(i / COLS), c = i % COLS;
                 const socketCell = grid[r]?.[c];
-                if (!socketCell) return <div key={i} style={{ aspectRatio:'1' }}/>;
-                return <div key={i} style={{ aspectRatio:'1', borderRadius:'26%', background:'rgba(12,7,40,0.5)', boxShadow:'inset 0 2px 6px rgba(0,0,0,0.55), inset 0 -2px 4px rgba(255,255,255,0.06)', animation: socketCell.hit ? 'popOut 0.6s ease-out forwards' : undefined }}/>;
+                const isJ = !!jelly[r]?.[c];
+                if (!socketCell && !isJ) return <div key={i} style={{ aspectRatio:'1' }}/>;
+                if (isJ) return <div key={i} style={{ aspectRatio:'1', borderRadius:'26%', background:'linear-gradient(145deg, rgba(255,140,205,0.95), rgba(214,64,150,0.95))', border:'3px solid #FFB3DE', boxShadow:'0 0 14px 2px rgba(255,90,175,0.85), inset 0 2px 6px rgba(255,255,255,0.6)', transform:'scale(1.06)' }}/>;
+                return <div key={i} style={{ aspectRatio:'1', borderRadius:'26%', background:'rgba(12,7,40,0.5)', boxShadow:'inset 0 2px 6px rgba(0,0,0,0.55), inset 0 -2px 4px rgba(255,255,255,0.06)', animation: socketCell?.hit ? 'popOut 0.6s ease-out forwards' : undefined }}/>;
               })}
             </div>
             {/* 폭탄·아이템 사용 시 터지는 칸에 불길 효과 */}
@@ -2613,6 +2708,21 @@ export default function LinyDoryGame() {
                     <span style={{ position:'absolute', bottom:2, right:3, fontSize:9, fontWeight:900, color:'#fff', textShadow:'0 1px 2px rgba(0,0,0,0.7)' }}>{hp}</span>
                     {cell.hit && <div style={{ position:'absolute', inset:'-20%', borderRadius:'50%', zIndex:4, pointerEvents:'none', background:'radial-gradient(circle, #fff 0%, #e0b070 45%, transparent 70%)', animation:'popFlash 0.32s ease-out forwards' }}/>}
                   </div>
+                );
+              }
+
+              // 도토리 — 스왑으로만 이동, 출구에 닿으면 수집
+              if (cell.kind === 'ing') {
+                const sel2 = sel?.[0]===row && sel?.[1]===col;
+                return (
+                  <button key={cell.id} onPointerDown={(e)=>onTilePointerDown(e,row,col)} disabled={phase==='end'} aria-label="도토리"
+                    style={{ aspectRatio:'1', position:'relative', borderRadius:'50%', padding:0, touchAction:'none', cursor:'pointer',
+                      background:'radial-gradient(circle at 50% 35%, #FFF1C9, #F2B455)', border: sel2 ? '3px solid white' : '3px solid #B86A1F',
+                      boxShadow:'0 0 12px rgba(255,190,80,0.75), inset 0 -3px 6px rgba(0,0,0,0.2)', display:'flex', alignItems:'center', justifyContent:'center',
+                      transform: cell.hit ? undefined : sel2 ? 'scale(1.15)' : 'scale(1)',
+                      animation: cell.hit ? 'ingDrop 0.6s ease-in forwards' : 'tileIdle 2.4s ease-in-out infinite' }}>
+                    <span style={{ fontSize:'clamp(20px,6vw,30px)', lineHeight:1, filter:'drop-shadow(0 2px 2px rgba(0,0,0,0.35))' }}>🌰</span>
+                  </button>
                 );
               }
 
