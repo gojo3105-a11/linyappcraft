@@ -143,13 +143,14 @@ const STAGES_PER_WORLD = 10;
 const WORLD_COUNT = 10;
 const TOTAL_STAGES = WORLD_COUNT * STAGES_PER_WORLD; // 2,500 스테이지
 
-// 스테이지 설정은 인덱스 기반으로 절차 생성(블럭 종류↑ / 목표 점수↑, 후반은 완만히 증가)
+// 스테이지 설정은 인덱스 기반으로 절차 생성(블럭 종류↑, 수집 목표는 genTargets에서 생성)
 const LEVELS: { mode: 'time' | 'moves'; sec?: number; moves?: number; types: number; goal: readonly [number, number, number] }[] =
   Array.from({ length: TOTAL_STAGES }, (_, i) => {
     const types = 4 + Math.min(5, Math.floor(i / 12));   // 4 → 9
     const moves = 26 + ((i * 7) % 9);                     // 26 ~ 34
-    const base  = 400 + Math.min(i, 80) * 110 + Math.floor(i / 80) * 150;
-    return { mode: 'moves' as const, moves, types, goal: [base, Math.round(base * 2.2), Math.round(base * 3.4)] as const };
+    // 별 기준(목표 달성 후): goal[0] 이상 ⭐⭐, goal[1] 이상 ⭐⭐⭐ — 이동 수에 비례
+    const g2 = moves * 450, g3 = moves * 800;
+    return { mode: 'moves' as const, moves, types, goal: [g2, g3, g3] as const };
   });
 
 // 스테이지 난이도 등급(블럭 종류 기준 — 표시용)
@@ -210,6 +211,9 @@ const TUT_BASE = 'linydory_tutorial_v1';
 const ATT_BASE = 'linydory_attend_v1';
 const ROU_BASE = 'linydory_roulette_v1';
 const todayStr = () => new Date().toISOString().slice(0, 10);
+const STREAK_BASE = 'linydory_streak_v1';   // 연승 횟수
+const CHEST_BASE  = 'linydory_chest_v1';    // 별 보물상자 수령 횟수
+const CHEST_EVERY = 30;                     // 별 30개마다 상자 1개
 const loadTutorialDone = (): boolean => sGet<boolean>(TUT_BASE, false);
 const saveTutorialDone = () => sSet(TUT_BASE, true);
 
@@ -219,7 +223,7 @@ const TUTORIAL_STEPS = [
   { kind: 'drag'    as const, title: '① 드래그로 이동', desc: '옮길 블럭을 누른 채 바꾸고 싶은 방향(상하좌우)으로 살짝 끌면 옆 블럭과 자리가 바뀌어요. 탭해서 선택한 뒤 옆 칸을 탭해도 됩니다.' },
   { kind: 'match'   as const, title: '② 3개 맞춰 터트리기', desc: '같은 친구가 가로 또는 세로로 3개 이상 나란히 모이면 펑! 하고 터지고, 위 블럭이 내려와 빈자리를 채워요. 연쇄로 터지면 콤보 보너스!' },
   { kind: 'special' as const, title: '③ 특수 블럭 만들기', desc: '한 번에 4개 = ⚡라이트닝(가로·세로 줄 제거), 5개 이상 = 💣폭탄(주변 3×3 제거)! 2×2 정사각형으로 모아도 특수 블럭이 생겨요.' },
-  { kind: 'goal'    as const, title: '④ 목표 점수 달성', desc: '정해진 이동 횟수 안에 목표 점수(⭐⭐⭐)를 넘기면 스테이지 클리어! 별 3개를 모아야 다음 스테이지가 열려요. 망치·폭탄·셔플 아이템도 활용하세요.' },
+  { kind: 'goal'    as const, title: '④ 목표 블럭 모으기', desc: '화면 위에 보이는 목표 블럭을 정해진 이동 안에 모두 모으면 클리어! 다음 스테이지가 열려요. 점수가 높을수록 별이 늘어나고, 연속 클리어하면 특수블럭을 들고 시작해요.' },
 ];
 
 interface Cell { id: number; t: number; kind: TileKind; hit: boolean; hp?: number; }
@@ -238,8 +242,26 @@ const mkCrate = (hp = 2): Cell => ({ id: _uid++, t: -2, kind: 'crate', hit: fals
 const isObstacle = (c: GridCell): boolean => !!c && (c.kind === 'rock' || c.kind === 'crate');
 const rnd = (n: number) => Math.floor(Math.random() * n);
 const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
-const calcStars = (score: number, goal: readonly [number,number,number]) =>
-  score >= goal[2] ? 3 : score >= goal[1] ? 2 : score >= goal[0] ? 1 : 0;
+// 클리어 시 별 — 목표 달성 = 최소 1개, 점수 구간(goal[0]/goal[1])에 따라 2·3개
+const clearStars = (score: number, goal: readonly [number,number,number]) =>
+  score >= goal[1] ? 3 : score >= goal[0] ? 2 : 1;
+
+// 수집 목표(Royal Match·애니팡4 스타일) — t: 블럭 색 인덱스(-2 = 상자), n: 모아야 할 개수
+interface Target { t: number; n: number; }
+interface TargetLive extends Target { left: number; }
+function genTargets(i: number, types: number, obs: readonly (0|1|2)[][]): Target[] {
+  const r = mulberry((i + 1) * 7919);
+  const k = i < 6 ? 1 : i < 40 ? 2 : 3;                       // 목표 색 수 1 → 3
+  const f = 0.35 + Math.min(i, 80) / 80 * 0.4;               // 난이도 계수
+  const per = Math.max(8, Math.round(f * 140 / types));      // 색당 개수
+  const pool = Array.from({ length: types }, (_, x) => x);
+  const out: Target[] = [];
+  for (let j = 0; j < k && pool.length; j++) out.push({ t: pool.splice(Math.floor(r() * pool.length), 1)[0], n: per });
+  let crates = 0; for (const row of obs) for (const v of row) if (v === 2) crates++;
+  if (crates > 0) out.push({ t: -2, n: crates });            // 상자가 있으면 '상자 부수기' 목표 추가
+  return out;
+}
+const targetsForStage = (i: number) => genTargets(i, LEVELS[i].types, genObstacles(i, genMap(i)));
 
 function mkGrid(types: number, map: readonly (0|1)[][], obMask?: readonly (0|1|2)[][]): Grid {
   const g: Grid = Array.from({ length: ROWS }, (_, r) =>
@@ -735,6 +757,11 @@ export default function LinyDoryGame() {
   const [showExit,    setShowExit]    = useState(false);
   const [stagePopup,  setStagePopup]  = useState<number|null>(null); // 시작 전 아이템 선택 팝업(스테이지 인덱스)
   const [showRoulette, setShowRoulette] = useState(false);
+  const [targets, setTargets] = useState<TargetLive[]>([]);           // 수집 목표(남은 개수)
+  const [goalsDone, setGoalsDone] = useState(false);
+  const [streak, setStreak] = useState<number>(() => sGet<number>(STREAK_BASE, 0));
+  const [chestClaimed, setChestClaimed] = useState<number>(() => sGet<number>(CHEST_BASE, 0));
+  const [preBoost, setPreBoost] = useState<BoosterKind[]>([]);        // 시작 전 선택한 부스터
   const [rouletteSpin, setRouletteSpin] = useState(false);
   const [rouletteWin,  setRouletteWin]  = useState<number|null>(null);
   const [showShop,    setShowShop]    = useState(false);
@@ -757,6 +784,9 @@ export default function LinyDoryGame() {
   const resolvingRef = useRef(false);        // 리졸버 중복 실행 방지
   const dirtyRef     = useRef(false);        // 애니메이션 도중 새 스왑이 커밋되면 표시
   const comboRef     = useRef(0);            // 리졸버 세션 동안 누적 콤보
+  const targetsRef   = useRef<TargetLive[]>([]);
+  const goalsDoneRef = useRef(false);
+  const preBoostRef  = useRef<BoosterKind[]>([]);
   const feverRef       = useRef(0);          // 피버 게이지(로직용)
   const feverActiveRef = useRef(false);      // 피버 활성 여부(로직용)
   const feverTmr       = useRef<ReturnType<typeof setTimeout>|null>(null);
@@ -779,7 +809,7 @@ export default function LinyDoryGame() {
   // 스테이지 선택 진입 시 현재 도전 스테이지가 보이도록 스크롤
   useEffect(() => {
     if (phase === 'map' && mapScrollRef.current) {
-      const idx = progress.findIndex(s => s < 3);
+      const idx = progress.findIndex(s => s < 1);
       const cur = idx === -1 ? LEVELS.length - 1 : idx;
       const w = WORLDS[selectedWorld];
       const local = Math.max(0, Math.min(w.to - w.from - 1, cur - w.from));
@@ -943,6 +973,7 @@ export default function LinyDoryGame() {
   useEffect(() => {
     const onScope = () => {
       setAccount(getAccountLabel());
+      setStreak(sGet<number>(STREAK_BASE, 0)); setChestClaimed(sGet<number>(CHEST_BASE, 0));
       setProgress(loadProg());
       setCoins(loadCoins());
       setBoosters(loadBoosters());
@@ -976,15 +1007,20 @@ export default function LinyDoryGame() {
     endFever();
     setShowPause(false);
     const li = lvlRef.current;
-    const s = calcStars(scoreRef.current, LEVELS[li].goal);
-    const goal0 = LEVELS[li].goal[0];
-    setNearMiss(s === 0 && scoreRef.current >= goal0 * 0.72 && scoreRef.current < goal0);
-    // 클리어(별3) 시 다음 스테이지는 하트 차감 없이 시작할 수 있도록 무료 토큰 부여
-    freeStartRef.current = s >= 3 && li + 1 < LEVELS.length ? li + 1 : null;
+    const done = goalsDoneRef.current;
+    const s = done ? clearStars(scoreRef.current, LEVELS[li].goal) : 0;
+    const remain = targetsRef.current.reduce((a, x) => a + Math.max(0, x.left), 0);
+    const total  = targetsRef.current.reduce((a, x) => a + x.n, 0);
+    setNearMiss(!done && total > 0 && remain <= Math.max(3, Math.ceil(total * 0.2)));
+    // 연승: 클리어하면 +1, 실패하면 0 (다음 판 시작 시 특수블럭 보너스)
+    const ns = s >= 1 ? sGet<number>(STREAK_BASE, 0) + 1 : 0;
+    sSet(STREAK_BASE, ns); setStreak(ns);
+    // 클리어 시 다음 스테이지는 하트 차감 없이 시작할 수 있도록 무료 토큰 부여
+    freeStartRef.current = s >= 1 && li + 1 < LEVELS.length ? li + 1 : null;
     // 일일 퀘스트 집계 반영
     questAddBlocks(sessionBlocksRef.current);     sessionBlocksRef.current = 0;
     questAddSpecials(sessionSpecialsRef.current); sessionSpecialsRef.current = 0;
-    if (s >= 3) questAddGameCleared();
+    if (s >= 1) questAddGameCleared();
     setQuests(loadQuests());
     // 클리어 보상 코인 — 기록 갱신이면 전액, 재도전이면 25%
     const prevStars = progress[li] ?? 0;
@@ -993,8 +1029,8 @@ export default function LinyDoryGame() {
     if (s > 0 && prevStars === 0) earned += FIRST_CLEAR_BONUS;
     setCoinsEarned(earned);
     if (earned > 0) { addCoins(earned); setTimeout(() => sfx.coin(), 500); }
-    // 첫 별3 클리어 보상: 하트 + 부스터 아이템
-    if (s >= 3 && prevStars < 3) {
+    // 첫 클리어 보상: 하트 + 부스터 아이템
+    if (s >= 1 && prevStars < 1) {
       const rw = stageReward(li);
       addLives(rw.hearts); setLives(loadLives());
       setBoosters(prev => { const next={...prev, [rw.booster]: prev[rw.booster]+1}; saveBoosters(next); return next; });
@@ -1164,6 +1200,20 @@ export default function LinyDoryGame() {
     _uid = 0;
     let g = mkGrid(lvl.types, map, obs);
     for (let t = 0; t < 30 && !hasMoves(g); t++) g = mkGrid(lvl.types, map, obs); // 시작 보드는 움직임 보장
+    // 수집 목표
+    const tg: TargetLive[] = genTargets(idx, lvl.types, obs).map(x => ({ ...x, left: x.n }));
+    targetsRef.current = tg; setTargets(tg); goalsDoneRef.current = false; setGoalsDone(false);
+    // 연승 보너스(1: 라인, 2: +폭탄, 3: +레인보우) + 시작 전 선택한 부스터 → 시작 시 특수블럭 배치
+    const bonus: TileKind[] = (['row', 'bomb', 'rainbow'] as TileKind[]).slice(0, Math.min(3, sGet<number>(STREAK_BASE, 0)));
+    const pb = preBoostRef.current; preBoostRef.current = [];
+    const PB_KIND: Partial<Record<BoosterKind, TileKind>> = { rowClear: 'row', colClear: 'col', bomb: 'bomb', allClear: 'rainbow' };
+    pb.forEach(k => { const tk = PB_KIND[k]; if (tk) bonus.push(tk); });
+    if (pb.length) setBoosters(prev => { const next = { ...prev }; pb.forEach(k => { next[k] = Math.max(0, next[k] - 1); }); saveBoosters(next); return next; });
+    if (bonus.length) {
+      const cand: [number, number][] = [];
+      for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) { const x = g[r][c]; if (x && x.kind === 'normal') cand.push([r, c]); }
+      bonus.forEach(kd => { if (!cand.length) return; const [r, c] = cand.splice(Math.floor(Math.random() * cand.length), 1)[0]; g[r][c] = mk(g[r][c]!.t, kd); });
+    }
     gRef.current=g; scoreRef.current=0; lvlRef.current=idx;
     resolvingRef.current=false; dirtyRef.current=false; comboRef.current=0;
     lastSwapRef.current=null; dragRef.current=null;
@@ -1221,6 +1271,27 @@ export default function LinyDoryGame() {
     setTimeout(() => setLifeLossToast(false), 3000);
   }, [startLevel, pop]);
 
+  // 터진 칸을 수집 목표에 반영 — 낙하(applyFall)로 사라지기 직전에 호출
+  const collectHits = useCallback((g: Grid) => {
+    const cur = targetsRef.current;
+    if (!cur.length || goalsDoneRef.current) return;
+    const next = cur.map(x => ({ ...x }));
+    let changed = false;
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+      const cell = g[r]?.[c];
+      if (!cell || !cell.hit || cell.kind === 'rock') continue;
+      const tg = next.find(x => x.t === cell.t && x.left > 0);
+      if (tg) { tg.left--; changed = true; }
+    }
+    if (!changed) return;
+    targetsRef.current = next; setTargets(next);
+    if (next.every(x => x.left <= 0)) {
+      goalsDoneRef.current = true; setGoalsDone(true);
+      pausedRef.current = true;               // 목표 달성 → 입력·타이머 정지 후 피날레
+      pop('🎯 목표 달성!', 'special');
+    }
+  }, [pop]);
+
   // 연쇄 리졸버 — 항상 최신 보드(gRef)를 읽어 매치를 해소한다.
   // 입력을 잠그지 않으므로 블럭이 터지는 동안에도 새 스왑/부스터가 커밋되면 같은 세션에서 함께 처리된다.
   const resolve = useCallback(async () => {
@@ -1235,7 +1306,7 @@ export default function LinyDoryGame() {
           // 부스터/특수블럭 발동으로 미리 표시된 칸은 먼저 터뜨려 떨어뜨린다(매치 판정 전)
           if (anyHit(g)) {
             await wait(450);
-            push(applyFall(gRef.current, LEVELS[lvlRef.current].types, mapRef.current));
+            collectHits(gRef.current); push(applyFall(gRef.current, LEVELS[lvlRef.current].types, mapRef.current));
             await wait(200);
             continue;
           }
@@ -1259,8 +1330,6 @@ export default function LinyDoryGame() {
           { const arr=[...res.hits]; if (arr.length) { const [mr,mc]=arr[Math.floor(arr.length/2)].split(',').map(Number); const shown = pts>=1000 ? `${(pts/1000).toFixed(1)}K` : `${pts}`; spawnScorePop(mr, mc, combo>=2 ? `${combo}x +${shown}` : `+${shown}`, combo>=4); } }
           // 피버 게이지 적립
           addFever(res.hits.size*2 + combo*2);
-          // 목표 점수(별3) 도달 시 타이머 멈춤
-          if (scoreRef.current >= LEVELS[lvlRef.current].goal[2]) pausedRef.current = true;
           // 사운드/햅틱
           sfx.pop(combo); if (combo >= 4) haptic.medium(); else haptic.light();
           if (combo >= 4) kickScreen();
@@ -1289,7 +1358,7 @@ export default function LinyDoryGame() {
             }
           }
           await wait(450);
-          push(applyFall(gRef.current, LEVELS[lvlRef.current].types, mapRef.current));
+          collectHits(gRef.current); push(applyFall(gRef.current, LEVELS[lvlRef.current].types, mapRef.current));
           await wait(200);
         }
         // 막힌 보드면 셔플(완전히 정착된 뒤에만) — 움직임이 생기는 보드가 나올 때까지 재생성
@@ -1308,8 +1377,8 @@ export default function LinyDoryGame() {
       resolvingRef.current = false;
     }
     if (phaseRef.current === 'play') {
-      // 별 3개(목표 점수) 달성 → 즉시 스테이지 클리어
-      if (scoreRef.current >= LEVELS[lvlRef.current].goal[2]) {
+      // 수집 목표 달성 → 스테이지 클리어(남은 이동은 피날레 보너스)
+      if (goalsDoneRef.current) {
         if (!tutorialPlayRef.current && movesRef.current > 0) { runFinale(); return; }
         endGame(); return;
       }
@@ -1523,6 +1592,18 @@ export default function LinyDoryGame() {
     sSet(ATT_BASE, todayStr()); addCoins(100); setCoins(loadCoins()); sfx.coin();
     pop('📅 출석 보상 +100🪙!', 'special');
   };
+  // 별 보물상자 — 별 CHEST_EVERY개마다 1회 수령
+  const claimChest = () => {
+    const total = progress.reduce((a, b) => a + b, 0);
+    if (Math.floor(total / CHEST_EVERY) <= chestClaimed) {
+      pop(`⭐ ${CHEST_EVERY - (total - chestClaimed * CHEST_EVERY)}개 더 모으면 상자가 열려요`, 'special'); return;
+    }
+    const n = chestClaimed + 1; sSet(CHEST_BASE, n); setChestClaimed(n);
+    addCoins(300); setCoins(loadCoins());
+    setBoosters(prev => { const next = { ...prev, bomb: prev.bomb + 1, rowClear: prev.rowClear + 1 }; saveBoosters(next); return next; });
+    sfx.win(); haptic.success();
+    pop('🎁 보물상자! 🪙300 + 💣폭탄 + ↔가로', 'special');
+  };
   const openRoulette = () => { setRouletteWin(null); setRouletteSpin(false); setShowRoulette(true); };
   const spinRoulette = () => {
     if (rouletteSpin) return;
@@ -1538,8 +1619,14 @@ export default function LinyDoryGame() {
   const maxCond  = isTime ? (lvl as {sec?:number}).sec ?? 60 : (lvl as {moves?:number}).moves ?? 1;
   const condLeft = isTime ? time : movesLeft;
   const condPct  = (condLeft / maxCond) * 100;
-  const curStars = calcStars(score, lvl.goal);
-  const endStars = calcStars(scoreRef.current, lvl.goal);
+  // 플레이 중 별: 목표 달성 전엔 점수 구간(0~2), 달성 후엔 클리어 별(1~3)
+  const scoreTier = (score >= lvl.goal[1] ? 1 : 0) + (score >= lvl.goal[0] ? 1 : 0);
+  const curStars = goalsDone ? clearStars(score, lvl.goal) : scoreTier;
+  const endStars = goalsDone ? clearStars(scoreRef.current, lvl.goal) : 0;
+  const remainTotal = targets.reduce((a, x) => a + Math.max(0, x.left), 0);
+  const targetIcon = (t: number, size: number) => t === -2
+    ? <span style={{ fontSize: size * 0.82, lineHeight: 1 }}>📦</span>
+    : <img src={TILES[t]?.img} alt="" style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${TILES[t]?.glow ?? '#fff'}`, background: TILES[t]?.bg }}/>;
   const condLabel = isTime ? `${time}` : `${movesLeft}`;
   const isWarning = condPct < 25;
   const condBg = condPct > 50
@@ -1580,26 +1667,47 @@ export default function LinyDoryGame() {
             <div style={{ width:'100%', maxWidth:330, position:'relative' }}>
               <div style={{ position:'relative', zIndex:2, margin:'0 auto -14px', width:'fit-content', background:'linear-gradient(135deg,#FF6F3C,#FF3D6E)', color:'white', fontWeight:900, fontSize:18, letterSpacing:1, padding:'8px 26px', borderRadius:14, boxShadow:'0 6px 16px rgba(255,60,90,0.45)', border:'2px solid rgba(255,255,255,0.5)' }}>STAGE {idx+1}</div>
               <div style={{ background:'linear-gradient(160deg,#ffffff,#eef3fb)', borderRadius:24, padding:'26px 18px 18px', boxShadow:'0 20px 60px rgba(0,0,0,0.6)', border:'3px solid #cfe0ff', animation:'popIn 0.34s cubic-bezier(0.34,1.56,0.64,1) both' }}>
-                <div style={{ background:'#f4f7ff', border:'1.5px solid #e0e8f7', borderRadius:16, padding:'14px', display:'flex', justifyContent:'space-around', textAlign:'center' }}>
-                  <div><div style={{ fontSize:22 }}>⭐</div><div style={{ fontSize:11, color:'#888', fontWeight:700, marginTop:2 }}>목표</div><div style={{ fontSize:15, fontWeight:900, color:'#FF6F00' }}>{L.goal[2].toLocaleString()}</div></div>
-                  <div><div style={{ fontSize:22 }}>🎯</div><div style={{ fontSize:11, color:'#888', fontWeight:700, marginTop:2 }}>이동</div><div style={{ fontSize:15, fontWeight:900, color:'#1565C0' }}>{mv}</div></div>
-                  <div><div style={{ fontSize:22 }}>🔥</div><div style={{ fontSize:11, color:'#888', fontWeight:700, marginTop:2 }}>난이도</div><div style={{ fontSize:13, fontWeight:900, color:diff.color }}>{diff.label}</div></div>
-                </div>
-                <div style={{ marginTop:14, textAlign:'center' }}>
-                  <div style={{ fontSize:12, fontWeight:800, color:'#666', marginBottom:8 }}>보유 아이템</div>
-                  <div style={{ display:'flex', justifyContent:'center', flexWrap:'wrap', gap:8 }}>
-                    {BOOSTERS.map(b => (
-                      <div key={b.kind} style={{ position:'relative', width:44, height:44, borderRadius:'50%', background:'radial-gradient(circle at 50% 32%, #F2F7FF, #C4D8F7)', border:'2px solid #fff', boxShadow:'0 3px 6px rgba(0,0,0,0.2)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                        <Icon name={BOOSTER_ICON[b.kind]} size={20} color="#2B4C8C" />
-                        <span style={{ position:'absolute', bottom:-2, right:-2, minWidth:16, height:16, padding:'0 3px', borderRadius:999, background:'#FF8A3D', border:'1.5px solid white', color:'white', fontSize:9, fontWeight:900, display:'flex', alignItems:'center', justifyContent:'center' }}>{boosters[b.kind]}</span>
+                <div style={{ background:'#f4f7ff', border:'1.5px solid #e0e8f7', borderRadius:16, padding:'12px 10px', textAlign:'center' }}>
+                  <div style={{ fontSize:11, color:'#888', fontWeight:800, marginBottom:8 }}>🎯 이것들을 모으세요</div>
+                  <div style={{ display:'flex', justifyContent:'center', gap:14, flexWrap:'wrap' }}>
+                    {targetsForStage(idx).map((x, i) => (
+                      <div key={i} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3 }}>
+                        {targetIcon(x.t, 38)}
+                        <span style={{ fontSize:14, fontWeight:900, color:'#1a1a2e' }}>{x.n}</span>
                       </div>
                     ))}
                   </div>
-                  <div style={{ fontSize:9, color:'rgba(0,0,0,0.35)', marginTop:8 }}>아이템은 게임 중 하단 버튼으로 사용해요</div>
+                  <div style={{ display:'flex', justifyContent:'center', gap:14, marginTop:10, fontSize:12, fontWeight:800, color:'#555' }}>
+                    <span>이동 <b style={{ color:'#1565C0' }}>{mv}</b></span>
+                    <span>난이도 <b style={{ color:diff.color }}>{diff.label}</b></span>
+                  </div>
                 </div>
-                <button onClick={()=>{ const i=idx; setStagePopup(null); sfx.click(); tryStartLevel(i); }} style={{ marginTop:16, width:'100%', padding:'15px', borderRadius:16, border:'none', cursor:'pointer', background:'linear-gradient(180deg,#3B9BFF,#1565C0)', color:'white', fontSize:19, fontWeight:900, boxShadow:'0 5px 0 #0D3B80' }}>게임시작</button>
+                {streak > 0 && (
+                  <div style={{ marginTop:10, padding:'8px 10px', borderRadius:12, background:'linear-gradient(135deg,#FFF3D6,#FFE0B2)', border:'1.5px solid #FFB74D', fontSize:12, fontWeight:900, color:'#8A4B00', textAlign:'center' }}>
+                    🔥 {streak}연승 중! 시작 보너스 {['','↔ 라인','↔ 라인 + 💣 폭탄','↔ 라인 + 💣 폭탄 + 🌈 레인보우'][Math.min(3, streak)]}
+                  </div>
+                )}
+                <div style={{ marginTop:14, textAlign:'center' }}>
+                  <div style={{ fontSize:12, fontWeight:800, color:'#666', marginBottom:8 }}>시작 아이템 선택</div>
+                  <div style={{ display:'flex', justifyContent:'center', flexWrap:'wrap', gap:10 }}>
+                    {(['rowClear','colClear','bomb','allClear'] as BoosterKind[]).map(k => {
+                      const cnt = boosters[k]; const on = preBoost.includes(k);
+                      return (
+                        <button key={k} disabled={cnt <= 0} onClick={() => { sfx.click(); setPreBoost(p => on ? p.filter(x => x !== k) : [...p, k]); }}
+                          style={{ position:'relative', width:48, height:48, borderRadius:'50%', padding:0, cursor: cnt>0?'pointer':'default', display:'flex', alignItems:'center', justifyContent:'center',
+                            background: on ? 'radial-gradient(circle at 50% 32%, #FFE499, #FF9E2C)' : 'radial-gradient(circle at 50% 32%, #F2F7FF, #C4D8F7)',
+                            border: on ? '3px solid #FF8A00' : '2px solid #fff', boxShadow: on ? '0 0 12px rgba(255,160,0,0.8)' : '0 3px 6px rgba(0,0,0,0.2)', opacity: cnt>0?1:0.4 }}>
+                          <Icon name={BOOSTER_ICON[k]} size={22} color={on ? '#7A3B00' : '#2B4C8C'} />
+                          <span style={{ position:'absolute', bottom:-3, right:-3, minWidth:17, height:17, padding:'0 3px', borderRadius:999, background: on ? '#2E9E4F' : '#FF8A3D', border:'1.5px solid white', color:'white', fontSize:9, fontWeight:900, display:'flex', alignItems:'center', justifyContent:'center' }}>{on ? '✓' : cnt}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontSize:9, color:'rgba(0,0,0,0.4)', marginTop:8 }}>선택한 아이템은 시작할 때 보드에 특수블럭으로 놓여요</div>
+                </div>
+                <button onClick={()=>{ const i=idx; preBoostRef.current = preBoost; setPreBoost([]); setStagePopup(null); sfx.click(); tryStartLevel(i); }} style={{ marginTop:16, width:'100%', padding:'15px', borderRadius:16, border:'none', cursor:'pointer', background:'linear-gradient(180deg,#3B9BFF,#1565C0)', color:'white', fontSize:19, fontWeight:900, boxShadow:'0 5px 0 #0D3B80' }}>게임시작</button>
               </div>
-              <button onClick={()=>{ sfx.click(); setStagePopup(null); }} aria-label="닫기" style={{ position:'absolute', top:-6, right:-6, zIndex:3, width:34, height:34, borderRadius:'50%', border:'2px solid white', background:'#5B8DEF', color:'white', fontSize:16, fontWeight:900, cursor:'pointer', boxShadow:'0 3px 8px rgba(0,0,0,0.4)' }}>✕</button>
+              <button onClick={()=>{ sfx.click(); setPreBoost([]); setStagePopup(null); }} aria-label="닫기" style={{ position:'absolute', top:-6, right:-6, zIndex:3, width:34, height:34, borderRadius:'50%', border:'2px solid white', background:'#5B8DEF', color:'white', fontSize:16, fontWeight:900, cursor:'pointer', boxShadow:'0 3px 8px rgba(0,0,0,0.4)' }}>✕</button>
             </div>
           </div>
         );
@@ -1622,7 +1730,7 @@ export default function LinyDoryGame() {
                     : <><b style={{ color:'#FFE566' }}>이동 +{CONTINUE_MOVES}수 · 시간 30초</b> 받고<br/>이어서 도전할 수 있어요!</>}
                 </div>
                 <div style={{ fontSize:12, color:'rgba(255,255,255,0.55)', marginTop:8 }}>
-                  현재 <b style={{ color:'white' }}>{score.toLocaleString()}</b> / 목표 <b style={{ color:'#FFD700' }}>{lvl.goal[0].toLocaleString()}</b>
+                  남은 목표 <b style={{ color:'#FFD700' }}>{remainTotal}개</b> · 점수 <b style={{ color:'white' }}>{score.toLocaleString()}</b>
                 </div>
               </div>
               <div style={{ display:'flex', gap:8, padding:'14px 16px 8px' }}>
@@ -1733,7 +1841,7 @@ export default function LinyDoryGame() {
             <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:8 }}>
               <div style={{ fontSize:32, letterSpacing:2 }}>⭐⭐⭐</div>
               <div style={{ display:'flex', gap:6 }}>
-                <span style={{ fontSize:11, fontWeight:800, color:'#3D1C00', background:'linear-gradient(135deg,#FF8C00,#FFD700)', borderRadius:999, padding:'4px 10px' }}>🎯 목표 2,000</span>
+                <span style={{ fontSize:11, fontWeight:800, color:'#3D1C00', background:'linear-gradient(135deg,#FF8C00,#FFD700)', borderRadius:999, padding:'4px 10px' }}>🎯 빨강 ×10</span>
                 <span style={{ fontSize:11, fontWeight:800, color:'white', background:'rgba(255,255,255,0.15)', borderRadius:999, padding:'4px 10px' }}>📊 현재 1,650</span>
               </div>
               {cap('별 3개(목표 점수) 달성 = 클리어!')}
@@ -2015,7 +2123,7 @@ export default function LinyDoryGame() {
   );
 
   // 월드/스테이지 선택 화면 공통 요소
-  const isUnlocked = (i:number) => i===0 || progress[i-1]>=3;
+  const isUnlocked = (i:number) => i===0 || progress[i-1]>=1;
   const totalStars = progress.reduce((a, b) => a + b, 0);
   const topBar = (
     <div style={{ flexShrink:0, padding:'calc(var(--sat) + clamp(44px,8vh,52px)) clamp(10px,3vw,16px) 4px', display:'flex', alignItems:'center', gap:'clamp(5px,1.5vw,8px)' }}>
@@ -2068,6 +2176,7 @@ export default function LinyDoryGame() {
             { e:'📅', label:'출석', fn:claimAttendance,  badge: sGet<string>(ATT_BASE,'') !== todayStr() },
             { e:'🎰', label:'룰렛', fn:openRoulette,      badge: sGet<string>(ROU_BASE,'') !== todayStr() },
             { e:'🏷️', label:'세일', fn:()=>{ setShopTab('cash'); setShowShop(true); }, badge:false },
+            { e:'🎁', label:`${Math.min(CHEST_EVERY, totalStars - chestClaimed*CHEST_EVERY)}/${CHEST_EVERY}`, fn:claimChest, badge: Math.floor(totalStars/CHEST_EVERY) > chestClaimed },
           ]).map((it,ix)=>(
             <button key={ix} onClick={()=>{ sfx.click(); it.fn(); }} style={{ position:'relative', width:56, display:'flex', flexDirection:'column', alignItems:'center', gap:2, background:'rgba(255,255,255,0.14)', border:'1.5px solid rgba(255,255,255,0.3)', borderRadius:14, padding:'7px 2px', cursor:'pointer', animation:`idleBob ${2.2+ix*0.3}s ease-in-out ${ix*0.2}s infinite` }}>
               <span style={{ fontSize:24 }}>{it.e}</span>
@@ -2085,7 +2194,7 @@ export default function LinyDoryGame() {
             const unlocked = isUnlocked(w.from);
             const wStars = progress.slice(w.from, w.to).reduce((a,b)=>a+b,0);
             const wMax = (w.to - w.from) * 3;
-            const cleared = progress.slice(w.from, w.to).every(s => s >= 3);
+            const cleared = progress.slice(w.from, w.to).every(s => s >= 1);
             return (
               <div key={wi} style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:4, minHeight:0, padding:'8px 4px', borderRadius:16, background: unlocked ? 'rgba(255,255,255,0.09)' : 'rgba(0,0,0,0.18)', border:'1.5px solid rgba(255,255,255,0.12)' }}>
                 {/* 스테이지와 동일한 원형 이미지 */}
@@ -2104,7 +2213,7 @@ export default function LinyDoryGame() {
           })}
         </div>
         {(() => {
-          const curStage = (() => { const i = progress.findIndex(s => s < 3); return i === -1 ? LEVELS.length - 1 : i; })();
+          const curStage = (() => { const i = progress.findIndex(s => s < 1); return i === -1 ? LEVELS.length - 1 : i; })();
           return (
             <button onClick={() => { sfx.click(); setSelectedWorld(Math.floor(curStage / STAGES_PER_WORLD)); setStagePopup(curStage); }}
               style={{ flexShrink:0, margin:'2px 12px 8px', padding:'14px', borderRadius:20, border:'3px solid rgba(255,255,255,0.85)', cursor:'pointer', background:'linear-gradient(180deg,#3B9BFF,#1565C0)', color:'white', fontSize:20, fontWeight:900, letterSpacing:1, boxShadow:'0 6px 0 #0D3B80, 0 10px 24px rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', gap:8, animation:'idleBob 1.8s ease-in-out infinite' }}>
@@ -2124,7 +2233,7 @@ export default function LinyDoryGame() {
     const ids = Array.from({ length: w.to - w.from }, (_, k) => w.from + k);
     const localY = (k:number) => k * MAP_ROW_GAP + 60;
     const wHeight = ids.length * MAP_ROW_GAP + 90;
-    const curIdx = progress.findIndex(p=>p<3)===-1 ? LEVELS.length-1 : progress.findIndex(p=>p<3);
+    const curIdx = progress.findIndex(p=>p<1)===-1 ? LEVELS.length-1 : progress.findIndex(p=>p<1);
     return (
       <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100%', userSelect:'none', background:`linear-gradient(180deg, ${w.color}33 0%, rgba(8,20,60,0.9) 55%, rgba(6,16,48,0.97) 100%), url(${worldImg(selectedWorld)}) center top / cover no-repeat`, overflow:'hidden' }}>
         <style>{GAME_CSS}</style>
@@ -2139,13 +2248,13 @@ export default function LinyDoryGame() {
           <div style={{ position:'relative', width:'100%', height: wHeight }}>
             <svg style={{ position:'absolute', inset:0, width:'100%', height:'100%', zIndex:1 }}>
               {ids.slice(0,-1).map((gi,k)=>{
-                const done = progress[gi] >= 3;
+                const done = progress[gi] >= 1;
                 return <line key={gi} x1={`${mapNodeX(k)}%`} y1={localY(k)} x2={`${mapNodeX(k+1)}%`} y2={localY(k+1)} stroke={done?'#FFB300':'rgba(255,255,255,0.18)'} strokeWidth="4" strokeDasharray={done?'0':'8,6'} strokeLinecap="round"/>;
               })}
             </svg>
             {ids.map((gi,k)=>{
               const unlocked=isUnlocked(gi); const s=progress[gi]??0; const isCur = gi === curIdx;
-              const diff = difficultyOf(gi); const rw = stageReward(gi); const earned = s>=3;
+              const diff = difficultyOf(gi); const rw = stageReward(gi); const earned = s>=1;
               return (
                 <div key={gi}>
                   <button onClick={()=>{ if(unlocked){ sfx.click(); setStagePopup(gi); } }} disabled={!unlocked}
@@ -2181,7 +2290,7 @@ export default function LinyDoryGame() {
         {/* 우측 진행 고슴도치 — 이 월드에서 별3 클리어한 만큼 아래→위로 */}
         {(() => {
           const count = w.to - w.from;
-          const clearedN = progress.slice(w.from, w.to).filter(s => s >= 3).length;
+          const clearedN = progress.slice(w.from, w.to).filter(s => s >= 1).length;
           const frac = count > 0 ? clearedN / count : 0;
           return (
             <div style={{ width:30, flexShrink:0, display:'flex', justifyContent:'center', padding:'4px 0' }}>
@@ -2249,9 +2358,9 @@ export default function LinyDoryGame() {
         <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:3, position:'relative' }}>
           <span style={{ fontSize:10, fontWeight:800, color:'#aaa', letterSpacing:2 }}>STAGE {lvlIdx+1}</span>
           <div style={{ width:'100%', position:'relative', height:8, borderRadius:999, background:'#efefef', overflow:'visible' }}>
-            <div style={{ position:'absolute', left:0, top:0, bottom:0, borderRadius:999, width:`${Math.min((score/lvl.goal[2])*100,100)}%`, background:'linear-gradient(90deg,#FF8C00,#FFD700)', transition:'width 0.3s ease' }}/>
-            {lvl.goal.map((gv,i) => (
-              <div key={i} style={{ position:'absolute', top:-3, bottom:-3, left:`${(gv/lvl.goal[2])*100}%`, width:2, background:'rgba(0,0,0,0.15)', transform:'translateX(-50%)' }}/>
+            <div style={{ position:'absolute', left:0, top:0, bottom:0, borderRadius:999, width:`${Math.min((score/lvl.goal[1])*100,100)}%`, background:'linear-gradient(90deg,#FF8C00,#FFD700)', transition:'width 0.3s ease' }}/>
+            {[lvl.goal[0], lvl.goal[1]].map((gv,i) => (
+              <div key={i} style={{ position:'absolute', top:-3, bottom:-3, left:`${(gv/lvl.goal[1])*100}%`, width:2, background:'rgba(0,0,0,0.15)', transform:'translateX(-50%)' }}/>
             ))}
           </div>
           <span style={{ fontSize:'clamp(17px,5.5vw,22px)', fontWeight:900, color:'#222' }}>{score.toLocaleString()}</span>
@@ -2286,25 +2395,22 @@ export default function LinyDoryGame() {
         </div>
       </div>
 
-      {/* 목표 점수 · 현재 점수 표시 */}
-      {(() => {
-        const goal3 = lvl.goal[2];                 // 별 3개(클리어) 목표 점수
-        const goalDone = score >= goal3;
-        return (
-          <div style={{ flexShrink:0, position:'relative', zIndex:10, display:'flex', justifyContent:'center', gap:8, margin:'6px 10px 0' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(255,255,255,0.88)', borderRadius:999, padding:'4px 12px', boxShadow:'0 2px 6px rgba(0,0,0,0.18)' }}>
-              <span style={{ fontSize:12 }}>🎯</span>
-              <span style={{ fontSize:11, fontWeight:800, color:'#888' }}>목표 ⭐⭐⭐</span>
-              <span style={{ fontSize:13, fontWeight:900, color:'#FF6F00' }}>{goal3.toLocaleString()}</span>
-            </div>
-            <div style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(255,255,255,0.88)', borderRadius:999, padding:'4px 12px', boxShadow:'0 2px 6px rgba(0,0,0,0.18)' }}>
-              <span style={{ fontSize:12 }}>📊</span>
-              <span style={{ fontSize:11, fontWeight:800, color:'#888' }}>현재</span>
-              <span style={{ fontSize:13, fontWeight:900, color: goalDone ? '#2E9E4F' : '#1565C0' }}>{score.toLocaleString()}</span>
-            </div>
+      {/* 수집 목표 — 블럭 아이콘 + 남은 개수(달성 시 ✓) */}
+      {phase==='play' && (
+        <div style={{ flexShrink:0, position:'relative', zIndex:10, display:'flex', justifyContent:'center', margin:'6px 10px 0' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'clamp(8px,3vw,14px)', background:'rgba(255,255,255,0.92)', borderRadius:18, padding:'5px 14px', boxShadow:'0 3px 10px rgba(0,0,0,0.22)', border:'2px solid rgba(255,255,255,0.9)' }}>
+            <span style={{ fontSize:10, fontWeight:900, color:'#888', letterSpacing:1 }}>목표</span>
+            {targets.map((x, i) => (
+              <div key={i} style={{ position:'relative', display:'flex', alignItems:'center', gap:4 }}>
+                {targetIcon(x.t, 26)}
+                {x.left > 0
+                  ? <span style={{ fontSize:15, fontWeight:900, color:'#1a1a2e', minWidth:18, fontVariantNumeric:'tabular-nums' }}>{x.left}</span>
+                  : <span style={{ fontSize:16, fontWeight:900, color:'#2E9E4F', animation:'starPop 0.5s cubic-bezier(0.34,1.56,0.64,1) both' }}>✓</span>}
+              </div>
+            ))}
           </div>
-        );
-      })()}
+        </div>
+      )}
 
       {/* 피버 게이지 */}
       {phase==='play' && (
@@ -2344,7 +2450,7 @@ export default function LinyDoryGame() {
             {tutMatches===0 ? '👆 반짝이는 두 블럭을 드래그해 같은 친구 3개를 맞춰보세요!'
               : tutMatches===1 ? '잘했어요! ✨ 계속 3개 이상 맞춰볼까요?'
               : tutMatches===2 ? '한 번에 4개를 맞추면 ⚡특수 블럭이 생겨요!'
-              : '거의 다 왔어요! 목표 점수를 향해 🎯'}
+              : '위의 목표 블럭을 모아보세요 🎯'}
             <div style={{ marginTop:6, display:'flex', justifyContent:'center', gap:4 }}>
               {Array.from({length:TUT_GOAL_MATCHES}).map((_,i)=>(
                 <span key={i} style={{ width:8, height:8, borderRadius:'50%', background: i<tutMatches ? '#FFE566' : 'rgba(255,255,255,0.3)' }}/>
@@ -2641,7 +2747,7 @@ export default function LinyDoryGame() {
               style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, width:'100%', padding:'13px 0', borderRadius:14, border:'none', cursor:'pointer', color:'white', fontSize:16, fontWeight:900, background:'linear-gradient(145deg,#FF8C00,#FFB300)', boxShadow:'0 4px 0 #C46A00' }}>
               <Icon name="play" size={17} color="white" /> 계속하기
             </button>
-            <button onClick={()=>{ sfx.click(); startLevel(lvlIdx); }}
+            <button onClick={()=>{ sfx.click(); sSet(STREAK_BASE, 0); setStreak(0); startLevel(lvlIdx); }}
               style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, width:'100%', padding:'11px 0', borderRadius:14, border:'none', cursor:'pointer', color:'#1a1a2e', fontSize:15, fontWeight:800, background:'#e7ebf5', boxShadow:'0 3px 0 rgba(0,0,0,0.12)' }}>
               <Icon name="refresh" size={16} color="#1a1a2e" /> 다시하기
             </button>
@@ -2649,7 +2755,7 @@ export default function LinyDoryGame() {
               style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, width:'100%', padding:'11px 0', borderRadius:14, border:'none', cursor:'pointer', color:'#1a1a2e', fontSize:15, fontWeight:800, background:'#e7ebf5', boxShadow:'0 3px 0 rgba(0,0,0,0.12)' }}>
               <Icon name={muted ? 'mute' : 'sound'} size={16} color="#1a1a2e" /> {muted ? '소리 켜기' : '소리 끄기'}
             </button>
-            <button onClick={()=>{ sfx.click(); pausedRef.current = false; setShowPause(false); setSelectedWorld(Math.floor(lvlIdx/STAGES_PER_WORLD)); setPhase('map'); }}
+            <button onClick={()=>{ sfx.click(); sSet(STREAK_BASE, 0); setStreak(0); endFever(); pausedRef.current = false; setShowPause(false); setSelectedWorld(Math.floor(lvlIdx/STAGES_PER_WORLD)); setPhase('map'); }}
               style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, width:'100%', padding:'11px 0', borderRadius:14, border:'none', cursor:'pointer', color:'white', fontSize:15, fontWeight:800, background:'linear-gradient(145deg,#EF5350,#C62828)', boxShadow:'0 3px 0 #8E1818' }}>
               <Icon name="exit" size={16} color="white" /> 나가기
             </button>
@@ -2685,7 +2791,7 @@ export default function LinyDoryGame() {
           {confetti.map(p => (
             <span key={p.id} style={{ position:'absolute', top:0, left:`${p.left}%`, fontSize:18, color:p.color, pointerEvents:'none', animation:`confettiFall ${1.6+p.delay}s ease-in ${p.delay}s forwards` }}>{p.e}</span>
           ))}
-          {endStars===3 ? (
+          {endStars>=1 ? (
             <div style={{ textAlign:'center' }}>
               <div style={{ fontSize:'clamp(13px,3.6vw,16px)', fontWeight:900, letterSpacing:2, color:'#FFE566', marginBottom:2 }}>STAGE {lvlIdx+1}</div>
               <div style={{ fontSize:'clamp(30px,8.5vw,44px)', fontWeight:900, color:'#FFD700', WebkitTextStroke:'1.5px #FF8C00', textShadow:'0 4px 0 rgba(0,0,0,0.4), 0 0 28px rgba(255,200,0,0.9)', animation:'starPop 0.55s cubic-bezier(0.34,1.56,0.64,1) both' }}>
@@ -2713,11 +2819,11 @@ export default function LinyDoryGame() {
           </div>
           <div style={{ textAlign:'center' }}>
             <div style={{ fontSize:'clamp(10px,2.8vw,12px)', color:'white', opacity:0.5, marginBottom:4 }}>{isTime?`⏱ ${(lvl as {sec?:number}).sec}초 도전`:`🎯 ${(lvl as {moves?:number}).moves}수 도전`}</div>
-            <div style={{ fontSize:'clamp(12px,3.5vw,14px)', color:'white', opacity:0.6 }}>최종 점수 · 목표 {lvl.goal[0].toLocaleString()}</div>
+            <div style={{ fontSize:'clamp(12px,3.5vw,14px)', color:'white', opacity:0.6 }}>최종 점수</div>
             <div style={{ fontSize:'clamp(32px,10vw,48px)', fontWeight:900, color:'white', marginTop:4 }}>{score.toLocaleString()}</div>
             <div style={{ fontSize:'clamp(10px,2.8vw,12px)', color:'white', opacity:0.55, marginTop:2 }}>🧱 터트린 블럭 {blocksPopped.toLocaleString()}개</div>
             <div style={{ fontSize:'clamp(11px,3vw,12px)', color:'white', opacity:0.5, marginTop:8, lineHeight:1.6 }}>
-              {nearMiss ? `목표까지 ${(lvl.goal[0]-score).toLocaleString()}점 남았어요!` : endStars===0?'아쉬워요… 다시 도전!':endStars===1?'좋아요! 더 잘할 수 있어요':endStars===2?'훌륭해요! 조금만 더!':'완벽해요! 대단해요! 🎉'}
+              {nearMiss ? `목표까지 ${remainTotal}개 남았어요!` : endStars===0?'아쉬워요… 다시 도전!':endStars===1?'클리어! 점수를 더 모으면 별이 늘어요':endStars===2?'훌륭해요! 조금만 더!':'완벽해요! 대단해요! 🎉'}
             </div>
             {coinsEarned > 0 && (
               <div style={{ marginTop:8, display:'inline-flex', alignItems:'center', gap:6, padding:'7px 16px', borderRadius:999, background:'rgba(255,180,0,0.18)', border:'1.5px solid rgba(255,200,0,0.5)', animation:'starPop 0.5s 0.4s cubic-bezier(0.34,1.56,0.64,1) both' }}>
@@ -2727,22 +2833,22 @@ export default function LinyDoryGame() {
               </div>
             )}
             <div style={{ display:'flex', gap:8, marginTop:6, justifyContent:'center' }}>
-              {lvl.goal.map((gv,i)=>(
+              {[lvl.goal[0], lvl.goal[1]].map((gv,i)=>(
                 <div key={i} style={{ textAlign:'center', opacity: score>=gv ? 1 : 0.45 }}>
-                  <div style={{ fontSize:10 }}>{'⭐'.repeat(i+1)}</div>
+                  <div style={{ fontSize:10 }}>{'⭐'.repeat(i+2)}</div>
                   <div style={{ fontSize:11, fontWeight:700, color: score>=gv ? '#FFE566' : 'rgba(255,255,255,0.5)' }}>{gv.toLocaleString()}</div>
                 </div>
               ))}
             </div>
-            {endStars===3 && lvlIdx<LEVELS.length-1
+            {endStars>=1 && lvlIdx<LEVELS.length-1
               ? <div style={{ fontSize:'clamp(11px,3vw,12px)', color:'#FDE68A', marginTop:4, opacity:0.9 }}>다음 스테이지 해제됨! 🔓</div>
-              : endStars<3 && <div style={{ fontSize:'clamp(11px,3vw,12px)', color:'#FFD7A0', marginTop:4, opacity:0.9 }}>⭐⭐⭐ 별 3개를 모아야 다음 스테이지로!</div>}
+              : endStars===0 && <div style={{ fontSize:'clamp(11px,3vw,12px)', color:'#FFD7A0', marginTop:4, opacity:0.9 }}>🎯 목표를 모두 모으면 다음 스테이지가 열려요!</div>}
           </div>
           <div style={{ display:'flex', gap:'clamp(8px,2.5vw,12px)' }}>
-            <button onClick={()=>tryStartLevel(lvlIdx)} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background: endStars<3 ? 'linear-gradient(135deg,#FF6F00,#FFD700)' : 'linear-gradient(135deg,#1565C0,#42A5F5)', boxShadow: endStars<3 ? '0 4px 0 #B84800' : '0 4px 0 #0D3B80', border:'none', cursor:'pointer' }}>
-              {endStars<3 ? '다시 도전! 🔥' : '다시하기 🔄'}
+            <button onClick={()=>tryStartLevel(lvlIdx)} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background: endStars===0 ? 'linear-gradient(135deg,#FF6F00,#FFD700)' : 'linear-gradient(135deg,#1565C0,#42A5F5)', boxShadow: endStars===0 ? '0 4px 0 #B84800' : '0 4px 0 #0D3B80', border:'none', cursor:'pointer' }}>
+              {endStars===0 ? '다시 도전! 🔥' : '다시하기 🔄'}
             </button>
-            {endStars===3 && lvlIdx<LEVELS.length-1
+            {endStars>=1 && lvlIdx<LEVELS.length-1
               ? <button onClick={()=>{ sfx.click(); tryStartLevel(lvlIdx+1); }} style={{ padding:'clamp(10px,2.5vh,12px) clamp(20px,5.5vw,28px)', borderRadius:999, fontWeight:900, fontSize:'clamp(14px,4vw,17px)', color:'white', background:'linear-gradient(135deg,#FF6F00,#FFB300)', border:'2px solid rgba(255,255,255,0.7)', animation:'luckyGlow 0.9s ease infinite', cursor:'pointer' }}>다음 스테이지 ▶</button>
               : <button onClick={()=>setPhase('main')} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background:'linear-gradient(135deg,#607D8B,#455A64)', boxShadow:'0 4px 0 #2C3940', border:'none', cursor:'pointer' }}>맵으로 🗺️</button>
             }
