@@ -22,20 +22,34 @@ html, body {
   background: #07090f;
 }
 
-/* 모바일/APK: 화면 전체를 채움 (APK WebView도 이 경로) */
+/* 앱 컬럼: 세로 화면 비율(가로:세로 ≈ 0.62)에 맞춰 화면 높이에 비례해 크기가 정해져요.
+   - 일반 폰(세로가 긴 화면): 화면 폭 전체 사용
+   - 태블릿·폴더블·넓은 인앱 브라우저·데스크톱: 높이에 비례한 세로 컬럼으로 가운데 정렬
+   고정 px 상한이 없어서 어떤 기종이든 같은 비율로 커지고 작아져요.
+   (dvh 미지원 구형 웹뷰를 위해 vh 값을 먼저 선언) */
 #root {
-  width: 100%;
+  height: 100vh;
   height: 100dvh;
-  overflow: hidden;
+  width: min(100vw, calc(100vh * 0.62));
+  width: min(100vw, calc(100dvh * 0.62));
   margin: 0 auto;
+  overflow: hidden;
+  position: relative;
 }
 
-/* 데스크톱(마우스 사용 + 넓은 화면)에서만 세로 폰 프레임으로 감싸 가운데 정렬.
-   pointer:fine 조건으로 터치 폰/태블릿(인앱 브라우저 포함)은 항상 전체 화면을 사용해요. */
-@media (min-width: 820px) and (pointer: fine) {
+/* 컬럼이 화면보다 좁아지는 넓은 화면에서만 바깥 배경·그림자 표시 */
+@media (min-aspect-ratio: 31/50) {
   body { background: #12121c; }
   #root {
-    width: min(100vw, calc(100dvh * 0.62));
     box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 24px 70px rgba(0, 0, 0, 0.75);
   }
+}
+
+/* 게임 보드: 정사각형. 컬럼 폭과 세로 가용공간(헤더·부스터 영역 제외) 중 작은 값에 맞춤 */
+.board-fit {
+  aspect-ratio: 1 / 1;
+  max-width: 100%;
+  max-height: 100%;
+  width: min(100%, calc(100vh - 356px));
+  width: min(100%, calc(100dvh - 356px));
 }

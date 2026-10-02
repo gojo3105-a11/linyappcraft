@@ -1983,7 +1983,7 @@ export default function LinyDoryGame() {
 
   // ── Splash ────────────────────────────────────────────────────────────────────
   if (phase === 'splash') return (
-    <div style={{ position:'relative', width:'100%', height:'100dvh', overflow:'hidden', userSelect:'none' }}>
+    <div style={{ position:'relative', width:'100%', height:'100%', overflow:'hidden', userSelect:'none' }}>
       <style>{GAME_CSS}</style>
       <video
         src={`${BASE}loading.mp4`}
@@ -2059,7 +2059,7 @@ export default function LinyDoryGame() {
   // ── Main = 월드(미니맵) 선택 ────────────────────────────────────────────────
   if (phase === 'main') {
     return (
-      <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100dvh', userSelect:'none', background:`linear-gradient(180deg, rgba(10,26,72,0.5) 0%, rgba(8,20,60,0.82) 55%, rgba(6,16,48,0.94) 100%), url(${BASE}characters/mapbg.png) center top / cover no-repeat`, overflow:'hidden' }}>
+      <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100%', userSelect:'none', background:`linear-gradient(180deg, rgba(10,26,72,0.5) 0%, rgba(8,20,60,0.82) 55%, rgba(6,16,48,0.94) 100%), url(${BASE}characters/mapbg.png) center top / cover no-repeat`, overflow:'hidden' }}>
         <style>{GAME_CSS}</style>
         {topBar}
         {/* 이벤트 사이드 레일 (출석·룰렛·세일) */}
@@ -2126,7 +2126,7 @@ export default function LinyDoryGame() {
     const wHeight = ids.length * MAP_ROW_GAP + 90;
     const curIdx = progress.findIndex(p=>p<3)===-1 ? LEVELS.length-1 : progress.findIndex(p=>p<3);
     return (
-      <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100dvh', userSelect:'none', background:`linear-gradient(180deg, ${w.color}33 0%, rgba(8,20,60,0.9) 55%, rgba(6,16,48,0.97) 100%), url(${worldImg(selectedWorld)}) center top / cover no-repeat`, overflow:'hidden' }}>
+      <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100%', userSelect:'none', background:`linear-gradient(180deg, ${w.color}33 0%, rgba(8,20,60,0.9) 55%, rgba(6,16,48,0.97) 100%), url(${worldImg(selectedWorld)}) center top / cover no-repeat`, overflow:'hidden' }}>
         <style>{GAME_CSS}</style>
         {topBar}
         <div style={{ flexShrink:0, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'2px 14px 6px' }}>
@@ -2202,7 +2202,7 @@ export default function LinyDoryGame() {
 
   // ── Play / End ────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100dvh', overflow:'hidden', position:'relative', background:'#0c1330', userSelect:'none', animation: screenShake ? 'screenShake 0.32s ease' : undefined }}>
+    <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100%', overflow:'hidden', position:'relative', background:'#0c1330', userSelect:'none', animation: screenShake ? 'screenShake 0.32s ease' : undefined }}>
       <style>{GAME_CSS}</style>
 
       {/* 업로드된 월드 이미지 배경(흐리게) — 블럭은 위 레이어라 흐려지지 않아요 */}
@@ -2378,8 +2378,8 @@ export default function LinyDoryGame() {
 
       {/* Grid */}
       <div style={{ flex:1, minHeight:0, display:'flex', alignItems:'center', justifyContent:'center', position:'relative', zIndex:10, padding:'6px 6px clamp(8px,2vh,14px)' }}>
-        {/* 보드: 정사각. 가로 폭·상한(470)·세로 가용공간 중 작은 값에 맞춰 리사이징 (모든 폰 대응) */}
-        <div style={{ width:'min(100%, 470px, calc(100dvh - 316px))', maxWidth:'100%', maxHeight:'100%', aspectRatio:'1', padding:'clamp(5px,1.6vw,9px)', borderRadius:26, background:'rgba(18,24,44,0.5)', border:'3px solid rgba(232,238,250,0.55)', boxShadow:'inset 0 2px 10px rgba(0,0,0,0.4), 0 8px 26px rgba(0,0,0,0.4)' }}>
+        {/* 보드: 정사각. 컬럼 폭과 세로 가용공간 중 작은 값에 맞춰 리사이징(index.css .board-fit) — 모든 폰·태블릿 대응 */}
+        <div className="board-fit" style={{ padding:'clamp(5px,1.6vw,9px)', borderRadius:26, background:'rgba(18,24,44,0.5)', border:'3px solid rgba(232,238,250,0.55)', boxShadow:'inset 0 2px 10px rgba(0,0,0,0.4), 0 8px 26px rgba(0,0,0,0.4)' }}>
           <div
             onPointerMove={onGridPointerMove}
             onPointerUp={onGridPointerUp}
