@@ -111,12 +111,30 @@ function genMap(i: number): (0|1)[][] {
     let cnt = 0; for (let r = 0; r < ROWS; r++) cnt += base[r][c];
     for (let r = ROWS - 1; r >= 0 && cnt < 3; r--) { if (!base[r][c]) { base[r][c] = 1; cnt++; } }
   }
+  // 상하좌우 이웃이 하나도 없는 고립 칸은 스왑도 매치도 불가능 → 보드에서 제외
+  const iso: [number, number][] = [];
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++)
+    if (base[r][c] && ![[r-1,c],[r+1,c],[r,c-1],[r,c+1]].some(([y,x]) => base[y]?.[x])) iso.push([r, c]);
+  iso.forEach(([r, c]) => { base[r][c] = 0; });
   return base;
 }
 
 // 스테이지 난이도에 따른 장애물 배치 마스크 — 후반으로 갈수록 개수 증가
 // 값: 0=없음, 1=돌(영구), 2=상자(여러 번 부숴야 열림). 15스테이지부터 일부가 상자.
 // (초반 12스테이지는 0개, 이후 8스테이지마다 +1, 최대 9개). 시드 기반이라 같은 스테이지는 항상 동일 배치.
+// 매치 가능한 칸 — 장애물·구멍이 아닌 칸이 가로 또는 세로로 3칸 이상 이어진 줄에 속하는지
+// (젤리는 그 칸 위의 블럭이 매치로 터져야 지워지므로, 이런 칸에만 깔아야 깰 수 있어요)
+function matchableMask(map: readonly (0|1)[][], obs?: readonly (0|1|2)[][]): boolean[][] {
+  const ok = (r: number, c: number) => r >= 0 && r < ROWS && c >= 0 && c < COLS && !!map[r]?.[c] && !obs?.[r]?.[c];
+  const m: boolean[][] = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    if (!ok(r, c)) continue;
+    let h = 1; for (let x = c - 1; ok(r, x); x--) h++; for (let x = c + 1; ok(r, x); x++) h++;
+    let v = 1; for (let y = r - 1; ok(y, c); y--) v++; for (let y = r + 1; ok(y, c); y++) v++;
+    m[r][c] = h >= 3 || v >= 3;
+  }
+  return m;
+}
 function genObstacles(i: number, map: (0|1)[][]): (0|1|2)[][] {
   const mask: (0|1|2)[][] = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
   const count = i < 12 ? 0 : Math.min(9, 1 + Math.floor((i - 12) / 8));
@@ -134,6 +152,13 @@ function genObstacles(i: number, map: (0|1)[][]): (0|1|2)[][] {
     if (perCol[c] + 1 > colCells - 2) continue;
     mask[r][c] = (i >= 15 && rnd() < 0.45) ? 2 : 1;  // 15스테이지+부터 약 45%는 상자
     perCol[c]++; placed++;
+  }
+  // 상자는 옆 칸에서 매치가 일어나야 부서지므로, 이웃에 매치 가능한 칸이 없는 상자는 제거(깰 수 없는 목표 방지)
+  const mm = matchableMask(map, mask);
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    if (mask[r][c] !== 2) continue;
+    const nb = [[r-1,c],[r+1,c],[r,c-1],[r,c+1]].some(([y,x]) => mm[y]?.[x]);
+    if (!nb) mask[r][c] = 0;
   }
   return mask;
 }
@@ -262,8 +287,9 @@ const isIngStage   = (i: number) => i >= 14 && i % 4 === 3;
 function genJelly(i: number, map: readonly (0|1)[][], obs: readonly (0|1|2)[][]): boolean[][] {
   const jm: boolean[][] = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
   if (!isJellyStage(i)) return jm;
+  const mm = matchableMask(map, obs);   // 매치로 지울 수 있는 칸에만 젤리 배치
   const free: [number, number][] = [];
-  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (map[r]?.[c] && !obs[r]?.[c]) free.push([r, c]);
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (mm[r][c]) free.push([r, c]);
   const want = Math.min(free.length, 6 + Math.floor(Math.min(i, 60) / 6));
   const rnd = mulberry((i + 1) * 15485863);
   for (let k = 0; k < want; k++) { const [r, c] = free.splice(Math.floor(rnd() * free.length), 1)[0]; jm[r][c] = true; }
