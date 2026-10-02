@@ -16,6 +16,7 @@ This is a match-3 puzzle game built with React + TypeScript + Vite.
 
 ## Notes
 - Stage rules: each stage has collection targets (`genTargets` — block colors, plus crates if present). Clearing = all targets collected within moves; stars = 1 + score tiers (`goal[0]`/`goal[1]`). Next stage unlocks at 1★. Win streak (`linydory_streak_v1`) places up to 3 specials at start; pre-game boosters (row/col/bomb/allClear) are placed as specials and consumed. Star chest every 30★ on home.
+- Stages/worlds are infinite: `levelDef(i)` / `worldOf(w)` generate on demand (no fixed LEVELS array); progress array grows as stages are cleared (`curStageOf`). Generators guarantee jelly only on matchable cells and crates next to matchable cells (`matchableMask`).
 - Storage is scoped per account via `store.ts` (`base::scope`). Scope = `guest` (default) or `google:<id>` / `kakao:<id>` after login.
 - Build: plain Vite. `npm run build` → `dist/`. Web (GitHub Pages) build uses base `/linyappcraft/` (set by `GITHUB_ACTIONS`); APK build uses base `/` (set by `CAP=1`).
 - APK: Capacitor. CI workflow `.github/workflows/build-apk.yml` runs `cap add android` + `gradlew assembleDebug` and uploads the debug APK artifact. The `android/` folder is generated in CI, not tracked. A signed release APK needs your own keystore.

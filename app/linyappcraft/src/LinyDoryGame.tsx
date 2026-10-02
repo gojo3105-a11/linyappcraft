@@ -163,24 +163,25 @@ function genObstacles(i: number, map: (0|1)[][]): (0|1|2)[][] {
   return mask;
 }
 
-// 미니맵(월드) 구성 — 최대 500개, 각 월드당 STAGES_PER_WORLD 스테이지
+// 미니맵(월드) 구성 — 스테이지·월드 모두 무한. 월드당 STAGES_PER_WORLD 스테이지
 const STAGES_PER_WORLD = 10;
-const WORLD_COUNT = 10;
-const TOTAL_STAGES = WORLD_COUNT * STAGES_PER_WORLD; // 2,500 스테이지
 
-// 스테이지 설정은 인덱스 기반으로 절차 생성(블럭 종류↑, 수집 목표는 genTargets에서 생성)
-const LEVELS: { mode: 'time' | 'moves'; sec?: number; moves?: number; types: number; goal: readonly [number, number, number] }[] =
-  Array.from({ length: TOTAL_STAGES }, (_, i) => {
-    const types = 4 + Math.min(2, Math.floor(i / 20));   // 4 → 6 (색이 많으면 매치가 급격히 어려워짐)
-    const moves = 28 + ((i * 7) % 9) + ((i >= 14 && i % 4 === 3) ? 4 : 0); // 28 ~ 36 (도토리 판 +4)
-    // 별 기준(목표 달성 후): goal[0] 이상 ⭐⭐, goal[1] 이상 ⭐⭐⭐ — 이동 수에 비례
-    const g2 = moves * 450, g3 = moves * 800;
-    return { mode: 'moves' as const, moves, types, goal: [g2, g3, g3] as const };
-  });
+// 스테이지 설정은 번호로 그때그때 절차 생성(무한) — 블럭 종류↑, 수집 목표는 genTargets에서 생성
+type LevelDef = { mode: 'time' | 'moves'; sec?: number; moves?: number; types: number; goal: readonly [number, number, number] };
+const levelCache = new Map<number, LevelDef>();
+function levelDef(i: number): LevelDef {
+  const hit = levelCache.get(i); if (hit) return hit;
+  const types = 4 + Math.min(2, Math.floor(i / 20));   // 4 → 6 (색이 많으면 매치가 급격히 어려워짐)
+  const moves = 28 + ((i * 7) % 9) + ((i >= 14 && i % 4 === 3) ? 4 : 0); // 28 ~ 36 (도토리 판 +4)
+  // 별 기준(목표 달성 후): goal[0] 이상 ⭐⭐, goal[1] 이상 ⭐⭐⭐ — 이동 수에 비례
+  const g2 = moves * 450, g3 = moves * 800;
+  const d: LevelDef = { mode: 'moves', moves, types, goal: [g2, g3, g3] };
+  levelCache.set(i, d); return d;
+}
 
 // 스테이지 난이도 등급(블럭 종류 기준 — 표시용)
 const difficultyOf = (idx: number): { label: string; stars: number; color: string } => {
-  const t = LEVELS[idx]?.types ?? 4;
+  const t = levelDef(idx)?.types ?? 4;
   if (t <= 4) return { label: '쉬움',   stars: 1, color: '#66BB6A' };
   if (t <= 5) return { label: '보통',   stars: 2, color: '#FFB300' };
   if (t <= 7) return { label: '어려움', stars: 3, color: '#FF7043' };
@@ -197,13 +198,17 @@ const WORLD_THEMES = [
   { color:'#42A5F5', emoji:'🌊' }, { color:'#FF7043', emoji:'🏜️' }, { color:'#26C6DA', emoji:'❄️' },
   { color:'#EC407A', emoji:'🌸' }, { color:'#AB47BC', emoji:'🍄' }, { color:'#FDD835', emoji:'⭐' }, { color:'#5C6BC0', emoji:'🌙' },
 ];
-const WORLDS: { name: string; from: number; to: number; color: string; emoji: string }[] =
-  Array.from({ length: WORLD_COUNT }, (_, w) => {
-    const t = WORLD_THEMES[w % WORLD_THEMES.length];
-    const cycle = Math.floor(w / WORLD_NAMES.length);
-    const name = WORLD_NAMES[w % WORLD_NAMES.length] + (cycle > 0 ? ` ${cycle + 1}` : '');
-    return { name, from: w * STAGES_PER_WORLD, to: w * STAGES_PER_WORLD + STAGES_PER_WORLD, color: t.color, emoji: t.emoji };
-  });
+type WorldDef = { name: string; from: number; to: number; color: string; emoji: string };
+function worldOf(w: number): WorldDef {
+  const t = WORLD_THEMES[w % WORLD_THEMES.length];
+  const cycle = Math.floor(w / WORLD_NAMES.length);
+  const name = WORLD_NAMES[w % WORLD_NAMES.length] + (cycle > 0 ? ` ${cycle + 1}` : '');
+  return { name, from: w * STAGES_PER_WORLD, to: w * STAGES_PER_WORLD + STAGES_PER_WORLD, color: t.color, emoji: t.emoji };
+}
+// 현재 도전 스테이지 = 아직 별이 없는 첫 스테이지(진행 배열은 필요한 만큼만 길어짐)
+const curStageOf = (p: readonly number[]) => { let i = 0; while ((p[i] ?? 0) >= 1) i++; return i; };
+// 월드의 스테이지별 별(저장 안 된 스테이지는 0)
+const worldStars = (p: readonly number[], w: WorldDef) => Array.from({ length: w.to - w.from }, (_, k) => p[w.from + k] ?? 0);
 
 // 스테이지 첫 클리어(별3) 보상 — 하트 + 부스터 아이템
 const BOOSTER_CYCLE = ['hammer', 'bomb', 'shuffle'] as const;
@@ -227,7 +232,7 @@ const mapNodeX = (i: number) => MAP_X[i % MAP_X.length];
 const LS_BASE = 'linydory_v3';
 const loadProg = (): number[] => {
   const saved = sGet<number[]>(LS_BASE, []);
-  return Array.from({ length: LEVELS.length }, (_, i) => saved[i] ?? 0);
+  return Array.isArray(saved) ? saved.map(v => v ?? 0) : [];
 };
 const saveProg = (p: number[]) => sSet(LS_BASE, p);
 
@@ -325,7 +330,7 @@ function genTargets(i: number, types: number, map: readonly (0|1)[][], obs: read
   if (!out.length) out.push({ t: Math.floor(r() * types), n: per });   // 목표가 비지 않도록 안전장치
   return out;
 }
-const targetsForStage = (i: number) => { const m = genMap(i); return genTargets(i, LEVELS[i].types, m, genObstacles(i, m)); };
+const targetsForStage = (i: number) => { const m = genMap(i); return genTargets(i, levelDef(i).types, m, genObstacles(i, m)); };
 
 // 셔플 — 색 블럭만 다시 섞고, 남아 있는 돌·상자·도토리는 제자리 유지(목표가 사라지지 않게)
 function reshuffle(types: number, map: readonly (0|1)[][], old: Grid): Grid {
@@ -795,7 +800,7 @@ export default function LinyDoryGame() {
   const [loadPct, setLoadPct]     = useState(0);
   const [lvlIdx, setLvlIdx]       = useState(0);
   const [progress, setProgress]   = useState<number[]>(loadProg);
-  const [grid, setGrid]           = useState<Grid>(() => mkGrid(LEVELS[0].types, genMap(0)));
+  const [grid, setGrid]           = useState<Grid>(() => mkGrid(levelDef(0).types, genMap(0)));
   const [sel, setSel]             = useState<[number,number]|null>(null);
   const [score, setScore]         = useState(0);
   const [time, setTime]           = useState(60);
@@ -886,19 +891,26 @@ export default function LinyDoryGame() {
   const tutMatchesRef      = useRef(0);
   const TUT_GOAL_MATCHES   = 5;
   const mapScrollRef       = useRef<HTMLDivElement>(null); // 맵 스크롤 컨테이너
+  const worldScrollRef     = useRef<HTMLDivElement>(null); // 홈 월드 목록 스크롤
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { boostersRef.current = boosters; }, [boosters]);
   // 스테이지 선택 진입 시 현재 도전 스테이지가 보이도록 스크롤
   useEffect(() => {
     if (phase === 'map' && mapScrollRef.current) {
-      const idx = progress.findIndex(s => s < 1);
-      const cur = idx === -1 ? LEVELS.length - 1 : idx;
-      const w = WORLDS[selectedWorld];
+      const cur = curStageOf(progress);
+      const w = worldOf(selectedWorld);
       const local = Math.max(0, Math.min(w.to - w.from - 1, cur - w.from));
       mapScrollRef.current.scrollTop = Math.max(0, local * MAP_ROW_GAP + 60 - 220);
     }
   }, [phase, progress, selectedWorld]);
+
+  // 홈 진입 시 현재 도전 중인 월드가 보이도록 스크롤(월드가 무한히 늘어남)
+  useEffect(() => {
+    if (phase !== 'main') return;
+    const el = worldScrollRef.current?.querySelector('[data-curworld]') as HTMLElement | null;
+    if (el && worldScrollRef.current) worldScrollRef.current.scrollTop = Math.max(0, el.offsetTop - worldScrollRef.current.clientHeight / 2 + el.clientHeight / 2);
+  }, [phase]);
 
   const scheduleHint = useCallback(() => {
     if (hintTmr.current) clearTimeout(hintTmr.current);
@@ -1091,7 +1103,7 @@ export default function LinyDoryGame() {
     setShowPause(false);
     const li = lvlRef.current;
     const done = goalsDoneRef.current;
-    const s = done ? clearStars(scoreRef.current, LEVELS[li].goal) : 0;
+    const s = done ? clearStars(scoreRef.current, levelDef(li).goal) : 0;
     const remain = targetsRef.current.reduce((a, x) => a + Math.max(0, x.left), 0);
     const total  = targetsRef.current.reduce((a, x) => a + x.n, 0);
     setNearMiss(!done && total > 0 && remain <= Math.max(3, Math.ceil(total * 0.2)));
@@ -1099,7 +1111,7 @@ export default function LinyDoryGame() {
     const ns = s >= 1 ? sGet<number>(STREAK_BASE, 0) + 1 : 0;
     sSet(STREAK_BASE, ns); setStreak(ns);
     // 클리어 시 다음 스테이지는 하트 차감 없이 시작할 수 있도록 무료 토큰 부여
-    freeStartRef.current = s >= 1 && li + 1 < LEVELS.length ? li + 1 : null;
+    freeStartRef.current = s >= 1 ? li + 1 : null;
     // 일일 퀘스트 집계 반영
     questAddBlocks(sessionBlocksRef.current);     sessionBlocksRef.current = 0;
     questAddSpecials(sessionSpecialsRef.current); sessionSpecialsRef.current = 0;
@@ -1129,7 +1141,7 @@ export default function LinyDoryGame() {
         color: palette[i % palette.length], e: ['🎉','✨','⭐','🎊'][i % 4],
       })));
     } else { sfx.lose(); setConfetti([]); }
-    setProgress(prev => { const next=[...prev]; if (s>next[li]) next[li]=s; saveProg(next); return next; });
+    setProgress(prev => { const next=[...prev]; while (next.length <= li) next.push(0); if (s>next[li]) next[li]=s; saveProg(next); return next; });
     setPhase('end');
   }, [clearHint, progress]);
 
@@ -1182,7 +1194,7 @@ export default function LinyDoryGame() {
       if (anyHit(gRef.current)) return;                        // 아직 터지는 칸이 있으면 대기
       if (hasMoves(gRef.current)) return;                      // 움직일 수 있으면 OK
       // 터트릴 수 있는 블럭이 없음 → 자동 셔플. 셔플 후에는 장애물을 다시 만들지 않음
-      const types = LEVELS[lvlRef.current].types;
+      const types = levelDef(lvlRef.current).types;
       const g = reshuffle(types, mapRef.current, gRef.current);
       if (!hasMoves(g)) return;   // 어떤 배치로도 움직임이 없는 맵이면 무한 셔플 방지(보류)
       pop('🔀 섞을 블럭이 없어 자동 셔플!', 'special');
@@ -1254,7 +1266,7 @@ export default function LinyDoryGame() {
   }, [phase, clearHint]);
 
   const startLevel = useCallback((idx: number) => {
-    const lvl = LEVELS[idx];
+    const lvl = levelDef(idx);
     const map = genMap(idx);
     mapRef.current = map;
     const obs = genObstacles(idx, map);
@@ -1387,7 +1399,7 @@ export default function LinyDoryGame() {
           // 부스터/특수블럭 발동으로 미리 표시된 칸은 먼저 터뜨려 떨어뜨린다(매치 판정 전)
           if (anyHit(g)) {
             await wait(450);
-            collectHits(gRef.current); push(applyFall(gRef.current, LEVELS[lvlRef.current].types, mapRef.current));
+            collectHits(gRef.current); push(applyFall(gRef.current, levelDef(lvlRef.current).types, mapRef.current));
             await wait(200);
             continue;
           }
@@ -1454,14 +1466,14 @@ export default function LinyDoryGame() {
             }
           }
           await wait(450);
-          collectHits(gRef.current); push(applyFall(gRef.current, LEVELS[lvlRef.current].types, mapRef.current));
+          collectHits(gRef.current); push(applyFall(gRef.current, levelDef(lvlRef.current).types, mapRef.current));
           await wait(200);
         }
         // 막힌 보드면 셔플(완전히 정착된 뒤에만) — 움직임이 생기는 보드가 나올 때까지 재생성
         if (phaseRef.current === 'play' && !anyHit(gRef.current) && !hasMoves(gRef.current)) {
           pop('🔀 셔플!', 'special');
           await wait(700);
-          const types = LEVELS[lvlRef.current].types;
+          const types = levelDef(lvlRef.current).types;
           const g = reshuffle(types, mapRef.current, gRef.current);   // 남은 장애물·도토리는 유지(부서진 건 재생성 안 함)
           push(g);
         }
@@ -1477,7 +1489,7 @@ export default function LinyDoryGame() {
         if (!tutorialPlayRef.current && movesRef.current > 0) { runFinale(); return; }
         endGame(); return;
       }
-      if (LEVELS[lvlRef.current].mode === 'moves' && movesRef.current <= 0) { outOfResource(); return; }
+      if (levelDef(lvlRef.current).mode === 'moves' && movesRef.current <= 0) { outOfResource(); return; }
       scheduleHint();
     }
   }, [push, inc, pop, endGame, outOfResource, scheduleHint, spawnFlames, kickScreen, runFinale, spawnDust]);
@@ -1504,7 +1516,7 @@ export default function LinyDoryGame() {
       return;
     }
     // 유효한 스왑(매치/특수 발동)만 이동 1회 소모
-    if (LEVELS[lvlRef.current].mode === 'moves') {
+    if (levelDef(lvlRef.current).mode === 'moves') {
       movesRef.current = Math.max(0, movesRef.current-1);
       setMovesLeft(movesRef.current);
     }
@@ -1590,7 +1602,7 @@ export default function LinyDoryGame() {
     if ((boostersRef.current.shuffle ?? 0) <= 0) { setShowShop(true); return; }
     setBoosters(prev => { const next={...prev,shuffle:Math.max(0,prev.shuffle-1)}; saveBoosters(next); return next; });
     clearHint();
-    push(reshuffle(LEVELS[lvlRef.current].types, mapRef.current, gRef.current));   // 남은 장애물·도토리는 유지
+    push(reshuffle(levelDef(lvlRef.current).types, mapRef.current, gRef.current));   // 남은 장애물·도토리는 유지
     pop('🔀 셔플!', 'special');
     scheduleHint();
   }, [push, pop, clearHint, scheduleHint]);
@@ -1709,7 +1721,7 @@ export default function LinyDoryGame() {
     setTimeout(() => { sSet(ROU_BASE, todayStr()); addCoins(win); setCoins(loadCoins()); setRouletteWin(win); setRouletteSpin(false); sfx.coin(); }, 1500);
   };
 
-  const lvl      = LEVELS[lvlIdx];
+  const lvl      = levelDef(lvlIdx);
   const isTime   = lvl.mode === 'time';
   const maxCond  = isTime ? (lvl as {sec?:number}).sec ?? 60 : (lvl as {moves?:number}).moves ?? 1;
   const condLeft = isTime ? time : movesLeft;
@@ -1758,7 +1770,7 @@ export default function LinyDoryGame() {
       {/* 스테이지 시작 전 아이템 선택 팝업 */}
       {stagePopup !== null && (() => {
         const idx = stagePopup;
-        const L = LEVELS[idx];
+        const L = levelDef(idx);
         const diff = difficultyOf(idx);
         const mv = (L as {moves?:number}).moves ?? 0;
         return (
@@ -2134,7 +2146,7 @@ export default function LinyDoryGame() {
               {/* 데이터 초기화 */}
               <button onClick={() => {
                   if (confirm('이 계정의 진행도·코인·아이템을 모두 초기화할까요?')) {
-                    saveProg(Array(LEVELS.length).fill(0)); setProgress(Array(LEVELS.length).fill(0));
+                    saveProg([]); setProgress([]);
                     saveBoosters({hammer:0,bomb:0,shuffle:0,rowClear:0,colClear:0,allClear:0}); setBoosters({hammer:0,bomb:0,shuffle:0,rowClear:0,colClear:0,allClear:0});
                     sSet('linydory_coins_v1', 0); setCoins(0); window.dispatchEvent(new Event('coins-updated'));
                     pop('진행도를 초기화했어요', 'special'); setShowSettings(false);
@@ -2262,6 +2274,9 @@ export default function LinyDoryGame() {
 
   // ── Main = 월드(미니맵) 선택 ────────────────────────────────────────────────
   if (phase === 'main') {
+    // 월드는 무한 — 현재 월드 + 다음 2개까지 표시(최소 10개)
+    const curWorld = Math.floor(curStageOf(progress) / STAGES_PER_WORLD);
+    const worldCount = Math.max(10, curWorld + 3);
     return (
       <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100%', userSelect:'none', background:`linear-gradient(180deg, rgba(10,26,72,0.5) 0%, rgba(8,20,60,0.82) 55%, rgba(6,16,48,0.94) 100%), url(${BASE}characters/mapbg.png) center top / cover no-repeat`, overflow:'hidden' }}>
         <style>{GAME_CSS}</style>
@@ -2283,16 +2298,16 @@ export default function LinyDoryGame() {
         </div>
         <div style={{ flexShrink:0, display:'flex', flexDirection:'column', alignItems:'center', padding:'2px 0 8px' }}>
           <div style={{ background:'linear-gradient(135deg,#FF6F3C,#FF3D6E)', color:'white', fontWeight:900, fontSize:15, letterSpacing:1, padding:'6px 24px', borderRadius:12, boxShadow:'0 5px 14px rgba(255,60,90,0.4)', border:'2px solid rgba(255,255,255,0.5)' }}>맵 선택</div>
-          <div style={{ fontSize:11, fontWeight:800, color:'#FFE566', marginTop:5, textShadow:'0 1px 3px rgba(0,0,0,0.7)' }}>⭐ {totalStars} / {LEVELS.length*3}</div>
+          <div style={{ fontSize:11, fontWeight:800, color:'#FFE566', marginTop:5, textShadow:'0 1px 3px rgba(0,0,0,0.7)' }}>⭐ {totalStars}</div>
         </div>
-        <div style={{ flex:1, minHeight:0, overflow:'hidden', padding:'4px 10px 8px', display:'grid', gridTemplateColumns:'repeat(2,1fr)', gridAutoRows:'1fr', gap:'clamp(4px,1.5vw,10px)' }}>
-          {WORLDS.map((w, wi) => {
+        <div ref={worldScrollRef} style={{ flex:1, minHeight:0, overflowY:'auto', padding:'4px 10px 8px', display:'grid', gridTemplateColumns:'repeat(2,1fr)', gridAutoRows:'minmax(clamp(96px,14vh,128px), auto)', gap:'clamp(4px,1.5vw,10px)', alignContent:'start' }}>
+          {Array.from({ length: worldCount }, (_, k) => worldOf(k)).map((w, wi) => {
             const unlocked = isUnlocked(w.from);
-            const wStars = progress.slice(w.from, w.to).reduce((a,b)=>a+b,0);
+            const wStars = worldStars(progress, w).reduce((a,b)=>a+b,0);
             const wMax = (w.to - w.from) * 3;
-            const cleared = progress.slice(w.from, w.to).every(s => s >= 1);
+            const cleared = worldStars(progress, w).every(s => s >= 1);
             return (
-              <div key={wi} style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:4, minHeight:0, padding:'8px 4px', borderRadius:16, background: unlocked ? 'rgba(255,255,255,0.09)' : 'rgba(0,0,0,0.18)', border:'1.5px solid rgba(255,255,255,0.12)' }}>
+              <div key={wi} data-curworld={wi === curWorld ? '1' : undefined} style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:4, minHeight:0, padding:'8px 4px', borderRadius:16, background: unlocked ? 'rgba(255,255,255,0.09)' : 'rgba(0,0,0,0.18)', border:'1.5px solid rgba(255,255,255,0.12)' }}>
                 {/* 스테이지와 동일한 원형 이미지 */}
                 <button disabled={!unlocked} onClick={() => { if(!unlocked) return; sfx.click(); setSelectedWorld(wi); setPhase('map'); }}
                   style={{ position:'relative', width:'clamp(46px,13vw,64px)', aspectRatio:'1', borderRadius:'50%', overflow:'hidden', padding:0, flexShrink:0, cursor:unlocked?'pointer':'default',
@@ -2309,7 +2324,7 @@ export default function LinyDoryGame() {
           })}
         </div>
         {(() => {
-          const curStage = (() => { const i = progress.findIndex(s => s < 1); return i === -1 ? LEVELS.length - 1 : i; })();
+          const curStage = curStageOf(progress);
           return (
             <button onClick={() => { sfx.click(); setSelectedWorld(Math.floor(curStage / STAGES_PER_WORLD)); setStagePopup(curStage); }}
               style={{ flexShrink:0, margin:'2px 12px 8px', padding:'14px', borderRadius:20, border:'3px solid rgba(255,255,255,0.85)', cursor:'pointer', background:'linear-gradient(180deg,#3B9BFF,#1565C0)', color:'white', fontSize:20, fontWeight:900, letterSpacing:1, boxShadow:'0 6px 0 #0D3B80, 0 10px 24px rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', gap:8, animation:'idleBob 1.8s ease-in-out infinite' }}>
@@ -2325,11 +2340,11 @@ export default function LinyDoryGame() {
 
   // ── 스테이지 선택 (선택한 월드) ─────────────────────────────────────────────
   if (phase === 'map') {
-    const w = WORLDS[selectedWorld];
+    const w = worldOf(selectedWorld);
     const ids = Array.from({ length: w.to - w.from }, (_, k) => w.from + k);
     const localY = (k:number) => k * MAP_ROW_GAP + 60;
     const wHeight = ids.length * MAP_ROW_GAP + 90;
-    const curIdx = progress.findIndex(p=>p<1)===-1 ? LEVELS.length-1 : progress.findIndex(p=>p<1);
+    const curIdx = curStageOf(progress);
     return (
       <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100%', userSelect:'none', background:`linear-gradient(180deg, ${w.color}33 0%, rgba(8,20,60,0.9) 55%, rgba(6,16,48,0.97) 100%), url(${worldImg(selectedWorld)}) center top / cover no-repeat`, overflow:'hidden' }}>
         <style>{GAME_CSS}</style>
@@ -2337,7 +2352,7 @@ export default function LinyDoryGame() {
         <div style={{ flexShrink:0, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'2px 14px 6px' }}>
           <button onClick={()=>{ sfx.click(); setPhase('main'); }} style={{ display:'flex', alignItems:'center', gap:4, padding:'6px 12px', borderRadius:999, color:'white', fontSize:13, fontWeight:700, background:'rgba(0,0,0,0.35)', border:'1px solid rgba(255,255,255,0.2)', cursor:'pointer' }}><Icon name="back" size={15} color="white" /> 맵</button>
           <span style={{ fontSize:15, fontWeight:900, color:'#FFE566', WebkitTextStroke:'0.5px #FFA500' }}>{w.emoji} {w.name}</span>
-          <span style={{ fontSize:12, fontWeight:800, color:'white' }}>⭐ {progress.slice(w.from,w.to).reduce((a,b)=>a+b,0)}/{(w.to-w.from)*3}</span>
+          <span style={{ fontSize:12, fontWeight:800, color:'white' }}>⭐ {worldStars(progress, w).reduce((a,b)=>a+b,0)}/{(w.to-w.from)*3}</span>
         </div>
         <div style={{ flex:1, display:'flex', gap:6, margin:'4px 8px 8px', minHeight:0 }}>
         <div ref={mapScrollRef} style={{ flex:1, overflowY:'auto', borderRadius:16, background:'rgba(0,0,40,0.28)', border:'2px solid rgba(255,255,255,0.1)' }}>
@@ -2386,7 +2401,7 @@ export default function LinyDoryGame() {
         {/* 우측 진행 고슴도치 — 이 월드에서 별3 클리어한 만큼 아래→위로 */}
         {(() => {
           const count = w.to - w.from;
-          const clearedN = progress.slice(w.from, w.to).filter(s => s >= 1).length;
+          const clearedN = worldStars(progress, w).filter(s => s >= 1).length;
           const frac = count > 0 ? clearedN / count : 0;
           return (
             <div style={{ width:30, flexShrink:0, display:'flex', justifyContent:'center', padding:'4px 0' }}>
@@ -2913,7 +2928,7 @@ export default function LinyDoryGame() {
             <div style={{ textAlign:'center' }}>
               <div style={{ fontSize:'clamp(13px,3.6vw,16px)', fontWeight:900, letterSpacing:2, color:'#FFE566', marginBottom:2 }}>STAGE {lvlIdx+1}</div>
               <div style={{ fontSize:'clamp(30px,8.5vw,44px)', fontWeight:900, color:'#FFD700', WebkitTextStroke:'1.5px #FF8C00', textShadow:'0 4px 0 rgba(0,0,0,0.4), 0 0 28px rgba(255,200,0,0.9)', animation:'starPop 0.55s cubic-bezier(0.34,1.56,0.64,1) both' }}>
-                {lvlIdx===LEVELS.length-1 ? '🏆 올 클리어! 🏆' : '🎉 클리어! 🎉'}
+                🎉 클리어! 🎉
               </div>
             </div>
           ) : nearMiss ? (
@@ -2958,7 +2973,7 @@ export default function LinyDoryGame() {
                 </div>
               ))}
             </div>
-            {endStars>=1 && lvlIdx<LEVELS.length-1
+            {endStars>=1
               ? <div style={{ fontSize:'clamp(11px,3vw,12px)', color:'#FDE68A', marginTop:4, opacity:0.9 }}>다음 스테이지 해제됨! 🔓</div>
               : endStars===0 && <div style={{ fontSize:'clamp(11px,3vw,12px)', color:'#FFD7A0', marginTop:4, opacity:0.9 }}>🎯 목표를 모두 모으면 다음 스테이지가 열려요!</div>}
           </div>
@@ -2966,7 +2981,7 @@ export default function LinyDoryGame() {
             <button onClick={()=>tryStartLevel(lvlIdx)} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background: endStars===0 ? 'linear-gradient(135deg,#FF6F00,#FFD700)' : 'linear-gradient(135deg,#1565C0,#42A5F5)', boxShadow: endStars===0 ? '0 4px 0 #B84800' : '0 4px 0 #0D3B80', border:'none', cursor:'pointer' }}>
               {endStars===0 ? '다시 도전! 🔥' : '다시하기 🔄'}
             </button>
-            {endStars>=1 && lvlIdx<LEVELS.length-1
+            {endStars>=1
               ? <button onClick={()=>{ sfx.click(); tryStartLevel(lvlIdx+1); }} style={{ padding:'clamp(10px,2.5vh,12px) clamp(20px,5.5vw,28px)', borderRadius:999, fontWeight:900, fontSize:'clamp(14px,4vw,17px)', color:'white', background:'linear-gradient(135deg,#FF6F00,#FFB300)', border:'2px solid rgba(255,255,255,0.7)', animation:'luckyGlow 0.9s ease infinite', cursor:'pointer' }}>다음 스테이지 ▶</button>
               : <button onClick={()=>setPhase('main')} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background:'linear-gradient(135deg,#607D8B,#455A64)', boxShadow:'0 4px 0 #2C3940', border:'none', cursor:'pointer' }}>맵으로 🗺️</button>
             }
