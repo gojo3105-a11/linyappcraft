@@ -2597,7 +2597,7 @@ export default function LinyDoryGame() {
             onPointerLeave={onGridPointerUp}
             onPointerCancel={() => { dragRef.current = null; }}
             style={{ position:'relative', display:'grid', gridTemplateColumns:`repeat(${COLS},1fr)`, gap:'clamp(1px,0.5vw,3px)', touchAction:'none' }}>
-            {/* 블럭 소켓(홈): 블럭이 있는 칸에만 표시되고, 블럭이 터지면 함께 터져요 */}
+            {/* 젤리 칸 표시 레이어(일반 칸은 투명) */}
             <div aria-hidden style={{ position:'absolute', inset:0, display:'grid', gridTemplateColumns:`repeat(${COLS},1fr)`, gap:'clamp(1px,0.5vw,3px)', zIndex:0, pointerEvents:'none' }}>
               {Array.from({ length: ROWS * COLS }, (_, i) => {
                 const r = Math.floor(i / COLS), c = i % COLS;
@@ -2605,7 +2605,7 @@ export default function LinyDoryGame() {
                 const isJ = !!jelly[r]?.[c];
                 if (!socketCell && !isJ) return <div key={i} style={{ aspectRatio:'1' }}/>;
                 if (isJ) return <div key={i} style={{ aspectRatio:'1', borderRadius:'26%', background:'linear-gradient(145deg, rgba(255,140,205,0.95), rgba(214,64,150,0.95))', border:'3px solid #FFB3DE', boxShadow:'0 0 14px 2px rgba(255,90,175,0.85), inset 0 2px 6px rgba(255,255,255,0.6)', transform:'scale(1.06)' }}/>;
-                return <div key={i} style={{ aspectRatio:'1', borderRadius:'26%', background:'rgba(12,7,40,0.5)', boxShadow:'inset 0 2px 6px rgba(0,0,0,0.55), inset 0 -2px 4px rgba(255,255,255,0.06)', animation: socketCell?.hit ? 'popOut 0.6s ease-out forwards' : undefined }}/>;
+                return <div key={i} style={{ aspectRatio:'1' }}/>;   // 일반 칸은 홈(검은 네모) 없이 투명 — 젤리 칸만 색 표시
               })}
             </div>
             {/* 폭탄·아이템 사용 시 터지는 칸에 불길 효과 */}
