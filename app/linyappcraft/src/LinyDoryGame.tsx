@@ -37,19 +37,16 @@ const ROWS = 7;
 const COLS = 7;
 
 const BASE = import.meta.env.BASE_URL;
-// 블럭 캐릭터 아이콘 (public/characters/block{n}.png)
-const BLK = (n: number) => `${BASE}characters/block${n}.png`;
-// 서로 완전히 다른 9색(계열 겹치지 않게) — 최대 구분 팔레트
+// 블럭 캐릭터 — 투명 배경 얼굴 이미지(public/characters/face{n}.png), 동그라미 틀 없이 얼굴만 표시
+const FACE = (n: number) => `${BASE}characters/face${n}.png`;
+// 쉬운 판(색 4종)에서 헷갈리지 않도록 색감이 가장 다른 순서로 배치. glow = 파티클·섬광 색
 const TILES = [
-  { img: BLK(1), bg: 'linear-gradient(145deg,#FF6B6B,#C1121F)', glow: '#E6194B' }, // 1 빨강
-  { img: BLK(2), bg: 'linear-gradient(145deg,#FFB14E,#E36A00)', glow: '#F58231' }, // 2 주황
-  { img: BLK(3), bg: 'linear-gradient(145deg,#FFF06B,#E0C200)', glow: '#FFE119' }, // 3 노랑
-  { img: BLK(4), bg: 'linear-gradient(145deg,#6FE07A,#2E7D32)', glow: '#3CB44B' }, // 4 초록
-  { img: BLK(5), bg: 'linear-gradient(145deg,#7DEAF7,#0097A7)', glow: '#42D4F4' }, // 5 하늘(시안)
-  { img: BLK(6), bg: 'linear-gradient(145deg,#6E86F0,#21409A)', glow: '#4363D8' }, // 6 파랑
-  { img: BLK(7), bg: 'linear-gradient(145deg,#C06BD6,#6A1B9A)', glow: '#911EB4' }, // 7 보라
-  { img: BLK(8), bg: 'linear-gradient(145deg,#FF7BEF,#C026B8)', glow: '#F032E6' }, // 8 자홍(핑크)
-  { img: BLK(9), bg: 'linear-gradient(145deg,#C39A6B,#6D4C24)', glow: '#9A6324' }, // 9 갈색
+  { img: FACE(6), glow: '#FFC400' }, // 노랑 머리 안경
+  { img: FACE(3), glow: '#FF6FAE' }, // 분홍 머리 진주
+  { img: FACE(2), glow: '#8B5A2B' }, // 갈색 머리 검은 안경
+  { img: FACE(1), glow: '#F0A878' }, // 올림머리 구슬핀
+  { img: FACE(5), glow: '#D9A05B' }, // 황금 가시 리본
+  { img: FACE(4), glow: '#6D4C41' }, // 갈색 가시 파란 눈
 ] as const;
 
 // 특수 블럭 종류: 가로 1줄 / 세로 1줄 / 주변 폭탄 / 전체 제거
@@ -620,8 +617,12 @@ const GAME_CSS = `
     100% { opacity:1; transform:scale(1) rotate(0deg); }
   }
   @keyframes hintGlow {
-    0%,100% { transform:scale(1.05); box-shadow:0 0 14px rgba(255,240,60,0.5),0 3px 8px rgba(0,0,0,0.35); }
-    50%      { transform:scale(1.18); box-shadow:0 0 28px rgba(255,240,60,0.95),0 0 10px rgba(255,200,0,0.8); }
+    0%,100% { transform:scale(1.04); filter:drop-shadow(0 0 6px rgba(255,240,60,0.6)); }
+    50%      { transform:scale(1.14); filter:drop-shadow(0 0 14px rgba(255,240,60,1)) drop-shadow(0 0 5px #ffc800); }
+  }
+  @keyframes specialPulse {
+    0%,100% { transform:scale(1); }
+    50%      { transform:scale(1.07); }
   }
   @keyframes scoreBarFlash {
     0%   { opacity:1; }
@@ -1737,7 +1738,7 @@ export default function LinyDoryGame() {
     ? <span style={{ display:'inline-block', width: size * 0.86, height: size * 0.86, borderRadius: size * 0.24, background:'linear-gradient(145deg,#FF9AD5,#E0479E)', border:'2px solid #fff', boxShadow:'0 0 6px rgba(255,105,180,0.7), inset 0 2px 4px rgba(255,255,255,0.6)' }}/>
     : t === -4
     ? <span style={{ fontSize: size * 0.82, lineHeight: 1 }}>🌰</span>
-    : <img src={TILES[t]?.img} alt="" style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${TILES[t]?.glow ?? '#fff'}`, background: TILES[t]?.bg }}/>;
+    : <img src={TILES[t]?.img} alt="" style={{ width: size * 1.12, height: size * 1.12, objectFit: 'contain', filter: 'drop-shadow(0 2px 2px rgba(0,0,0,0.45))' }}/>;
   const condLabel = isTime ? `${time}` : `${movesLeft}`;
   const isWarning = condPct < 25;
   const condBg = condPct > 50
@@ -1905,9 +1906,7 @@ export default function LinyDoryGame() {
         const last = tutStep >= TUTORIAL_STEPS.length - 1;
         // 실제 블럭 아이콘으로 플레이 장면을 보여주는 작은 일러스트
         const Tile = ({ t, size = 40, glow = false }: { t: number; size?: number; glow?: boolean }) => (
-          <div style={{ width:size, height:size, borderRadius:'50%', background:TILES[t].bg, border:'2px solid rgba(255,255,255,0.6)', boxShadow: glow ? `0 0 12px ${TILES[t].glow}, 0 2px 5px rgba(0,0,0,0.4)` : '0 2px 5px rgba(0,0,0,0.4)', overflow:'hidden', position:'relative', flexShrink:0 }}>
-            <img src={TILES[t].img} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
-          </div>
+          <img src={TILES[t].img} alt="" style={{ width:size, height:size, objectFit:'contain', flexShrink:0, filter: glow ? `drop-shadow(0 0 8px ${TILES[t].glow}) drop-shadow(0 2px 3px rgba(0,0,0,0.5))` : 'drop-shadow(0 2px 3px rgba(0,0,0,0.5))' }}/>
         );
         const Special = ({ icon, size = 34 }: { icon: string; size?: number }) => (
           <div style={{ width:size, height:size, borderRadius:'50%', background:'linear-gradient(145deg,#6A1B9A,#E040FB)', border:'2px solid white', display:'flex', alignItems:'center', justifyContent:'center', fontSize:size*0.5, boxShadow:'0 0 12px rgba(224,64,251,0.85)', flexShrink:0 }}>{icon}</div>
@@ -2408,7 +2407,7 @@ export default function LinyDoryGame() {
               <div style={{ position:'relative', width:9, borderRadius:999, background:'rgba(255,255,255,0.18)', border:'1.5px solid rgba(255,255,255,0.35)' }}>
                 <div style={{ position:'absolute', left:0, right:0, bottom:0, height:`${frac*100}%`, borderRadius:999, background:`linear-gradient(0deg, ${w.color}, #FFD700)`, transition:'height 0.4s ease' }}/>
                 <span style={{ position:'absolute', left:'50%', top:-2, transform:'translateX(-50%)', fontSize:11 }}>🏁</span>
-                <img src={`${BASE}characters/block1.png`} alt="" style={{ position:'absolute', left:'50%', bottom:`${frac*100}%`, transform:'translate(-50%,50%)', width:26, height:26, borderRadius:'50%', objectFit:'cover', border:'2px solid white', boxShadow:'0 2px 7px rgba(0,0,0,0.55)', transition:'bottom 0.4s ease' }}/>
+                <img src={`${BASE}characters/face6.png`} alt="" style={{ position:'absolute', left:'50%', bottom:`${frac*100}%`, transform:'translate(-50%,50%)', width:26, height:26, borderRadius:'50%', objectFit:'cover', border:'2px solid white', boxShadow:'0 2px 7px rgba(0,0,0,0.55)', transition:'bottom 0.4s ease' }}/>
               </div>
             </div>
           );
@@ -2591,15 +2590,15 @@ export default function LinyDoryGame() {
       {/* Grid */}
       <div style={{ flex:1, minHeight:0, display:'flex', alignItems:'center', justifyContent:'center', position:'relative', zIndex:10, padding:'6px 6px clamp(8px,2vh,14px)' }}>
         {/* 보드: 정사각. 컬럼 폭과 세로 가용공간 중 작은 값에 맞춰 리사이징(index.css .board-fit) — 모든 폰·태블릿 대응 */}
-        <div className="board-fit" style={{ padding:'clamp(5px,1.6vw,9px)', borderRadius:26, background:'rgba(18,24,44,0.5)', border:'3px solid rgba(232,238,250,0.55)', boxShadow:'inset 0 2px 10px rgba(0,0,0,0.4), 0 8px 26px rgba(0,0,0,0.4)' }}>
+        <div className="board-fit" style={{ padding:'clamp(3px,1vw,6px)', borderRadius:22, background:'rgba(18,24,44,0.5)', border:'3px solid rgba(232,238,250,0.55)', boxShadow:'inset 0 2px 10px rgba(0,0,0,0.4), 0 8px 26px rgba(0,0,0,0.4)' }}>
           <div
             onPointerMove={onGridPointerMove}
             onPointerUp={onGridPointerUp}
             onPointerLeave={onGridPointerUp}
             onPointerCancel={() => { dragRef.current = null; }}
-            style={{ position:'relative', display:'grid', gridTemplateColumns:`repeat(${COLS},1fr)`, gap:'clamp(3px,1vw,5px)', touchAction:'none' }}>
+            style={{ position:'relative', display:'grid', gridTemplateColumns:`repeat(${COLS},1fr)`, gap:'clamp(1px,0.5vw,3px)', touchAction:'none' }}>
             {/* 블럭 소켓(홈): 블럭이 있는 칸에만 표시되고, 블럭이 터지면 함께 터져요 */}
-            <div aria-hidden style={{ position:'absolute', inset:0, display:'grid', gridTemplateColumns:`repeat(${COLS},1fr)`, gap:'clamp(3px,1vw,5px)', zIndex:0, pointerEvents:'none' }}>
+            <div aria-hidden style={{ position:'absolute', inset:0, display:'grid', gridTemplateColumns:`repeat(${COLS},1fr)`, gap:'clamp(1px,0.5vw,3px)', zIndex:0, pointerEvents:'none' }}>
               {Array.from({ length: ROWS * COLS }, (_, i) => {
                 const r = Math.floor(i / COLS), c = i % COLS;
                 const socketCell = grid[r]?.[c];
@@ -2757,52 +2756,39 @@ export default function LinyDoryGame() {
                 (hintPair[1][0]===row && hintPair[1][1]===col)
               );
 
+              const sc = SPECIAL_COLOR[cell.kind] ?? '#FF7043';
+              const faceFilter = isSel
+                ? 'drop-shadow(0 0 10px #fff) drop-shadow(0 0 4px #fff)'
+                : isSpecial
+                ? `drop-shadow(0 0 9px ${sc}) drop-shadow(0 0 4px ${sc}) drop-shadow(0 3px 3px rgba(0,0,0,0.45))`
+                : 'drop-shadow(0 3px 3px rgba(0,0,0,0.5))';
               return (
                 <button key={cell.id}
                   onPointerDown={(e)=>onTilePointerDown(e,row,col)}
                   disabled={phase==='end'}
+                  aria-label="블럭"
                   style={{
-                    aspectRatio:'1', position:'relative', overflow:'hidden', borderRadius:'50%', padding:0,
-                    background: tile.bg,
-                    touchAction:'none',
-                    border: isSel
-                      ? '3px solid white'
-                      : isHint
-                      ? '2.5px solid #FFE566'
-                      : isSpecial
-                      ? `2.5px solid ${SPECIAL_COLOR[cell.kind] ?? '#FF7043'}`
-                      : `3px solid ${tile.glow}`,
-                    boxShadow: isSel
-                      ? `0 0 0 3px rgba(255,255,255,0.35), 0 0 18px white, 0 4px 10px rgba(0,0,0,0.4), inset 0 -4px 8px rgba(0,0,0,0.2), inset 0 4px 8px rgba(255,255,255,0.35)`
-                      : isHint
-                      ? `0 0 18px rgba(255,230,0,0.9), 0 3px 8px rgba(0,0,0,0.35), inset 0 -3px 6px rgba(0,0,0,0.15)`
-                      : isSpecial
-                      ? `0 0 13px ${SPECIAL_COLOR[cell.kind] ?? '#FF7043'}, 0 3px 8px rgba(0,0,0,0.35), inset 0 -3px 6px rgba(0,0,0,0.15), inset 0 3px 6px rgba(255,255,255,0.3)`
-                      : `0 0 0 1.5px rgba(255,255,255,0.45), 0 0 8px ${tile.glow}99, 0 3px 8px rgba(0,0,0,0.35), inset 0 -3px 6px rgba(0,0,0,0.15), inset 0 3px 6px rgba(255,255,255,0.3)`,
-                    transform: cell.hit ? undefined : isSel ? 'scale(1.15)' : 'scale(1)',
-                    opacity: cell.hit ? undefined : 1,
+                    aspectRatio:'1', position:'relative', padding:0, border:'none', background:'transparent', overflow:'visible',
+                    touchAction:'none', cursor:'pointer',
+                    transform: cell.hit ? undefined : isSel ? 'scale(1.16)' : 'scale(1)',
                     transition: 'transform 0.12s ease',
-                    cursor: 'pointer',
-                    // 터질 때 자연스럽게 부풀었다 사라지는 효과(popOut)
+                    zIndex: isSel || isHint ? 3 : 1,
                     animation: cell.hit
                       ? 'popOut 0.6s ease-out forwards'
                       : isSel
                       ? 'selectPop 0.3s ease-out'
                       : isHint
                       ? 'hintGlow 0.75s ease infinite'
-                      : (!isSpecial)
-                      ? `tileIdle 2.8s ease-in-out ${((row*COLS+col)%9)*0.17}s infinite`
-                      : undefined,
+                      : isSpecial
+                      ? 'specialPulse 1.1s ease-in-out infinite'
+                      : `tileIdle 2.8s ease-in-out ${((row*COLS+col)%9)*0.17}s infinite`,
                   }}>
-                  {/* 4개 이상 매치로 생성된 특수 블럭은 캐릭터 이미지 대신 전용 아이콘으로 교체 */}
-                  {isSpecial ? (
-                    <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize: (cell.kind==='row'||cell.kind==='col')?'clamp(28px,8vw,40px)':'clamp(24px,7vw,34px)', fontWeight:900, color:'white', lineHeight:1, filter:'drop-shadow(0 2px 4px rgba(0,0,0,0.8))', zIndex:2 }}>{SPECIAL_ICON[cell.kind] ?? '💥'}</span>
-                  ) : (
-                    <img src={tile.img} alt="" style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'center' }}/>
+                  {/* 캐릭터 얼굴만 — 칸보다 살짝 크게 그려 애니팡처럼 꽉 차 보이게 */}
+                  <img src={tile.img} alt="" draggable={false} style={{ position:'absolute', left:'-6%', top:'-6%', width:'112%', height:'112%', objectFit:'contain', pointerEvents:'none', filter: faceFilter }}/>
+                  {/* 특수 블럭: 종류를 알려주는 아이콘 배지 */}
+                  {isSpecial && (
+                    <span style={{ position:'absolute', right:'-4%', bottom:'-4%', width:'48%', height:'48%', borderRadius:'50%', background:`radial-gradient(circle at 35% 30%, #fff 0%, ${sc} 70%)`, border:'2px solid #fff', boxShadow:'0 2px 6px rgba(0,0,0,0.55)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'clamp(11px,3.2vw,17px)', fontWeight:900, color:'#fff', textShadow:'0 1px 2px rgba(0,0,0,0.7)', lineHeight:1, pointerEvents:'none', zIndex:2 }}>{SPECIAL_ICON[cell.kind] ?? '💥'}</span>
                   )}
-                  <div style={{ position:'absolute', top:0, left:'5%', right:'5%', height:'48%', borderRadius:'0 0 50% 50%', background:'linear-gradient(180deg,rgba(255,255,255,0.62) 0%,rgba(255,255,255,0.05) 100%)', pointerEvents:'none', zIndex:1 }}/>
-                  <div style={{ position:'absolute', bottom:0, left:0, right:0, height:'28%', borderRadius:'0 0 50% 50%', background:'linear-gradient(0deg,rgba(0,0,0,0.2) 0%,transparent 100%)', pointerEvents:'none', zIndex:1 }}/>
-                  {isSel && <div style={{ position:'absolute', inset:0, background:'rgba(255,255,255,0.2)', borderRadius:'50%', zIndex:2 }}/>}
                   {/* 터질 때 강한 임팩트: 흰 섬광 */}
                   {cell.hit && <div style={{ position:'absolute', inset:'-20%', borderRadius:'50%', zIndex:4, pointerEvents:'none', background:`radial-gradient(circle, #fff 0%, ${tile.glow} 45%, transparent 70%)`, animation:'popFlash 0.32s ease-out forwards' }}/>}
                 </button>
@@ -2826,7 +2812,7 @@ export default function LinyDoryGame() {
         <div style={{ flexShrink:0, position:'relative', zIndex:12, display:'flex', alignItems:'flex-end', gap:'clamp(6px,2vw,12px)', padding:'6px 10px calc(var(--sab) + 10px)', maxWidth:440, margin:'0 auto', width:'100%' }}>
           {/* 캐릭터 아바타 */}
           <div style={{ flexShrink:0, width:'clamp(50px,14vw,62px)', aspectRatio:'1', borderRadius:16, overflow:'hidden', border:'3px solid #ffffff', boxShadow:'0 5px 12px rgba(0,0,0,0.35)', background:'radial-gradient(circle at 50% 30%, #FFF3D6, #FFD98A)', animation:'avatarPop 3.2s ease-in-out infinite' }}>
-            <img src={`${BASE}characters/block1.png`} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
+            <img src={`${BASE}characters/face6.png`} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
           </div>
           {/* 원형 부스터들 */}
           <div style={{ flex:1, display:'flex', flexWrap:'wrap', alignItems:'center', justifyContent:'center', gap:'clamp(8px,2.6vw,14px)' }}>
