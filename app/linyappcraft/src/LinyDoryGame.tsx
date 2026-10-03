@@ -173,7 +173,8 @@ type LevelDef = { mode: 'time' | 'moves'; sec?: number; moves?: number; types: n
 const levelCache = new Map<number, LevelDef>();
 function levelDef(i: number): LevelDef {
   const hit = levelCache.get(i); if (hit) return hit;
-  const types = 4 + Math.min(2, Math.floor(i / 20));   // 4 → 6 (색이 많으면 매치가 급격히 어려워짐)
+  // 난이도별 블럭 종류: 초반 4종 → 12스테이지부터 기본 5종, 5스테이지마다 오는 어려운 판은 +1종, 40스테이지 이후 +1종 (최대 6)
+  const types = Math.min(6, 4 + (i >= 12 ? 1 : 0) + (i >= 5 && i % 5 === 4 ? 1 : 0) + (i >= 40 ? 1 : 0));
   const moves = 28 + ((i * 7) % 9) + ((i >= 14 && i % 4 === 3) ? 4 : 0); // 28 ~ 36 (도토리 판 +4)
   // 별 기준(목표 달성 후): goal[0] 이상 ⭐⭐, goal[1] 이상 ⭐⭐⭐ — 이동 수에 비례
   const g2 = moves * 450, g3 = moves * 800;
@@ -867,8 +868,6 @@ export default function LinyDoryGame() {
   const [blocksPopped, setBlocksPopped] = useState(0);
   const [screenShake, setScreenShake] = useState(false);
   const [flash, setFlash] = useState<{id:number;color:string}|null>(null); // 콤보 컬러 플래시
-  const [fever, setFever] = useState(false);            // 피버 모드 활성
-  const [feverPct, setFeverPct] = useState(0);          // 피버 게이지 0~100
   const [scorePops, setScorePops] = useState<{id:number;r:number;c:number;text:string;big:boolean}[]>([]); // 위치별 점수 팝업
   const [confetti, setConfetti]   = useState<{id:number;left:number;delay:number;color:string;e:string}[]>([]);
   const [coinsEarned, setCoinsEarned] = useState(0);
@@ -928,10 +927,6 @@ export default function LinyDoryGame() {
   const goalsDoneRef = useRef(false);
   const jellyRef     = useRef<boolean[][]>([]);
   const preBoostRef  = useRef<BoosterKind[]>([]);
-  const feverRef       = useRef(0);          // 피버 게이지(로직용)
-  const feverActiveRef = useRef(false);      // 피버 활성 여부(로직용)
-  const feverTmr       = useRef<ReturnType<typeof setTimeout>|null>(null);
-  const feverFxTmr     = useRef<ReturnType<typeof setInterval>|null>(null);
   const lastSwapRef  = useRef<[number,number]|null>(null); // 특수 블럭 생성 위치 보정
   const phaseRef     = useRef<Phase>(phase);
   const boostersRef  = useRef(boosters);
@@ -978,7 +973,7 @@ export default function LinyDoryGame() {
   const push = useCallback((g: Grid) => { gRef.current=g; setGrid(g); }, []);
 
   const inc = useCallback((n: number) => {
-    const gain = feverActiveRef.current ? n * 2 : n;   // 피버 중 점수 2배
+    const gain = n;
     scoreRef.current += gain;
     setScore(scoreRef.current);
     const fid = ++_fid;
@@ -1053,40 +1048,6 @@ export default function LinyDoryGame() {
     setTimeout(() => setScorePops(p => p.filter(s => s.id !== id)), 900);
   }, []);
 
-  // 피버 모드 종료
-  const endFever = useCallback(() => {
-    feverActiveRef.current = false; feverRef.current = 0;
-    setFever(false); setFeverPct(0);
-    if (feverTmr.current) { clearTimeout(feverTmr.current); feverTmr.current = null; }
-    if (feverFxTmr.current) { clearInterval(feverFxTmr.current); feverFxTmr.current = null; }
-  }, []);
-
-  // 피버 진입 — 팡파레 + 화면 흔들림 + 파티클 분사, 7초 지속
-  const activateFever = useCallback(() => {
-    if (feverActiveRef.current) return;
-    feverActiveRef.current = true; setFever(true); setFeverPct(100);
-    sfx.fever(); haptic.success(); kickScreen();
-    pop('🔥 FEVER TIME!', 'special');
-    if (feverFxTmr.current) clearInterval(feverFxTmr.current);
-    feverFxTmr.current = setInterval(() => {
-      const g = gRef.current;
-      const cells: string[] = [];
-      for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) if (g[r]?.[c]) cells.push(`${r},${c}`);
-      for (let k=0;k<3 && cells.length;k++) spawnSparks([cells[Math.floor(Math.random()*cells.length)]]);
-      kickScreen();
-    }, 550);
-    if (feverTmr.current) clearTimeout(feverTmr.current);
-    feverTmr.current = setTimeout(endFever, 7000);
-  }, [pop, kickScreen, spawnSparks, endFever]);
-
-  // 피버 게이지 적립(피버 중엔 적립 안 함) → 가득 차면 피버 진입
-  const addFever = useCallback((amount: number) => {
-    if (feverActiveRef.current) return;
-    feverRef.current = Math.min(100, feverRef.current + amount);
-    setFeverPct(feverRef.current);
-    if (feverRef.current >= 100) activateFever();
-  }, [activateFever]);
-
   useEffect(() => {
     const refresh = () => setCoins(loadCoins());
     window.addEventListener('coins-updated', refresh);
@@ -1152,7 +1113,6 @@ export default function LinyDoryGame() {
 
   const endGame = useCallback(() => {
     clearHint();
-    endFever();
     setShowPause(false);
     const li = lvlRef.current;
     const done = goalsDoneRef.current;
@@ -1204,10 +1164,11 @@ export default function LinyDoryGame() {
     pausedRef.current = true;   // 목표 달성 — 타이머 멈춤
 
     const leftover = Math.max(0, movesRef.current);
-    movesRef.current = 0; setMovesLeft(0);
-    let bonus = Math.min(leftover, 20);
-    if (leftover > 0) { pop(`🎉 남은 ${leftover}수 보너스!`, 'special'); sfx.special(); }
-    while (bonus > 0 && phaseRef.current === 'play') {
+    movesRef.current = 0;
+    let remain = leftover;   // 화면의 남은 이동 — 하나 터질 때마다 1씩 줄어듦
+    setMovesLeft(remain);
+    if (leftover > 0) { pop(`🎉 남은 ${leftover}수 보너스!`, 'special'); sfx.special(); await wait(450); }
+    while (remain > 0 && phaseRef.current === 'play') {
       const g = gRef.current;
       const cells: [number,number][] = [];
       for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) { const cc=g[r][c]; if (cc && !cc.hit && !isHard(cc)) cells.push([r,c]); }
@@ -1216,12 +1177,13 @@ export default function LinyDoryGame() {
       spawnLights([`${r},${c}`]); spawnSparks([`${r},${c}`]); // 빛이 위에서 블럭으로 날아옴
       sfx.swap();
       await wait(180);
+      remain--; setMovesLeft(remain);
       const ng = g.map(row => row.map(x => x ? {...x} : null));
       if (ng[r][c]) ng[r][c]!.hit = true;
       push(ng); inc(300); sfx.pop(4); spawnDust([`${r},${c}`], g); buzz(8);  // 가루 터짐(#1과 동일)
-      bonus--;
-      await wait(120);
+      await wait(Math.max(60, 150 - leftover*4));
     }
+    setMovesLeft(0);
     await wait(300);
     resolvingRef.current = false;
     endGame();
@@ -1362,10 +1324,8 @@ export default function LinyDoryGame() {
     tutorialPlayRef.current=false; setTutorialPlay(false); setTutMatches(0); tutMatchesRef.current=0;
     setFlames([]); setSparks([]); setDust([]); setLights([]); setScreenShake(false); setConfetti([]); setCoinsEarned(0);
     setContinuesUsed(0); setContinueOffer(false); setBlocksPopped(0);
-    // 피버/콤보음 초기화
-    feverRef.current=0; feverActiveRef.current=false; setFever(false); setFeverPct(0); setScorePops([]); resetComboPitch();
-    if (feverTmr.current) { clearTimeout(feverTmr.current); feverTmr.current=null; }
-    if (feverFxTmr.current) { clearInterval(feverFxTmr.current); feverFxTmr.current=null; }
+    // 콤보음 초기화
+    setScorePops([]); resetComboPitch();
     primeAudio();
     const mv = (lvl as {moves?:number}).moves ?? 0; movesRef.current=mv;
     setLvlIdx(idx); setGrid(g); setScore(0); setTime((lvl as {sec?:number}).sec ?? 0);
@@ -1490,8 +1450,6 @@ export default function LinyDoryGame() {
           inc(pts);
           // 매칭 위치에 점수/콤보 팝업
           { const arr=[...res.hits]; if (arr.length) { const [mr,mc]=arr[Math.floor(arr.length/2)].split(',').map(Number); const shown = pts>=1000 ? `${(pts/1000).toFixed(1)}K` : `${pts}`; spawnScorePop(mr, mc, combo>=2 ? `${combo}x +${shown}` : `+${shown}`, combo>=4); } }
-          // 피버 게이지 적립
-          addFever(res.hits.size*2 + combo*2);
           // 사운드/햅틱
           sfx.pop(combo); if (combo >= 4) haptic.medium(); else haptic.light();
           if (combo >= 4) kickScreen();
@@ -1598,7 +1556,7 @@ export default function LinyDoryGame() {
       set.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell=sw[rr][cc]; if(cell&&!isHard(cell)) cell.hit=true; });
       inc(set.size*150);
       setBlocksPopped(n => n + set.size); sessionBlocksRef.current += set.size;
-      spawnFlames(set); spawnDust([...set], sw); kickScreen(); sfx.explode(); haptic.heavy(); addFever(28);
+      spawnFlames(set); spawnDust([...set], sw); kickScreen(); sfx.explode(); haptic.heavy();
       const fid=++_fid; setFlash({ id:fid, color:'rgba(255,120,0,0.5)' }); setTimeout(()=>setFlash(f=>f?.id===fid?null:f),460);
       pop('💥 초대형 폭발!', 'special');
     } else if (srcSpec || dstSpec) {
@@ -1609,7 +1567,7 @@ export default function LinyDoryGame() {
       hits.forEach(key => { const [rr,cc]=key.split(',').map(Number); const cell=sw[rr][cc]; if(cell&&!isHard(cell)) cell.hit=true; });
       inc(hits.size*120);
       setBlocksPopped(n => n + hits.size); sessionBlocksRef.current += hits.size;
-      spawnFlames(hits); spawnDust([...hits], sw); kickScreen(); sfx.explode(); haptic.heavy(); addFever(16);
+      spawnFlames(hits); spawnDust([...hits], sw); kickScreen(); sfx.explode(); haptic.heavy();
       const dk = (srcSpec ? sw[r][c]?.kind : sw[sr][sc]?.kind) ?? 'bomb';
       pop(SPECIAL_LABEL[dk] ?? '💥 발동!', 'special');
     }
@@ -2463,16 +2421,6 @@ export default function LinyDoryGame() {
       </div>
       {/* 콤보 컬러 플래시 */}
       {flash && <div key={flash.id} aria-hidden style={{ position:'absolute', inset:0, zIndex:35, pointerEvents:'none', background:`radial-gradient(circle at 50% 45%, transparent 25%, ${flash.color} 100%)`, animation:'screenFlash 0.42s ease-out forwards' }}/>}
-      {/* 피버 모드 — 화면 외곽 펄스(비네트) + 배너 */}
-      {fever && (
-        <>
-          <div aria-hidden style={{ position:'absolute', inset:0, zIndex:34, pointerEvents:'none', boxShadow:'inset 0 0 70px 22px rgba(255,110,0,0.65), inset 0 0 170px 46px rgba(255,40,90,0.35)', animation:'vignettePulse 0.7s ease-in-out infinite' }}/>
-          <div aria-hidden style={{ position:'absolute', top:'33%', left:0, right:0, zIndex:36, textAlign:'center', pointerEvents:'none' }}>
-            <span style={{ display:'inline-flex', alignItems:'center', gap:6, fontSize:'clamp(32px,9.5vw,48px)', color:'#fff', textShadow:`-2px -2px 0 #C2330B, 2px -2px 0 #C2330B, -2px 2px 0 #C2330B, 2px 2px 0 #C2330B, 0 5px 0 #C2330B, 0 0 26px rgba(255,120,0,0.95)`, animation:'feverBanner 0.5s ease-in-out infinite' }}><GIcon name="flame" size={46} />FEVER<GIcon name="flame" size={46} /></span>
-          </div>
-        </>
-      )}
-
       {/* 상단 HUD — 3칸 패널: 남은 이동 · STAGE 리본+목표 · 별+점수 진행 */}
       <div style={{ flexShrink:0, position:'relative', zIndex:10, margin:'calc(var(--sat) + 40px) 10px 0', zoom:uiK }}>
         <div style={{ display:'flex', alignItems:'stretch', gap:8, padding:8, background:C.cream, borderRadius:28, border:`5px solid ${C.rim}`, boxShadow:`0 0 0 2px ${C.rimDark}, 0 6px 0 2px ${C.rimDark}, 0 14px 22px rgba(10,30,90,0.35), inset 0 0 0 2px #fff` }}>
@@ -2518,17 +2466,6 @@ export default function LinyDoryGame() {
           <Icon name="pause" size={20} color="#fff" />
         </button>
       </div>
-
-      {/* 피버 게이지 */}
-      {phase==='play' && (
-        <div style={{ flexShrink:0, position:'relative', zIndex:10, display:'flex', alignItems:'center', justifyContent:'center', gap:6, margin:'6px 16px 0', zoom:uiK }}>
-          <span style={{ display:'flex', animation: fever ? 'feverBanner 0.5s ease-in-out infinite' : undefined }}><GIcon name="flame" size={24} /></span>
-          <div style={{ flex:1, maxWidth:220, height:8, borderRadius:999, background:'rgba(255,255,255,0.28)', overflow:'hidden', border:'1px solid rgba(255,255,255,0.35)' }}>
-            <div style={{ height:'100%', width:`${feverPct}%`, borderRadius:999, background: fever ? 'linear-gradient(90deg,#FFEB3B,#FF3D00)' : 'linear-gradient(90deg,#FF8C00,#FF3D6E)', transition:'width 0.25s ease', boxShadow: fever ? '0 0 10px rgba(255,120,0,0.95)' : 'none' }}/>
-          </div>
-          <span style={{ fontSize:9, fontWeight:800, color:'white', opacity:0.85, minWidth:34, textAlign:'left' }}>{fever ? 'FEVER' : `${Math.floor(feverPct)}%`}</span>
-        </div>
-      )}
 
       {/* Hint button */}
       {phase==='play' && (
@@ -2864,7 +2801,7 @@ export default function LinyDoryGame() {
             <button className="gbtn green" onClick={()=>{ sfx.click(); pausedRef.current = false; setShowPause(false); }} style={{ height:58, fontSize:24, borderRadius:20 }}>계속하기</button>
             <button className="gbtn blue" onClick={()=>{ sfx.click(); sSet(STREAK_BASE, 0); setStreak(0); startLevel(lvlIdx); }} style={{ height:48, fontSize:19, borderRadius:16 }}>다시하기</button>
             <button className="gbtn cream" onClick={()=>{ const m = toggleMuted(); setMutedState(m); if (!m) { sfx.click(); primeAudio(); startBgm(); } else stopBgm(); }} style={{ height:48, fontSize:18, borderRadius:16, display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}><Icon name={muted ? 'mute' : 'sound'} size={20} color={C.brown} /> {muted ? '소리 켜기' : '소리 끄기'}</button>
-            <button className="gbtn red" onClick={()=>{ sfx.click(); sSet(STREAK_BASE, 0); setStreak(0); endFever(); pausedRef.current = false; setShowPause(false); setSelectedWorld(Math.floor(lvlIdx/STAGES_PER_WORLD)); setPhase('map'); }} style={{ height:48, fontSize:18, borderRadius:16 }}>나가기</button>
+            <button className="gbtn red" onClick={()=>{ sfx.click(); sSet(STREAK_BASE, 0); setStreak(0); pausedRef.current = false; setShowPause(false); setSelectedWorld(Math.floor(lvlIdx/STAGES_PER_WORLD)); setPhase('map'); }} style={{ height:48, fontSize:18, borderRadius:16 }}>나가기</button>
           </Panel>
         </div>
       )}
