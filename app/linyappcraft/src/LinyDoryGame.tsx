@@ -768,6 +768,11 @@ const GAME_CSS = `
     30%  { opacity:1; }
     100% { opacity:0; }
   }
+  @keyframes cloudDrift {
+    0%   { transform:translateX(-6px); }
+    50%  { transform:translateX(10px); }
+    100% { transform:translateX(-6px); }
+  }
   @keyframes tileIdle {
     0%,100% { transform:rotate(0deg); }
     50%     { transform:rotate(1.6deg); }
@@ -807,6 +812,33 @@ const GAME_CSS = `
     100% { opacity:0; transform:translate(-50%,-150%) scale(0.9); }
   }
 `;
+
+// 레퍼런스처럼 살짝 흐릿한 잔디·언덕 풍경 — 이미지 파일 없이 직접 그린 배경
+function PlayBackdrop() {
+  return (
+    <svg aria-hidden viewBox="0 0 100 200" preserveAspectRatio="xMidYMid slice" style={{ position:'absolute', inset:0, width:'100%', height:'100%', zIndex:0, filter:'blur(2.2px)', transform:'scale(1.05)' }}>
+      <defs>
+        <linearGradient id="pb-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#4FAEEE" /><stop offset="0.5" stopColor="#8FD3F7" /><stop offset="1" stopColor="#CFEFFF" /></linearGradient>
+        <linearGradient id="pb-g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#9BD97A" /><stop offset="1" stopColor="#6DB852" /></linearGradient>
+        <linearGradient id="pb-g2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#78C95B" /><stop offset="1" stopColor="#4F9E3B" /></linearGradient>
+        <linearGradient id="pb-g3" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#5DB045" /><stop offset="1" stopColor="#3F8A32" /></linearGradient>
+        <linearGradient id="pb-dirt" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#C9985B" /><stop offset="1" stopColor="#A6733B" /></linearGradient>
+      </defs>
+      <rect width="100" height="200" fill="url(#pb-sky)" />
+      <g style={{ animation:'cloudDrift 60s linear infinite' }} fill="#fff" opacity="0.9">
+        <ellipse cx="18" cy="28" rx="17" ry="5.5" /><ellipse cx="28" cy="24" rx="11" ry="6" /><ellipse cx="66" cy="20" rx="15" ry="4.8" /><ellipse cx="74" cy="17" rx="9" ry="5" /><ellipse cx="86" cy="46" rx="13" ry="4" />
+      </g>
+      <path d="M0 100C18 86 38 96 58 88S90 90 100 82V200H0z" fill="url(#pb-g1)" />
+      <g fill="#4E9B44" opacity="0.8"><circle cx="12" cy="94" r="4.6" /><circle cx="20" cy="92" r="3.6" /><circle cx="82" cy="86" r="4.2" /><circle cx="90" cy="84" r="3.4" /></g>
+      <path d="M0 126C26 108 56 122 100 104V200H0z" fill="url(#pb-g2)" />
+      <path d="M0 152C30 142 70 150 100 140V200H0z" fill="url(#pb-g3)" />
+      <path d="M0 182C30 178 70 184 100 178V200H0z" fill="url(#pb-dirt)" />
+      <g opacity="0.95">
+        {[[10,166,'#FF8FB8'],[22,172,'#FFE066'],[38,168,'#fff'],[58,170,'#FF8FB8'],[74,164,'#FFE066'],[90,170,'#fff'],[16,190,'#FF8FB8'],[84,191,'#FFE066']].map(([x,y,c],i) => <circle key={i} cx={x as number} cy={y as number} r="1.6" fill={c as string} />)}
+      </g>
+    </svg>
+  );
+}
 
 export default function LinyDoryGame() {
   const [phase, setPhase]         = useState<Phase>(import.meta.env.DEV ? 'main' : 'splash');
@@ -1733,9 +1765,6 @@ export default function LinyDoryGame() {
 
   const lvl      = levelDef(lvlIdx);
   const isTime   = lvl.mode === 'time';
-  const maxCond  = isTime ? (lvl as {sec?:number}).sec ?? 60 : (lvl as {moves?:number}).moves ?? 1;
-  const condLeft = isTime ? time : movesLeft;
-  const condPct  = (condLeft / maxCond) * 100;
   // 플레이 중 별: 목표 달성 전엔 점수 구간(0~2), 달성 후엔 클리어 별(1~3)
   const scoreTier = (score >= lvl.goal[1] ? 1 : 0) + (score >= lvl.goal[0] ? 1 : 0);
   const curStars = goalsDone ? clearStars(score, lvl.goal) : scoreTier;
@@ -1749,12 +1778,6 @@ export default function LinyDoryGame() {
     ? <GIcon name="acorn" size={size * 1.05} />
     : <img src={TILES[t]?.img} alt="" style={{ width: size * 1.12, height: size * 1.12, objectFit: 'contain', filter: 'drop-shadow(0 2px 2px rgba(0,0,0,0.45))' }}/>;
   const condLabel = isTime ? `${time}` : `${movesLeft}`;
-  const isWarning = condPct < 25;
-  const condBg = condPct > 50
-    ? 'linear-gradient(180deg,#66BB6A,#2E7D32)'
-    : condPct > 25
-    ? 'linear-gradient(180deg,#FFA726,#E65100)'
-    : 'linear-gradient(180deg,#EF5350,#B71C1C)';
   const curMap = genMap(lvlIdx);
 
   const renderModals = () => (
@@ -2167,13 +2190,13 @@ export default function LinyDoryGame() {
   const totalStars = progress.reduce((a, b) => a + b, 0);
   // 상단 알약 — 왼쪽에 아이콘이 살짝 튀어나온 스티커풍
   const hudPill = (icon: ReactNode, text: ReactNode, onClick: () => void, minW: number, anim?: string) => (
-    <button onClick={() => { sfx.click(); onClick(); }} style={{ position:'relative', display:'flex', alignItems:'center', justifyContent:'space-between', gap:6, height:38, minWidth:minW, padding:'0 4px 0 34px', borderRadius:999, border:'3px solid #fff', cursor:'pointer', background:`linear-gradient(180deg,#2F63C2,${C.rimDark})`, boxShadow:`0 0 0 2px ${C.ink}, 0 4px 0 2px ${C.ink}`, color:'#fff', fontSize:19, animation:anim }}>
+    <button onClick={() => { sfx.click(); onClick(); }} style={{ position:'relative', display:'flex', alignItems:'center', justifyContent:'space-between', gap:6, height:38, minWidth:minW, padding:'0 4px 0 34px', borderRadius:999, border:'2px solid #8EC2FF', cursor:'pointer', background:'linear-gradient(180deg,#2457B8,#133880)', boxShadow:'inset 0 2px 0 rgba(255,255,255,0.28), 0 4px 8px rgba(8,26,80,0.4)', color:'#fff', fontSize:19, animation:anim }}>
       <span style={{ position:'absolute', left:-8, top:'50%', transform:'translateY(-50%)', display:'flex' }}>{icon}</span>
       <span style={{ display:'flex', alignItems:'baseline', gap:5, fontVariantNumeric:'tabular-nums', textShadow:'0 2px 0 rgba(0,0,0,0.35)' }}>{text}</span>
       <GIcon name="plus" size={28} />
     </button>
   );
-  const heartIcon = <img src={`${BASE}characters/life.png`} alt="하트" style={{ width:38, height:38, borderRadius:'50%', objectFit:'cover', border:'3px solid #fff', boxShadow:`0 0 0 2px ${C.ink}` }}/>;
+  const heartIcon = <img src={`${BASE}characters/life.png`} alt="하트" style={{ width:38, height:38, borderRadius:'50%', objectFit:'cover', border:'3px solid #fff', boxShadow:'0 3px 6px rgba(8,26,80,0.45)' }}/>;
   const heartText = <>{lives}<span style={{ fontSize:12, opacity:0.7 }}>/{LIVES_MAX}</span>{lives < LIVES_MAX && lifeTimer > 0 && <span style={{ fontSize:12, color:'#B8F5A8' }}>{Math.floor(lifeTimer/60)}:{String(lifeTimer%60).padStart(2,'0')}</span>}</>;
   const topBar = (
     <div style={{ flexShrink:0, position:'relative', zIndex:20, padding:'calc(var(--sat) + clamp(44px,8vh,52px)) 12px 8px', display:'flex', alignItems:'center', gap:14 }}>
@@ -2197,7 +2220,7 @@ export default function LinyDoryGame() {
         <button key={i} onClick={()=>{ sfx.click(); item.fn(); }} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:1, border:'none', cursor:'pointer', padding:'4px 0',
           background: item.active ? 'linear-gradient(180deg,rgba(255,255,255,0.5),rgba(255,255,255,0.12))' : 'transparent',
           boxShadow: item.active ? 'inset 0 -5px 0 #FFD54A' : 'none' }}>
-          <span style={{ display:'flex', transform: item.active ? 'translateY(-3px) scale(1.14)' : 'none', transition:'transform 0.15s', filter:'drop-shadow(0 3px 0 rgba(20,60,150,0.45))' }}><GIcon name={item.icon} size={38} /></span>
+          <span style={{ display:'flex', transform: item.active ? 'translateY(-3px) scale(1.14)' : 'none', transition:'transform 0.15s', filter:'drop-shadow(0 3px 3px rgba(10,40,120,0.35))' }}><GIcon name={item.icon} size={40} /></span>
           <span style={{ fontSize:13, color:'#fff', textShadow:`0 2px 0 ${C.rimDark}, 0 0 4px ${C.rimDark}` }}>{item.label}</span>
         </button>
       ))}
@@ -2209,26 +2232,26 @@ export default function LinyDoryGame() {
     const curStage = curStageOf(progress);
     const questCnt = QUESTS.filter(qd => qd.metric(quests) >= qd.target && !quests.claimed[qd.key]).length;
     const chestLeft = Math.max(0, Math.min(CHEST_EVERY, totalStars - chestClaimed * CHEST_EVERY));
-    type RailItem = { icon: GIconName; label: string; fn: () => void; hue: string; badge?: string | boolean };
+    type RailItem = { icon: GIconName; label: string; fn: () => void; tone: [string, string, string]; badge?: string | boolean };
     const rail = (it: RailItem, ix: number) => (
       <button key={it.label + ix} onClick={() => { sfx.click(); it.fn(); }}
-        style={{ position:'relative', width:76, display:'flex', flexDirection:'column', alignItems:'center', gap:7, background:'none', border:'none', padding:0, cursor:'pointer', animation:`idleBob ${2.4 + ix * 0.37}s ease-in-out ${ix * 0.23}s infinite` }}>
-        <Medal hue={it.hue} size={58}>
-          <GIcon name={it.icon} size={36} />
-          {it.badge && <span style={{ position:'absolute', top:-8, right:-8, minWidth:24, height:24, padding:'0 5px', borderRadius:999, background:C.red, border:'3px solid #fff', boxShadow:`0 0 0 2px ${C.ink}`, fontSize:13, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', animation:'questBadge 1s ease infinite' }}>{it.badge === true ? '!' : it.badge}</span>}
-        </Medal>
-        <span style={{ padding:'1px 11px 3px', borderRadius:999, background:C.rimDark, border:'2.5px solid #fff', boxShadow:'0 3px 0 #153E86', color:'#fff', fontSize:13, whiteSpace:'nowrap', letterSpacing:0.5 }}>{it.label}</span>
+        style={{ position:'relative', width:76, display:'flex', flexDirection:'column', alignItems:'center', gap:3, background:'none', border:'none', padding:0, cursor:'pointer', animation:`idleBob ${2.4 + ix * 0.37}s ease-in-out ${ix * 0.23}s infinite` }}>
+        <span style={{ position:'relative', display:'flex', width:66, height:66, filter:'drop-shadow(0 6px 5px rgba(8,26,80,0.35))' }}>
+          <GIcon name={it.icon} size={66} />
+          {it.badge && <span style={{ position:'absolute', top:-4, right:-4, minWidth:24, height:24, padding:'0 5px', borderRadius:999, background:'linear-gradient(180deg,#FF7A68,#E0382A)', border:'2.5px solid #fff', boxShadow:'0 2px 5px rgba(10,30,90,0.45)', fontSize:13, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', animation:'questBadge 1s ease infinite' }}>{it.badge === true ? '!' : it.badge}</span>}
+        </span>
+        <span style={{ padding:'1px 11px 3px', borderRadius:999, background:`linear-gradient(180deg,${it.tone[0]},${it.tone[1]})`, border:'2px solid rgba(255,255,255,0.92)', boxShadow:`0 3px 0 ${it.tone[2]}, 0 6px 8px rgba(8,26,80,0.3)`, color:'#fff', fontSize:13, whiteSpace:'nowrap', letterSpacing:0.5, textShadow:`0 1px 0 ${it.tone[2]}` }}>{it.label}</span>
       </button>
     );
     const leftRail: RailItem[] = [
-      { icon:'calendar', label:'출석', hue:'#FF9AA8', fn:()=>window.dispatchEvent(new Event('open-daily-reward')), badge: dailyPending() },
-      { icon:'slot',     label:'룰렛', hue:'#C3A2FF', fn:openRoulette,    badge: sGet<string>(ROU_BASE,'') !== todayStr() },
-      { icon:'gift',     label:`${chestLeft}/${CHEST_EVERY}`, hue:'#FFC36B', fn:claimChest, badge: Math.floor(totalStars / CHEST_EVERY) > chestClaimed },
+      { icon:'calendar', label:'출석', tone:['#FF7A68','#E0382A','#9E2418'], fn:()=>window.dispatchEvent(new Event('open-daily-reward')), badge: dailyPending() },
+      { icon:'slot',     label:'룰렛', tone:['#A98BF7','#7B4CE0','#4F2DA6'], fn:openRoulette,    badge: sGet<string>(ROU_BASE,'') !== todayStr() },
+      { icon:'gift',     label:`${chestLeft}/${CHEST_EVERY}`, tone:['#FFB75A','#F2780F','#A8530A'], fn:claimChest, badge: Math.floor(totalStars / CHEST_EVERY) > chestClaimed },
     ];
     const rightRail: RailItem[] = [
-      { icon:'clip',  label:'퀘스트', hue:'#9BD88F', fn:()=>{ setQuests(loadQuests()); setShowQuests(true); }, badge: questCnt > 0 ? String(questCnt) : false },
-      { icon:'flame', label: streak > 0 ? `${streak}연승` : '연승', hue:'#FFA987', fn:()=>pop(streak > 0 ? `${streak}연승 중! 다음 판에 특수블럭을 들고 시작해요` : '연속으로 클리어하면 특수블럭을 들고 시작해요!', 'special') },
-      { icon:'tag',   label:'세일', hue:'#7FD0FF', fn:()=>{ setShopTab('cash'); setShowShop(true); } },
+      { icon:'clip',  label:'퀘스트', tone:['#7BDC5C','#35A52E','#1F6B1B'], fn:()=>{ setQuests(loadQuests()); setShowQuests(true); }, badge: questCnt > 0 ? String(questCnt) : false },
+      { icon:'flame', label: streak > 0 ? `${streak}연승` : '연승', tone:['#FFB04A','#F2780F','#A8530A'], fn:()=>pop(streak > 0 ? `${streak}연승 중! 다음 판에 특수블럭을 들고 시작해요` : '연속으로 클리어하면 특수블럭을 들고 시작해요!', 'special') },
+      { icon:'tag',   label:'세일', tone:['#5DB4FF','#2A6CE8','#143E9C'], fn:()=>{ setShopTab('cash'); setShowShop(true); } },
     ];
     const sideBtn = (icon: GIconName, label: string, fn: () => void) => (
       <button onClick={() => { sfx.click(); fn(); }} className="gbtn blue" style={{ width:68, height:68, flexShrink:0, padding:0, borderRadius:20, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:0 }}>
@@ -2250,7 +2273,7 @@ export default function LinyDoryGame() {
         </div>
         {/* 상단 바: 프로필 · 하트 · 코인 · 설정 */}
         <div style={{ position:'absolute', top:0, left:0, right:0, zIndex:20, padding:'calc(var(--sat) + clamp(44px,8vh,52px)) 10px 0', display:'flex', alignItems:'center', gap:14 }}>
-          <button onClick={() => { sfx.click(); setShowSettings(true); }} aria-label="프로필" style={{ width:50, height:50, flexShrink:0, borderRadius:15, border:'3px solid #fff', overflow:'hidden', padding:0, cursor:'pointer', background:'radial-gradient(circle at 50% 30%, #FFF3D6, #FFD98A)', boxShadow:`0 0 0 2px ${C.ink}, 0 4px 0 2px ${C.ink}` }}>
+          <button onClick={() => { sfx.click(); setShowSettings(true); }} aria-label="프로필" style={{ width:50, height:50, flexShrink:0, borderRadius:15, border:'3px solid #fff', overflow:'hidden', padding:0, cursor:'pointer', background:'radial-gradient(circle at 50% 30%, #FFF3D6, #FFD98A)', boxShadow:'0 5px 9px rgba(8,26,80,0.45)' }}>
             <img src={`${BASE}characters/face6.png`} alt="" style={{ width:'112%', height:'112%', margin:'-6%', objectFit:'contain' }}/>
           </button>
           {hudPill(heartIcon, heartText, () => setShowShop(true), 92, lifeFly ? 'lifeChipPulse 0.5s ease' : undefined)}
@@ -2417,12 +2440,11 @@ export default function LinyDoryGame() {
 
   // ── Play / End ────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100%', overflow:'hidden', position:'relative', background:'#0c1330', userSelect:'none', animation: screenShake ? 'screenShake 0.32s ease' : undefined }}>
+    <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100%', overflow:'hidden', position:'relative', background:'#5DA8E8', userSelect:'none', animation: screenShake ? 'screenShake 0.32s ease' : undefined }}>
       <style>{GAME_CSS}</style>
 
-      {/* 업로드된 월드 이미지 배경(흐리게) — 블럭은 위 레이어라 흐려지지 않아요 */}
-      <div aria-hidden style={{ position:'absolute', inset:0, zIndex:0, backgroundImage:`url(${worldImg(Math.floor(lvlIdx / STAGES_PER_WORLD))})`, backgroundSize:'cover', backgroundPosition:'center', filter:'blur(9px) brightness(0.9) saturate(1.05)', transform:'scale(1.12)', animation:'bgDrift 22s ease-in-out infinite' }}/>
-      <div aria-hidden style={{ position:'absolute', inset:0, zIndex:0, background:'linear-gradient(180deg, rgba(8,16,50,0.42) 0%, rgba(8,16,50,0.30) 45%, rgba(8,16,50,0.58) 100%)' }}/>
+      {/* 풍경 배경(직접 그림) */}
+      <PlayBackdrop />
       {/* 떠다니는 장식(꽃잎·반짝임) */}
       <div aria-hidden style={{ position:'absolute', inset:0, zIndex:1, pointerEvents:'none', overflow:'hidden' }}>
         {[0,1,2,3,4,5].map(i => (
@@ -2444,74 +2466,51 @@ export default function LinyDoryGame() {
         </>
       )}
 
-      {/* Header white card */}
-      <div style={{ flexShrink:0, position:'relative', zIndex:10, margin:'calc(var(--sat) + 44px) 10px 0', background:'white', borderRadius:26, padding:'9px 11px', boxShadow:'0 6px 22px rgba(0,0,0,0.22)', border:'2px solid rgba(255,255,255,0.9)', display:'flex', alignItems:'center', gap:8 }}>
-        {/* Timer / Moves badge */}
-        <div style={{
-          background: condBg,
-          borderRadius: 16,
-          padding: '6px 14px',
-          minWidth: 56,
-          textAlign: 'center',
-          boxShadow: '0 4px 0 rgba(0,0,0,0.18)',
-          flexShrink: 0,
-          animation: isWarning ? 'pulseWarn 0.55s ease infinite' : undefined,
-        }}>
-          <div style={{ fontSize:'clamp(24px,7vw,30px)', fontWeight:900, color:'white', lineHeight:1 }}>{condLabel}</div>
-          <div style={{ fontSize:8, color:'rgba(255,255,255,0.9)', fontWeight:700, letterSpacing:1, marginTop:1 }}>{isTime?'TIME':'MOVE'}</div>
-        </div>
-        {/* Stage + score bar */}
-        <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:3, position:'relative' }}>
-          <span style={{ fontSize:10, fontWeight:800, color:'#aaa', letterSpacing:2 }}>STAGE {lvlIdx+1}</span>
-          <div style={{ width:'100%', position:'relative', height:8, borderRadius:999, background:'#efefef', overflow:'visible' }}>
-            <div style={{ position:'absolute', left:0, top:0, bottom:0, borderRadius:999, width:`${Math.min((score/lvl.goal[1])*100,100)}%`, background:'linear-gradient(90deg,#FF8C00,#FFD700)', transition:'width 0.3s ease' }}/>
-            {[lvl.goal[0], lvl.goal[1]].map((gv,i) => (
-              <div key={i} style={{ position:'absolute', top:-3, bottom:-3, left:`${(gv/lvl.goal[1])*100}%`, width:2, background:'rgba(0,0,0,0.15)', transform:'translateX(-50%)' }}/>
-            ))}
+      {/* 상단 HUD — 3칸 패널: 남은 이동 · STAGE 리본+목표 · 별+점수 진행 */}
+      <div style={{ flexShrink:0, position:'relative', zIndex:10, margin:'calc(var(--sat) + 40px) 10px 0' }}>
+        <div style={{ display:'flex', alignItems:'stretch', gap:8, padding:8, background:C.cream, borderRadius:28, border:`5px solid ${C.rim}`, boxShadow:`0 0 0 2px ${C.rimDark}, 0 6px 0 2px ${C.rimDark}, 0 14px 22px rgba(10,30,90,0.35), inset 0 0 0 2px #fff` }}>
+          {/* 남은 이동 */}
+          <div style={{ flexShrink:0, width:'clamp(76px,21vw,92px)', borderRadius:20, background:'linear-gradient(180deg,#FFFFFF,#EEF0F5)', border:'3px solid #DCE1EA', boxShadow:'inset 0 -5px 0 #D5DBE6', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'2px 0 4px' }}>
+            <span style={{ fontSize:'clamp(40px,12vw,54px)', lineHeight:1, color: movesLeft<=5 ? '#E5483A' : '#46AE2C', WebkitTextStroke:'2px #fff', paintOrder:'stroke fill', textShadow:'0 3px 0 rgba(0,0,0,0.13)', animation: movesLeft<=5 ? 'pulseWarn 0.6s ease infinite' : undefined }}>{condLabel}</span>
+            <span style={{ fontSize:11, color:C.brownSoft, marginTop:-2 }}>남은 이동</span>
           </div>
-          <span style={{ fontSize:'clamp(17px,5.5vw,22px)', fontWeight:900, color:'#222' }}>{score.toLocaleString()}</span>
-          {/* Floating score numbers */}
-          <div style={{ position:'absolute', top:-8, left:0, right:0, display:'flex', justifyContent:'center', pointerEvents:'none', zIndex:20 }}>
-            {floats.map(f => (
-              <span key={f.id} style={{
-                position:'absolute',
-                fontWeight:900,
-                fontSize:'clamp(13px,3.8vw,16px)',
-                color:'#FF6F00',
-                textShadow:'0 1px 0 rgba(255,255,255,0.8), 0 0 8px rgba(255,140,0,0.6)',
-                animation:'floatUp 1.1s ease-out both',
-                whiteSpace:'nowrap',
-              }}>{f.text}</span>
-            ))}
-          </div>
-        </div>
-        {/* Stars + back button */}
-        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4, flexShrink:0 }}>
-          <div style={{ display:'flex' }}>
-            {[1,2,3].map(s=>(
-              <span key={s} style={{ display:'flex', filter:s<=curStars?'drop-shadow(0 0 5px #FFD700)':'grayscale(1) opacity(0.3)', transition:'filter 0.3s, transform 0.3s', transform:s<=curStars?'scale(1.1)':'scale(1)' }}><GIcon name="star" size={18} /></span>
-            ))}
-          </div>
-          <button onClick={()=>{ sfx.click(); pausedRef.current = true; setShowPause(true); }} aria-label="일시정지" style={{ background:'#eef1f5', border:'1px solid rgba(0,0,0,0.08)', borderRadius:10, cursor:'pointer', padding:'4px 7px', lineHeight:1, display:'flex', boxShadow:'0 2px 0 rgba(0,0,0,0.08)' }}><Icon name="pause" size={17} color="#4b5563" /></button>
-        </div>
-      </div>
-
-      {/* 수집 목표 — 블럭 아이콘 + 남은 개수(달성 시 ✓) */}
-      {phase==='play' && (
-        <div style={{ flexShrink:0, position:'relative', zIndex:10, display:'flex', justifyContent:'center', margin:'6px 10px 0' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:'clamp(8px,3vw,14px)', background:'rgba(255,255,255,0.92)', borderRadius:18, padding:'5px 14px', boxShadow:'0 3px 10px rgba(0,0,0,0.22)', border:'2px solid rgba(255,255,255,0.9)' }}>
-            <span style={{ fontSize:10, fontWeight:900, color:'#888', letterSpacing:1 }}>목표</span>
+          {/* STAGE 리본 + 목표 */}
+          <div style={{ position:'relative', flex:1, minWidth:0, borderRadius:20, background:'linear-gradient(180deg,#D6E8F8,#C3DCF0)', border:'3px solid #B2CFE8', boxShadow:'inset 0 3px 0 rgba(255,255,255,0.65)', padding:'22px 6px 6px', display:'flex', justifyContent:'center', alignItems:'center', gap:'clamp(8px,3vw,14px)' }}>
+            <div style={{ position:'absolute', top:-13, left:0, right:0, display:'flex', justifyContent:'center' }}><Ribbon size={14}>STAGE {lvlIdx+1}</Ribbon></div>
             {targets.map((x, i) => (
-              <div key={i} style={{ position:'relative', display:'flex', alignItems:'center', gap:4 }}>
-                {targetIcon(x.t, 26)}
+              <div key={i} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:1, minWidth:34 }}>
+                <div style={{ height:38, display:'flex', alignItems:'center' }}>{targetIcon(x.t, 36)}</div>
                 {x.left > 0
-                  ? <span style={{ fontSize:15, fontWeight:900, color:'#1a1a2e', minWidth:18, fontVariantNumeric:'tabular-nums' }}>{x.left}</span>
-                  : <span style={{ fontSize:16, fontWeight:900, color:'#2E9E4F', animation:'starPop 0.5s cubic-bezier(0.34,1.56,0.64,1) both' }}>✓</span>}
+                  ? <span style={{ fontSize:20, lineHeight:1, color:C.brown, fontVariantNumeric:'tabular-nums', WebkitTextStroke:'1.5px #fff', paintOrder:'stroke fill' }}>{x.left}</span>
+                  : <span style={{ width:20, height:20, borderRadius:'50%', background:'#58B04A', display:'flex', alignItems:'center', justifyContent:'center', animation:'starPop 0.5s cubic-bezier(0.34,1.56,0.64,1) both' }}><GIcon name="check" size={13} /></span>}
               </div>
             ))}
           </div>
+          {/* 별 + 점수 진행 */}
+          <div style={{ position:'relative', flexShrink:0, width:'clamp(84px,24vw,106px)', borderRadius:20, background:'linear-gradient(180deg,#FFFFFF,#EEF0F5)', border:'3px solid #DCE1EA', boxShadow:'inset 0 -5px 0 #D5DBE6', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:5, padding:'4px 6px' }}>
+            <div style={{ display:'flex', alignItems:'flex-end', gap:0 }}>
+              {[1,2,3].map(n => (
+                <span key={n} style={{ display:'flex', marginBottom: n===2 ? 4 : 0, filter: n<=curStars ? 'drop-shadow(0 0 5px rgba(255,200,0,0.9))' : 'grayscale(1) brightness(1.2)', opacity: n<=curStars ? 1 : 0.55, transition:'filter 0.3s, opacity 0.3s, transform 0.3s', transform: n<=curStars ? 'scale(1.12)' : 'scale(1)' }}><GIcon name="star" size={n===2 ? 30 : 26} /></span>
+              ))}
+            </div>
+            <div style={{ position:'relative', width:'100%', height:13, borderRadius:999, background:'#2B3358', boxShadow:'inset 0 2px 3px rgba(0,0,0,0.5)', overflow:'hidden' }}>
+              <div style={{ position:'absolute', left:0, top:0, bottom:0, width:`${Math.min((score/lvl.goal[1])*100,100)}%`, borderRadius:999, background:'linear-gradient(180deg,#FFE27A,#FFB300)', transition:'width 0.3s ease' }}/>
+              {[lvl.goal[0]].map((gv,i) => <div key={i} style={{ position:'absolute', top:0, bottom:0, left:`${(gv/lvl.goal[1])*100}%`, width:2, background:'rgba(255,255,255,0.7)' }}/>)}
+            </div>
+            <span style={{ fontSize:15, lineHeight:1, color:C.brown, fontVariantNumeric:'tabular-nums' }}>{score.toLocaleString()}</span>
+            {/* 점수 떠오르는 숫자 */}
+            <div style={{ position:'absolute', top:-6, left:0, right:0, display:'flex', justifyContent:'center', pointerEvents:'none', zIndex:20 }}>
+              {floats.map(f => (
+                <span key={f.id} style={{ position:'absolute', fontSize:'clamp(15px,4.2vw,18px)', color:'#FF8A00', textShadow:'0 2px 0 #fff, 0 0 8px rgba(255,170,0,0.7)', animation:'floatUp 1.1s ease-out both', whiteSpace:'nowrap' }}>{f.text}</span>
+              ))}
+            </div>
+          </div>
         </div>
-      )}
+        {/* 헤더 우상단 정지 버튼 */}
+        <button onClick={()=>{ sfx.click(); pausedRef.current = true; setShowPause(true); }} aria-label="일시정지" className="gbtn blue" style={{ position:'absolute', top:-13, right:-6, width:42, height:42, padding:0, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', zIndex:12 }}>
+          <Icon name="pause" size={20} color="#fff" />
+        </button>
+      </div>
 
       {/* 피버 게이지 */}
       {phase==='play' && (
@@ -2535,7 +2534,7 @@ export default function LinyDoryGame() {
 
       {/* 하트 감소 강조 토스트 (스테이지 시작 시 3초) */}
       {phase==='play' && lifeLossToast && (
-        <div style={{ position:'absolute', top:'calc(var(--sat) + 78px)', left:0, right:0, zIndex:27, display:'flex', justifyContent:'center', pointerEvents:'none' }}>
+        <div style={{ position:'absolute', top:'calc(var(--sat) + 205px)', left:0, right:0, zIndex:27, display:'flex', justifyContent:'center', pointerEvents:'none' }}>
           <div style={{ display:'flex', alignItems:'center', gap:8, padding:'3px 18px 5px 6px', borderRadius:999, background:'linear-gradient(180deg,#FF8576 0%,#FF8576 48%,#E5483A 52%,#E5483A 100%)', border:'4px solid #fff', boxShadow:`0 0 0 3px ${C.ink}, 0 6px 0 3px ${C.ink}, 0 10px 16px rgba(0,0,0,0.35)`, animation:'comboIn 0.4s cubic-bezier(0.34,1.56,0.64,1) both' }}>
             <img src={`${BASE}characters/life.png`} alt="" style={{ width:30, height:30, borderRadius:'50%', objectFit:'cover', border:'2px solid #fff' }}/>
             <span style={{ fontSize:20, color:'#fff', textShadow:'0 2px 0 #8E2217' }}>하트 −1</span>
@@ -2583,23 +2582,28 @@ export default function LinyDoryGame() {
       {/* Grid */}
       <div style={{ flex:1, minHeight:0, display:'flex', alignItems:'center', justifyContent:'center', position:'relative', zIndex:10, padding:'6px 6px clamp(8px,2vh,14px)' }}>
         {/* 보드: 정사각. 컬럼 폭과 세로 가용공간 중 작은 값에 맞춰 리사이징(index.css .board-fit) — 모든 폰·태블릿 대응 */}
-        <div className="board-fit" style={{ padding:'clamp(3px,1vw,6px)', borderRadius:22, background:'rgba(18,24,44,0.5)', border:'3px solid rgba(232,238,250,0.55)', boxShadow:'inset 0 2px 10px rgba(0,0,0,0.4), 0 8px 26px rgba(0,0,0,0.4)' }}>
+        <div className="board-fit" style={{ padding:'clamp(5px,1.4vw,8px)' }}>
           <div
             onPointerMove={onGridPointerMove}
             onPointerUp={onGridPointerUp}
             onPointerLeave={onGridPointerUp}
             onPointerCancel={() => { dragRef.current = null; }}
-            style={{ position:'relative', display:'grid', gridTemplateColumns:`repeat(${COLS},1fr)`, gap:'clamp(1px,0.5vw,3px)', touchAction:'none' }}>
-            {/* 젤리 칸 표시 레이어(일반 칸은 투명) */}
-            <div aria-hidden style={{ position:'absolute', inset:0, display:'grid', gridTemplateColumns:`repeat(${COLS},1fr)`, gap:'clamp(1px,0.5vw,3px)', zIndex:0, pointerEvents:'none' }}>
-              {Array.from({ length: ROWS * COLS }, (_, i) => {
-                const r = Math.floor(i / COLS), c = i % COLS;
-                const socketCell = grid[r]?.[c];
-                const isJ = !!jelly[r]?.[c];
-                if (!socketCell && !isJ) return <div key={i} style={{ aspectRatio:'1' }}/>;
-                if (isJ) return <div key={i} style={{ aspectRatio:'1', borderRadius:'26%', background:'linear-gradient(145deg, rgba(255,140,205,0.95), rgba(214,64,150,0.95))', border:'3px solid #FFB3DE', boxShadow:'0 0 14px 2px rgba(255,90,175,0.85), inset 0 2px 6px rgba(255,255,255,0.6)', transform:'scale(1.06)' }}/>;
-                return <div key={i} style={{ aspectRatio:'1' }}/>;   // 일반 칸은 홈(검은 네모) 없이 투명 — 젤리 칸만 색 표시
-              })}
+            style={{ position:'relative', display:'grid', gridTemplateColumns:`repeat(${COLS},1fr)`, gap:'var(--g)', touchAction:'none', ['--g' as string]:'clamp(1px,0.5vw,3px)' } as CSSProperties}>
+            {/* 판: 블럭이 있는 칸(레벨 모양)만 회색 칸으로, 칸들이 이어진 모양 둘레에 밝은 테두리 — 젤리 칸은 분홍 */}
+            <div aria-hidden style={{ position:'absolute', inset:0, zIndex:0, pointerEvents:'none' }}>
+              {(['rim','base','tile'] as const).map(layer => (
+                <div key={layer} style={{ position:'absolute', inset:0, display:'grid', gridTemplateColumns:`repeat(${COLS},1fr)`, gap:'var(--g)' }}>
+                  {Array.from({ length: ROWS * COLS }, (_, i) => {
+                    const r = Math.floor(i / COLS), c = i % COLS;
+                    if (curMap[r]?.[c] !== 1) return <div key={i} style={{ aspectRatio:'1' }}/>;
+                    if (layer === 'rim')  return <div key={i} style={{ aspectRatio:'1', borderRadius:11, background:'#E4EAF3', boxShadow:'0 0 0 calc(var(--g) + 4px) #E4EAF3, 0 6px 14px 4px rgba(10,30,90,0.3)' }}/>;
+                    if (layer === 'base') return <div key={i} style={{ aspectRatio:'1', borderRadius:11, background:'#2E343E', boxShadow:'0 0 0 var(--g) #2E343E' }}/>;
+                    return jelly[r]?.[c]
+                      ? <div key={i} style={{ aspectRatio:'1', borderRadius:11, background:'linear-gradient(145deg, rgba(255,150,208,0.95), rgba(214,64,150,0.95))', boxShadow:'inset 0 3px 0 rgba(255,255,255,0.45), 0 0 12px 2px rgba(255,90,175,0.8)' }}/>
+                      : <div key={i} style={{ aspectRatio:'1', borderRadius:11, background:'linear-gradient(180deg,#505865,#3F4651)', boxShadow:'inset 0 2px 0 rgba(255,255,255,0.12), inset 0 -3px 0 rgba(0,0,0,0.18)' }}/>;
+                  })}
+                </div>
+              ))}
             </div>
             {/* 폭탄·아이템 사용 시 터지는 칸에 불길 효과 */}
             {flames.map(f => (
@@ -2800,15 +2804,13 @@ export default function LinyDoryGame() {
         </div>
       )}
 
-      {/* Booster bar — 캐릭터 아바타 + 원형 부스터 (레퍼런스 스타일) */}
+      {/* 하단 — 캐릭터 아바타(좌) + 파란 유리 구슬 아이템(우) */}
       {phase==='play' && (
-        <div style={{ flexShrink:0, position:'relative', zIndex:12, display:'flex', alignItems:'flex-end', gap:'clamp(6px,2vw,12px)', padding:'6px 10px calc(var(--sab) + 10px)', maxWidth:440, margin:'0 auto', width:'100%' }}>
-          {/* 캐릭터 아바타 */}
-          <div style={{ flexShrink:0, width:'clamp(50px,14vw,62px)', aspectRatio:'1', borderRadius:16, overflow:'hidden', border:'3px solid #ffffff', boxShadow:'0 5px 12px rgba(0,0,0,0.35)', background:'radial-gradient(circle at 50% 30%, #FFF3D6, #FFD98A)', animation:'avatarPop 3.2s ease-in-out infinite' }}>
-            <img src={`${BASE}characters/face6.png`} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
+        <div style={{ flexShrink:0, position:'relative', zIndex:12, display:'flex', alignItems:'flex-end', gap:10, padding:'4px 12px calc(var(--sab) + 12px) 12px', maxWidth:460, margin:'0 auto', width:'100%', boxSizing:'border-box' }}>
+          <div style={{ flexShrink:0, width:'clamp(54px,15vw,68px)', aspectRatio:'1', borderRadius:18, overflow:'hidden', border:'4px solid #fff', boxShadow:'0 6px 12px rgba(10,30,90,0.4)', background:'radial-gradient(circle at 50% 30%, #FFF3D6, #FFD98A)', animation:'avatarPop 3.2s ease-in-out infinite' }}>
+            <img src={`${BASE}characters/face6.png`} alt="" style={{ width:'112%', height:'112%', margin:'-6%', maxWidth:'none', objectFit:'contain' }}/>
           </div>
-          {/* 원형 부스터들 */}
-          <div style={{ flex:1, display:'flex', flexWrap:'wrap', alignItems:'center', justifyContent:'center', gap:'clamp(8px,2.6vw,14px)' }}>
+          <div style={{ flex:1, display:'flex', flexWrap:'wrap', justifyContent:'flex-end', gap:'10px clamp(8px,2.4vw,12px)' }}>
           {BOOSTERS.map(b => {
             const cnt = boosters[b.kind];
             const armed = boosterMode === b.kind;
@@ -2822,22 +2824,26 @@ export default function LinyDoryGame() {
                 }}
                 aria-label={b.name}
                 style={{
-                  position:'relative', width:'clamp(50px,14vw,60px)', aspectRatio:'1', borderRadius:18, padding:0, cursor:'pointer',
+                  position:'relative', width:'clamp(52px,14.5vw,62px)', aspectRatio:'1', borderRadius:'50%', padding:0, cursor:'pointer',
                   display:'flex', alignItems:'center', justifyContent:'center',
-                  background: armed ? '#FFE9A8' : C.cream, border:`3px solid ${armed ? C.orange : '#fff'}`,
-                  boxShadow: armed ? `0 0 0 2px ${C.orangeDark}, 0 0 14px rgba(255,170,40,0.9), 0 4px 0 2px ${C.orangeDark}` : `0 0 0 2px ${C.ink}, 0 4px 0 2px ${C.ink}`,
-                  opacity: cnt <= 0 ? 0.55 : 1, transition:'all 0.15s ease', transform: armed ? 'translateY(-4px)' : 'none',
+                  background: armed ? 'radial-gradient(circle at 35% 25%, #FFF3C4 0%, #FFC25A 55%, #F58A1F 100%)' : 'radial-gradient(circle at 35% 25%, #DDF2FF 0%, #6FBFF6 52%, #2C80D8 100%)',
+                  border:'3px solid rgba(255,255,255,0.95)',
+                  boxShadow: armed ? '0 0 18px rgba(255,170,40,0.95), 0 6px 9px rgba(10,30,90,0.4)' : '0 6px 9px rgba(10,30,90,0.4), inset 0 -6px 9px rgba(20,70,170,0.4)',
+                  opacity: cnt <= 0 ? 0.62 : 1, transition:'all 0.15s ease', transform: armed ? 'translateY(-5px) scale(1.06)' : 'none',
                 }}>
-                <GIcon name={BOOSTER_ICON[b.kind]} size={36} />
-                <span style={{ position:'absolute', bottom:-8, right:-8, minWidth:23, height:23, padding:'0 5px', borderRadius:999,
-                  background: cnt > 0 ? C.orange : '#9AA3B2', border:'3px solid #fff', boxShadow:`0 0 0 2px ${C.ink}`, color:'#fff', fontSize:13,
+                <span aria-hidden style={{ position:'absolute', top:'5%', left:'16%', width:'68%', height:'38%', borderRadius:'50%', background:'linear-gradient(180deg,rgba(255,255,255,0.8),rgba(255,255,255,0))', pointerEvents:'none' }}/>
+                <span style={{ display:'flex', position:'relative', zIndex:1 }}><GIcon name={BOOSTER_ICON[b.kind]} bare size="clamp(30px,8.4vw,36px)" /></span>
+                <span style={{ position:'absolute', bottom:-6, right:-6, minWidth:24, height:24, padding:'0 5px', borderRadius:999, zIndex:2,
+                  background: cnt > 0 ? 'linear-gradient(180deg,#FFB347,#F2780F)' : '#9AA3B2', border:'3px solid #fff', boxShadow:'0 2px 4px rgba(10,30,90,0.4)', color:'#fff', fontSize:14,
                   display:'flex', alignItems:'center', justifyContent:'center' }}>{cnt}</span>
               </button>
             );
           })}
-          <button onClick={() => setShowShop(true)} aria-label="상점" className="gbtn blue"
-            style={{ width:'clamp(50px,14vw,60px)', aspectRatio:'1', borderRadius:18, padding:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <GIcon name="shop" size={34} />
+          <button onClick={() => setShowShop(true)} aria-label="상점"
+            style={{ position:'relative', width:'clamp(52px,14.5vw,62px)', aspectRatio:'1', borderRadius:'50%', padding:0, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center',
+              background:'radial-gradient(circle at 35% 25%, #FFF3C4 0%, #FFC25A 55%, #F58A1F 100%)', border:'3px solid rgba(255,255,255,0.95)', boxShadow:'0 6px 9px rgba(10,30,90,0.4), inset 0 -6px 9px rgba(180,90,10,0.35)' }}>
+            <span aria-hidden style={{ position:'absolute', top:'5%', left:'16%', width:'68%', height:'38%', borderRadius:'50%', background:'linear-gradient(180deg,rgba(255,255,255,0.8),rgba(255,255,255,0))', pointerEvents:'none' }}/>
+            <span style={{ display:'flex', position:'relative', zIndex:1 }}><GIcon name="shop" size="clamp(30px,8.4vw,36px)" /></span>
           </button>
           </div>
         </div>
