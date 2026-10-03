@@ -52,8 +52,8 @@ html, body {
   aspect-ratio: 1 / 1;
   max-width: 100%;
   max-height: 100%;
-  width: min(100%, calc(100vh - 356px));
-  width: min(100%, calc(100dvh - 356px));
+  width: min(100%, calc(100vh - var(--rsv, 356px)));
+  width: min(100%, calc(100dvh - var(--rsv, 356px)));
 }
 
 /* ── 도톰한 입체 버튼 (색은 --t 위쪽 / --b 아래쪽 / --e 두꺼운 아랫면) ── */

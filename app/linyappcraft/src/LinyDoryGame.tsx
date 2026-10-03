@@ -841,6 +841,13 @@ function PlayBackdrop() {
 }
 
 export default function LinyDoryGame() {
+  // 플레이 화면 배율 — 360px 폭 기준으로 설계, 넓은 화면(태블릿·넓은 인앱 브라우저)에서는 HUD·아이템이 비례해 커져요
+  const [uiK, setUiK] = useState(() => Math.min(1.6, Math.max(1, (document.getElementById('root')?.clientWidth || 360) / 360)));
+  useEffect(() => {
+    const on = () => setUiK(Math.min(1.6, Math.max(1, (document.getElementById('root')?.clientWidth || 360) / 360)));
+    window.addEventListener('resize', on);
+    return () => window.removeEventListener('resize', on);
+  }, []);
   const [phase, setPhase]         = useState<Phase>(import.meta.env.DEV ? 'main' : 'splash');
   const [loadPct, setLoadPct]     = useState(0);
   const [lvlIdx, setLvlIdx]       = useState(0);
@@ -2467,15 +2474,15 @@ export default function LinyDoryGame() {
       )}
 
       {/* 상단 HUD — 3칸 패널: 남은 이동 · STAGE 리본+목표 · 별+점수 진행 */}
-      <div style={{ flexShrink:0, position:'relative', zIndex:10, margin:'calc(var(--sat) + 40px) 10px 0' }}>
+      <div style={{ flexShrink:0, position:'relative', zIndex:10, margin:'calc(var(--sat) + 40px) 10px 0', zoom:uiK }}>
         <div style={{ display:'flex', alignItems:'stretch', gap:8, padding:8, background:C.cream, borderRadius:28, border:`5px solid ${C.rim}`, boxShadow:`0 0 0 2px ${C.rimDark}, 0 6px 0 2px ${C.rimDark}, 0 14px 22px rgba(10,30,90,0.35), inset 0 0 0 2px #fff` }}>
           {/* 남은 이동 */}
-          <div style={{ flexShrink:0, width:'clamp(76px,21vw,92px)', borderRadius:20, background:'linear-gradient(180deg,#FFFFFF,#EEF0F5)', border:'3px solid #DCE1EA', boxShadow:'inset 0 -5px 0 #D5DBE6', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'2px 0 4px' }}>
-            <span style={{ fontSize:'clamp(40px,12vw,54px)', lineHeight:1, color: movesLeft<=5 ? '#E5483A' : '#46AE2C', WebkitTextStroke:'2px #fff', paintOrder:'stroke fill', textShadow:'0 3px 0 rgba(0,0,0,0.13)', animation: movesLeft<=5 ? 'pulseWarn 0.6s ease infinite' : undefined }}>{condLabel}</span>
+          <div style={{ flexShrink:0, width:86, borderRadius:20, background:'linear-gradient(180deg,#FFFFFF,#EEF0F5)', border:'3px solid #DCE1EA', boxShadow:'inset 0 -5px 0 #D5DBE6', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'2px 0 4px' }}>
+            <span style={{ fontSize:50, lineHeight:1, color: movesLeft<=5 ? '#E5483A' : '#46AE2C', WebkitTextStroke:'2px #fff', paintOrder:'stroke fill', textShadow:'0 3px 0 rgba(0,0,0,0.13)', animation: movesLeft<=5 ? 'pulseWarn 0.6s ease infinite' : undefined }}>{condLabel}</span>
             <span style={{ fontSize:11, color:C.brownSoft, marginTop:-2 }}>남은 이동</span>
           </div>
           {/* STAGE 리본 + 목표 */}
-          <div style={{ position:'relative', flex:1, minWidth:0, borderRadius:20, background:'linear-gradient(180deg,#D6E8F8,#C3DCF0)', border:'3px solid #B2CFE8', boxShadow:'inset 0 3px 0 rgba(255,255,255,0.65)', padding:'22px 6px 6px', display:'flex', justifyContent:'center', alignItems:'center', gap:'clamp(8px,3vw,14px)' }}>
+          <div style={{ position:'relative', flex:1, minWidth:0, borderRadius:20, background:'linear-gradient(180deg,#D6E8F8,#C3DCF0)', border:'3px solid #B2CFE8', boxShadow:'inset 0 3px 0 rgba(255,255,255,0.65)', padding:'22px 6px 6px', display:'flex', justifyContent:'center', alignItems:'center', gap:12 }}>
             <div style={{ position:'absolute', top:-13, left:0, right:0, display:'flex', justifyContent:'center' }}><Ribbon size={14}>STAGE {lvlIdx+1}</Ribbon></div>
             {targets.map((x, i) => (
               <div key={i} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:1, minWidth:34 }}>
@@ -2487,7 +2494,7 @@ export default function LinyDoryGame() {
             ))}
           </div>
           {/* 별 + 점수 진행 */}
-          <div style={{ position:'relative', flexShrink:0, width:'clamp(84px,24vw,106px)', borderRadius:20, background:'linear-gradient(180deg,#FFFFFF,#EEF0F5)', border:'3px solid #DCE1EA', boxShadow:'inset 0 -5px 0 #D5DBE6', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:5, padding:'4px 6px' }}>
+          <div style={{ position:'relative', flexShrink:0, width:100, borderRadius:20, background:'linear-gradient(180deg,#FFFFFF,#EEF0F5)', border:'3px solid #DCE1EA', boxShadow:'inset 0 -5px 0 #D5DBE6', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:5, padding:'4px 6px' }}>
             <div style={{ display:'flex', alignItems:'flex-end', gap:0 }}>
               {[1,2,3].map(n => (
                 <span key={n} style={{ display:'flex', marginBottom: n===2 ? 4 : 0, filter: n<=curStars ? 'drop-shadow(0 0 5px rgba(255,200,0,0.9))' : 'grayscale(1) brightness(1.2)', opacity: n<=curStars ? 1 : 0.55, transition:'filter 0.3s, opacity 0.3s, transform 0.3s', transform: n<=curStars ? 'scale(1.12)' : 'scale(1)' }}><GIcon name="star" size={n===2 ? 30 : 26} /></span>
@@ -2514,7 +2521,7 @@ export default function LinyDoryGame() {
 
       {/* 피버 게이지 */}
       {phase==='play' && (
-        <div style={{ flexShrink:0, position:'relative', zIndex:10, display:'flex', alignItems:'center', justifyContent:'center', gap:6, margin:'6px 16px 0' }}>
+        <div style={{ flexShrink:0, position:'relative', zIndex:10, display:'flex', alignItems:'center', justifyContent:'center', gap:6, margin:'6px 16px 0', zoom:uiK }}>
           <span style={{ display:'flex', animation: fever ? 'feverBanner 0.5s ease-in-out infinite' : undefined }}><GIcon name="flame" size={24} /></span>
           <div style={{ flex:1, maxWidth:220, height:8, borderRadius:999, background:'rgba(255,255,255,0.28)', overflow:'hidden', border:'1px solid rgba(255,255,255,0.35)' }}>
             <div style={{ height:'100%', width:`${feverPct}%`, borderRadius:999, background: fever ? 'linear-gradient(90deg,#FFEB3B,#FF3D00)' : 'linear-gradient(90deg,#FF8C00,#FF3D6E)', transition:'width 0.25s ease', boxShadow: fever ? '0 0 10px rgba(255,120,0,0.95)' : 'none' }}/>
@@ -2534,7 +2541,7 @@ export default function LinyDoryGame() {
 
       {/* 하트 감소 강조 토스트 (스테이지 시작 시 3초) */}
       {phase==='play' && lifeLossToast && (
-        <div style={{ position:'absolute', top:'calc(var(--sat) + 205px)', left:0, right:0, zIndex:27, display:'flex', justifyContent:'center', pointerEvents:'none' }}>
+        <div style={{ position:'absolute', top:`calc(var(--sat) + ${Math.round(215*uiK)}px)`, left:0, right:0, zIndex:27, display:'flex', justifyContent:'center', pointerEvents:'none' }}>
           <div style={{ display:'flex', alignItems:'center', gap:8, padding:'3px 18px 5px 6px', borderRadius:999, background:'linear-gradient(180deg,#FF8576 0%,#FF8576 48%,#E5483A 52%,#E5483A 100%)', border:'4px solid #fff', boxShadow:`0 0 0 3px ${C.ink}, 0 6px 0 3px ${C.ink}, 0 10px 16px rgba(0,0,0,0.35)`, animation:'comboIn 0.4s cubic-bezier(0.34,1.56,0.64,1) both' }}>
             <img src={`${BASE}characters/life.png`} alt="" style={{ width:30, height:30, borderRadius:'50%', objectFit:'cover', border:'2px solid #fff' }}/>
             <span style={{ fontSize:20, color:'#fff', textShadow:'0 2px 0 #8E2217' }}>하트 −1</span>
@@ -2582,7 +2589,7 @@ export default function LinyDoryGame() {
       {/* Grid */}
       <div style={{ flex:1, minHeight:0, display:'flex', alignItems:'center', justifyContent:'center', position:'relative', zIndex:10, padding:'6px 6px clamp(8px,2vh,14px)' }}>
         {/* 보드: 정사각. 컬럼 폭과 세로 가용공간 중 작은 값에 맞춰 리사이징(index.css .board-fit) — 모든 폰·태블릿 대응 */}
-        <div className="board-fit" style={{ padding:'clamp(5px,1.4vw,8px)' }}>
+        <div className="board-fit" style={{ padding:'clamp(5px,1.4vw,8px)', ['--rsv' as string]: `${Math.round(300*uiK)}px` }}>
           <div
             onPointerMove={onGridPointerMove}
             onPointerUp={onGridPointerUp}
@@ -2806,11 +2813,11 @@ export default function LinyDoryGame() {
 
       {/* 하단 — 캐릭터 아바타(좌) + 파란 유리 구슬 아이템(우) */}
       {phase==='play' && (
-        <div style={{ flexShrink:0, position:'relative', zIndex:12, display:'flex', alignItems:'flex-end', gap:10, padding:'4px 12px calc(var(--sab) + 12px) 12px', maxWidth:460, margin:'0 auto', width:'100%', boxSizing:'border-box' }}>
-          <div style={{ flexShrink:0, width:'clamp(54px,15vw,68px)', aspectRatio:'1', borderRadius:18, overflow:'hidden', border:'4px solid #fff', boxShadow:'0 6px 12px rgba(10,30,90,0.4)', background:'radial-gradient(circle at 50% 30%, #FFF3D6, #FFD98A)', animation:'avatarPop 3.2s ease-in-out infinite' }}>
+        <div style={{ flexShrink:0, position:'relative', zIndex:12, display:'flex', alignItems:'flex-end', gap:6, padding:'4px 12px calc(var(--sab) + 12px) 12px', width:'100%', boxSizing:'border-box', zoom:uiK }}>
+          <div style={{ flexShrink:0, width:48, aspectRatio:'1', borderRadius:16, overflow:'hidden', border:'4px solid #fff', boxShadow:'0 6px 12px rgba(10,30,90,0.4)', background:'radial-gradient(circle at 50% 30%, #FFF3D6, #FFD98A)', animation:'avatarPop 3.2s ease-in-out infinite' }}>
             <img src={`${BASE}characters/face6.png`} alt="" style={{ width:'112%', height:'112%', margin:'-6%', maxWidth:'none', objectFit:'contain' }}/>
           </div>
-          <div style={{ flex:1, display:'flex', flexWrap:'wrap', justifyContent:'flex-end', gap:'10px clamp(8px,2.4vw,12px)' }}>
+          <div style={{ flex:1, display:'flex', flexWrap:'wrap', justifyContent:'flex-end', gap:'8px 6px' }}>
           {BOOSTERS.map(b => {
             const cnt = boosters[b.kind];
             const armed = boosterMode === b.kind;
@@ -2824,7 +2831,7 @@ export default function LinyDoryGame() {
                 }}
                 aria-label={b.name}
                 style={{
-                  position:'relative', width:'clamp(52px,14.5vw,62px)', aspectRatio:'1', borderRadius:'50%', padding:0, cursor:'pointer',
+                  position:'relative', width:50, aspectRatio:'1', borderRadius:'50%', padding:0, cursor:'pointer',
                   display:'flex', alignItems:'center', justifyContent:'center',
                   background: armed ? 'radial-gradient(circle at 35% 25%, #FFF3C4 0%, #FFC25A 55%, #F58A1F 100%)' : 'radial-gradient(circle at 35% 25%, #DDF2FF 0%, #6FBFF6 52%, #2C80D8 100%)',
                   border:'3px solid rgba(255,255,255,0.95)',
@@ -2832,7 +2839,7 @@ export default function LinyDoryGame() {
                   opacity: cnt <= 0 ? 0.62 : 1, transition:'all 0.15s ease', transform: armed ? 'translateY(-5px) scale(1.06)' : 'none',
                 }}>
                 <span aria-hidden style={{ position:'absolute', top:'5%', left:'16%', width:'68%', height:'38%', borderRadius:'50%', background:'linear-gradient(180deg,rgba(255,255,255,0.8),rgba(255,255,255,0))', pointerEvents:'none' }}/>
-                <span style={{ display:'flex', position:'relative', zIndex:1 }}><GIcon name={BOOSTER_ICON[b.kind]} bare size="clamp(30px,8.4vw,36px)" /></span>
+                <span style={{ display:'flex', position:'relative', zIndex:1 }}><GIcon name={BOOSTER_ICON[b.kind]} bare size={30} /></span>
                 <span style={{ position:'absolute', bottom:-6, right:-6, minWidth:24, height:24, padding:'0 5px', borderRadius:999, zIndex:2,
                   background: cnt > 0 ? 'linear-gradient(180deg,#FFB347,#F2780F)' : '#9AA3B2', border:'3px solid #fff', boxShadow:'0 2px 4px rgba(10,30,90,0.4)', color:'#fff', fontSize:14,
                   display:'flex', alignItems:'center', justifyContent:'center' }}>{cnt}</span>
@@ -2840,10 +2847,10 @@ export default function LinyDoryGame() {
             );
           })}
           <button onClick={() => setShowShop(true)} aria-label="상점"
-            style={{ position:'relative', width:'clamp(52px,14.5vw,62px)', aspectRatio:'1', borderRadius:'50%', padding:0, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center',
+            style={{ position:'relative', width:50, aspectRatio:'1', borderRadius:'50%', padding:0, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center',
               background:'radial-gradient(circle at 35% 25%, #FFF3C4 0%, #FFC25A 55%, #F58A1F 100%)', border:'3px solid rgba(255,255,255,0.95)', boxShadow:'0 6px 9px rgba(10,30,90,0.4), inset 0 -6px 9px rgba(180,90,10,0.35)' }}>
             <span aria-hidden style={{ position:'absolute', top:'5%', left:'16%', width:'68%', height:'38%', borderRadius:'50%', background:'linear-gradient(180deg,rgba(255,255,255,0.8),rgba(255,255,255,0))', pointerEvents:'none' }}/>
-            <span style={{ display:'flex', position:'relative', zIndex:1 }}><GIcon name="shop" size="clamp(30px,8.4vw,36px)" /></span>
+            <span style={{ display:'flex', position:'relative', zIndex:1 }}><GIcon name="shop" size={30} /></span>
           </button>
           </div>
         </div>
