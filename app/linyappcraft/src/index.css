@@ -1,7 +1,9 @@
 @import "tailwindcss";
 
 :root {
-  font-family: sans-serif;
+  /* 둥글둥글한 게임용 글꼴(Jua) — 기본 시스템 글꼴의 밋밋한 느낌을 없애요 */
+  font-family: 'Jua', 'Noto Sans KR', 'Apple SD Gothic Neo', system-ui, sans-serif;
+  font-synthesis: none;   /* 굵게(700+)를 가짜로 덧칠하지 않고 Jua 원래 두께로 */
   --sat: env(safe-area-inset-top, 0px);
   --sar: env(safe-area-inset-right, 0px);
   --sab: env(safe-area-inset-bottom, 0px);
@@ -53,3 +55,18 @@ html, body {
   width: min(100%, calc(100vh - 356px));
   width: min(100%, calc(100dvh - 356px));
 }
+
+/* ── 도톰한 입체 버튼 (색은 --t 위쪽 / --b 아래쪽 / --e 두꺼운 아랫면) ── */
+.gbtn {
+  position: relative; border: 4px solid #fff; border-radius: 20px; color: #fff; cursor: pointer; font: inherit;
+  background: linear-gradient(180deg, var(--t) 0%, var(--t) 48%, var(--b) 52%, var(--b) 100%);
+  box-shadow: 0 6px 0 var(--e), 0 10px 14px rgba(0, 0, 0, 0.28), inset 0 2px 0 rgba(255, 255, 255, 0.35);
+  white-space: nowrap; text-shadow: 0 2px 0 var(--e); transition: transform 0.08s, box-shadow 0.08s;
+}
+.gbtn:active { transform: translateY(5px); box-shadow: 0 1px 0 var(--e), 0 3px 6px rgba(0, 0, 0, 0.25); }
+.gbtn[disabled] { filter: grayscale(0.85) brightness(1.08); cursor: default; }
+.gbtn.blue   { --t: #5DB4FF; --b: #2A6CE8; --e: #143E9C; }
+.gbtn.green  { --t: #7BE060; --b: #35A52E; --e: #1C6B1B; }
+.gbtn.orange { --t: #FFC25A; --b: #F58A1F; --e: #A8530A; }
+.gbtn.red    { --t: #FF7E6B; --b: #E0412D; --e: #8E2217; }
+.gbtn.cream  { --t: #FFFBEF; --b: #F3DDB0; --e: #B89556; color: #5B3F22; text-shadow: none; }

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { addCoins } from './quest';
 import { sGet, sSet } from './store';
+import { C, Panel, Ribbon, CloseBtn, GIcon } from './ui';
 
 const DR_BASE = 'daily_reward_v1';
 
@@ -24,151 +25,93 @@ function calc(): { show: boolean; streak: number; reward: number } {
   return { show: true, streak, reward: REWARDS[(streak - 1) % 7] };
 }
 
+/** 오늘 아직 받지 않은 출석 보상이 있는지(홈 아이콘 배지용) */
+export function dailyPending(): boolean { return calc().show; }
+
 function claimReward(streak: number, reward: number) {
   sSet(DR_BASE, { lastDate: todayStr(), streak });
   addCoins(reward);
 }
 
 const CSS = `
-  @keyframes drBounce {
-    0%,100% { transform: translateY(0); }
-    50%      { transform: translateY(-6px); }
-  }
   @keyframes drPop {
     0%   { opacity:0; transform:scale(0.7) translateY(30px); }
-    70%  { transform:scale(1.05) translateY(-4px); }
+    70%  { transform:scale(1.04) translateY(-4px); }
     100% { opacity:1; transform:scale(1) translateY(0); }
   }
-  @keyframes drShine {
-    0%,100% { opacity:0.6; }
-    50%      { opacity:1; }
+  @keyframes drToday {
+    0%,100% { transform:translateY(0) scale(1); }
+    50%      { transform:translateY(-4px) scale(1.05); }
   }
 `;
 
 export default function DailyReward() {
-  const [closed, setClosed] = useState(false);
+  const [open, setOpen] = useState(() => calc().show);   // 앱을 켠 날 아직 못 받았으면 자동으로 열려요
   const [, setTick] = useState(0);
 
-  // 로그인(계정 전환)으로 저장소 스코프가 바뀌면 다시 평가
+  // 홈의 출석 아이콘으로 다시 열기 / 로그인(계정 전환) 시 다시 평가
   useEffect(() => {
-    const refresh = () => { setClosed(false); setTick(t => t + 1); };
+    const show = () => { setTick(t => t + 1); setOpen(true); };
+    const refresh = () => { setTick(t => t + 1); setOpen(calc().show); };
+    window.addEventListener('open-daily-reward', show);
     window.addEventListener('scope-changed', refresh);
-    return () => window.removeEventListener('scope-changed', refresh);
+    return () => { window.removeEventListener('open-daily-reward', show); window.removeEventListener('scope-changed', refresh); };
   }, []);
 
-  const { show, streak, reward } = calc();
+  if (!open) return null;
+
+  const { show: pending, streak, reward } = calc();
   const daySlot = (streak - 1) % 7;
+  const close = () => setOpen(false);
 
-  if (!show || closed) return null;
-
-  const streakEmoji = streak >= 7 ? '🔥🔥🔥' : streak >= 3 ? '🔥🔥' : '🔥';
+  // 하루 칸 — 지난 날은 체크, 오늘은 통통 튀는 선물, 앞으로의 날은 보상 코인
+  const tile = (i: number) => {
+    const isPast = pending ? i < daySlot : i <= daySlot;
+    const isToday = pending && i === daySlot;
+    const last = i === 6;
+    return (
+      <div key={i} style={{
+        gridColumn: last ? 'span 2' : undefined, position: 'relative', borderRadius: 16, padding: '20px 4px 8px', minHeight: 84,
+        background: isToday ? '#FFF0B8' : isPast ? '#DDF3CF' : C.creamDeep,
+        border: `3px solid ${isToday ? C.orange : isPast ? '#7CC66B' : C.creamLine}`,
+        boxShadow: isToday ? `0 0 0 2px ${C.orangeDark}, 0 0 14px rgba(255,170,40,0.8)` : 'inset 0 -4px 0 rgba(0,0,0,0.06)',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3,
+        animation: isToday ? 'drToday 1.3s ease-in-out infinite' : undefined,
+      }}>
+        <span style={{ position: 'absolute', top: -2, left: '50%', transform: 'translateX(-50%)', padding: '0 10px 2px', borderRadius: '0 0 10px 10px', background: isToday ? C.orange : isPast ? '#58B04A' : '#B9A27A', color: '#fff', fontSize: 12, whiteSpace: 'nowrap' }}>
+          {isToday ? '오늘' : `${i + 1}일`}
+        </span>
+        <GIcon name={isPast ? 'check' : last ? 'gift' : 'coin'} size={last ? 40 : 32} style={isPast ? { background: '#58B04A', borderRadius: '50%', padding: 5, boxSizing: 'content-box', width: 24, height: 24 } : undefined} />
+        <span style={{ fontSize: last ? 20 : 16, color: C.brown }}>{REWARDS[i].toLocaleString()}</span>
+      </div>
+    );
+  };
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 9999,
-      background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      padding: '20px',
-    }}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(14,34,84,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <style>{CSS}</style>
-      <div style={{
-        width: '100%', maxWidth: 360,
-        background: 'linear-gradient(160deg,#1a0535 0%,#0d1a3a 60%,#0a0d1a 100%)',
-        borderRadius: 28, overflow: 'hidden',
-        border: '2px solid rgba(255,180,0,0.45)',
-        boxShadow: '0 0 60px rgba(255,140,0,0.3), 0 20px 60px rgba(0,0,0,0.8)',
-        animation: 'drPop 0.45s cubic-bezier(0.34,1.56,0.64,1) both',
-      }}>
-        {/* Header */}
-        <div style={{
-          padding: '20px 20px 14px',
-          background: 'linear-gradient(135deg,rgba(255,140,0,0.15),rgba(180,0,255,0.1))',
-          borderBottom: '1px solid rgba(255,180,0,0.2)',
-          textAlign: 'center',
-        }}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: 'rgba(255,220,100,0.8)', letterSpacing: 2, marginBottom: 4 }}>📅 출석 체크</div>
-          <div style={{ fontSize: 32, fontWeight: 900, color: '#FFD700', lineHeight: 1.1 }}>
-            {streakEmoji} {streak}일 연속!
+      <Panel maxWidth={348} style={{ padding: '34px 14px 16px', animation: 'drPop 0.45s cubic-bezier(0.34,1.56,0.64,1) both' }}>
+        <div style={{ position: 'absolute', top: -26, left: 0, right: 0, display: 'flex', justifyContent: 'center' }}><Ribbon size={22}>출석 체크</Ribbon></div>
+        <CloseBtn onClick={close} />
+        <div style={{ textAlign: 'center', color: C.brown, marginBottom: 12 }}>
+          <div style={{ fontSize: 26, lineHeight: 1.1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <GIcon name="flame" size={30} /> {streak}일 연속 출석!
           </div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 4 }}>
-            {streak >= 7 ? '완벽한 한 주 달성! 🎉' : `7일 연속 출석 시 특별 보상`}
-          </div>
+          <div style={{ fontSize: 13, color: C.brownSoft, marginTop: 3 }}>{streak >= 7 ? '완벽한 한 주! 7일째 보너스를 받아요' : '7일 연속 출석하면 1,000코인을 드려요'}</div>
         </div>
-
-        {/* 7-day grid */}
-        <div style={{ padding: '16px 16px 12px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
-            {REWARDS.map((_, i) => {
-              const isPast = i < daySlot;
-              const isToday = i === daySlot;
-              return (
-                <div key={i} style={{
-                  borderRadius: 10, padding: '6px 2px',
-                  background: isToday
-                    ? 'linear-gradient(135deg,#FF8C00,#FFD700)'
-                    : isPast
-                    ? 'rgba(255,180,0,0.12)'
-                    : 'rgba(255,255,255,0.05)',
-                  border: isToday
-                    ? '2px solid #FFE566'
-                    : isPast
-                    ? '1px solid rgba(255,180,0,0.3)'
-                    : '1px solid rgba(255,255,255,0.1)',
-                  boxShadow: isToday ? '0 0 16px rgba(255,180,0,0.6)' : 'none',
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
-                  position: 'relative',
-                  animation: isToday ? 'drShine 1.5s ease infinite' : 'none',
-                }}>
-                  <span style={{ fontSize: 8, fontWeight: 800, color: isToday ? 'white' : 'rgba(255,255,255,0.4)' }}>
-                    {i + 1}일
-                  </span>
-                  <span style={{ fontSize: isPast ? 14 : 11, lineHeight: 1 }}>
-                    {isPast ? '✅' : isToday ? '🎁' : i === 6 ? '👑' : '📦'}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 7 }}>
+          {REWARDS.map((_, i) => tile(i))}
         </div>
-
-        {/* Today's reward */}
-        <div style={{
-          margin: '0 16px 16px',
-          padding: '14px',
-          background: 'rgba(255,180,0,0.08)',
-          borderRadius: 16, border: '1px solid rgba(255,180,0,0.25)',
-          textAlign: 'center',
-        }}>
-          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', marginBottom: 4, letterSpacing: 1 }}>오늘의 보상</div>
-          <div style={{
-            fontSize: 22, fontWeight: 900, color: '#FFD700',
-            textShadow: '0 0 20px rgba(255,200,0,0.8)',
-            animation: 'drBounce 1.5s ease infinite',
-          }}>
-            🪙 ×{reward.toLocaleString()}
-          </div>
+        <div style={{ marginTop: 14 }}>
+          {pending ? (
+            <button className="gbtn green" onClick={() => { claimReward(streak, reward); close(); }} style={{ width: '100%', height: 58, fontSize: 24, letterSpacing: 1 }}>
+              보상 받기 · {reward.toLocaleString()}
+            </button>
+          ) : (
+            <button className="gbtn cream" onClick={close} style={{ width: '100%', height: 54, fontSize: 20 }}>오늘은 받았어요 · 내일 또 만나요</button>
+          )}
         </div>
-
-        {/* Collect button */}
-        <div style={{ padding: '0 16px 20px' }}>
-          <button
-            onClick={() => { claimReward(streak, reward); setClosed(true); }}
-            style={{
-              width: '100%', padding: '15px',
-              borderRadius: 999, border: 'none', cursor: 'pointer',
-              background: 'linear-gradient(135deg,#FF8C00 0%,#FFD700 50%,#FF8C00 100%)',
-              backgroundSize: '200% 100%',
-              color: '#3D1C00', fontWeight: 900, fontSize: 18, letterSpacing: 1,
-              boxShadow: '0 6px 0 #8B4500, 0 10px 30px rgba(255,140,0,0.5)',
-              transition: 'transform 0.1s, box-shadow 0.1s',
-            }}
-            onTouchStart={e => { e.currentTarget.style.transform = 'scale(0.97)'; e.currentTarget.style.boxShadow = '0 3px 0 #8B4500, 0 6px 20px rgba(255,140,0,0.4)'; }}
-            onTouchEnd={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = '0 6px 0 #8B4500, 0 10px 30px rgba(255,140,0,0.5)'; }}
-          >
-            🎁 보상 수령하기
-          </button>
-        </div>
-      </div>
+      </Panel>
     </div>
   );
 }
