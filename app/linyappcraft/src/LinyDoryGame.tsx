@@ -256,7 +256,7 @@ const TUTORIAL_STEPS = [
 interface Cell { id: number; t: number; kind: TileKind; hit: boolean; hp?: number; }
 type GridCell = Cell | null;
 type Grid = GridCell[][];
-type Phase = 'splash' | 'main' | 'map' | 'play' | 'end';
+type Phase = 'splash' | 'main' | 'worlds' | 'map' | 'play' | 'end';
 
 let _uid = 0;
 let _fid = 0;
@@ -620,6 +620,14 @@ const GAME_CSS = `
     0%,100% { transform:scale(1.04); filter:drop-shadow(0 0 6px rgba(255,240,60,0.6)); }
     50%      { transform:scale(1.14); filter:drop-shadow(0 0 14px rgba(255,240,60,1)) drop-shadow(0 0 5px #ffc800); }
   }
+  @keyframes homeBreath {
+    0%,100% { transform:scale(1) translateY(0); }
+    50%      { transform:scale(1.02) translateY(-7px); }
+  }
+  @keyframes homeStage {
+    0%,100% { transform:scale(1); }
+    50%      { transform:scale(1.04); }
+  }
   @keyframes specialPulse {
     0%,100% { transform:scale(1); }
     50%      { transform:scale(1.07); }
@@ -908,7 +916,7 @@ export default function LinyDoryGame() {
 
   // 홈 진입 시 현재 도전 중인 월드가 보이도록 스크롤(월드가 무한히 늘어남)
   useEffect(() => {
-    if (phase !== 'main') return;
+    if (phase !== 'worlds') return;
     const el = worldScrollRef.current?.querySelector('[data-curworld]') as HTMLElement | null;
     if (el && worldScrollRef.current) worldScrollRef.current.scrollTop = Math.max(0, el.offsetTop - worldScrollRef.current.clientHeight / 2 + el.clientHeight / 2);
   }, [phase]);
@@ -1052,7 +1060,7 @@ export default function LinyDoryGame() {
 
   // 게임 BGM: 메인/맵/플레이 중 재생, 스플래시·종료 화면에선 정지
   useEffect(() => {
-    const playing = phase === 'main' || phase === 'map' || phase === 'play';
+    const playing = phase === 'main' || phase === 'worlds' || phase === 'map' || phase === 'play';
     if (playing && !muted) startBgm();
     else stopBgm();
     return () => stopBgm();
@@ -1060,7 +1068,7 @@ export default function LinyDoryGame() {
 
   // 오디오 잠금 해제(첫 제스처) — 게임 중이면 BGM 시작
   useEffect(() => {
-    const unlock = () => { primeAudio(); const p = phaseRef.current; if ((p === 'main' || p === 'map' || p === 'play') && !isMuted()) startBgm(); };
+    const unlock = () => { primeAudio(); const p = phaseRef.current; if ((p === 'main' || p === 'worlds' || p === 'map' || p === 'play') && !isMuted()) startBgm(); };
     window.addEventListener('pointerdown', unlock);
     return () => window.removeEventListener('pointerdown', unlock);
   }, []);
@@ -1245,7 +1253,8 @@ export default function LinyDoryGame() {
       else           { pausedRef.current = true;  setShowPause(true); }
       return;
     }
-    if (p === 'map')  { setPhase('main'); return; }
+    if (p === 'map')  { setPhase('worlds'); return; }
+    if (p === 'worlds') { setPhase('main'); return; }
     if (p === 'main') { setShowExit(true); return; }   // 메인에서 뒤로가기 → 종료 확인 모달(검수 필수)
   };
   useEffect(() => {
@@ -2257,22 +2266,114 @@ export default function LinyDoryGame() {
     </div>
   );
   const bottomNav = (
-    <div style={{ flexShrink:0, paddingBottom:'var(--sab)', background:'rgba(5,10,30,0.92)', borderTop:'1.5px solid rgba(255,255,255,0.1)', display:'flex', alignItems:'center', justifyContent:'space-around', minHeight:'clamp(54px,7.5vh,68px)' }}>
+    <div style={{ flexShrink:0, position:'relative', zIndex:25, paddingBottom:'var(--sab)', background:'linear-gradient(180deg,#5CC0F2 0%,#2D86D2 100%)', borderTop:'3px solid rgba(255,255,255,0.7)', boxShadow:'0 -4px 14px rgba(0,0,0,0.3)', display:'flex', alignItems:'stretch', minHeight:'clamp(62px,8.5vh,76px)' }}>
       {([
-        {icon:'home'   as const, label:'홈',   fn:()=>setPhase('main'),     active: phase==='main' },
-        {icon:'shop'   as const, label:'상점', fn:()=>setShowShop(true),    active:false},
-        {icon:'gear'   as const, label:'설정', fn:()=>setShowSettings(true), active:false},
+        {icon:'shop' as const, label:'상점',   fn:()=>setShowShop(true),     active:false},
+        {icon:'home' as const, label:'홈',     fn:()=>setPhase('main'),      active: phase==='main'},
+        {icon:'map'  as const, label:'월드맵', fn:()=>setPhase('worlds'),    active: phase==='worlds' || phase==='map'},
+        {icon:'gear' as const, label:'설정',   fn:()=>setShowSettings(true), active:false},
       ]).map((item,i)=>(
-        <button key={i} onClick={item.fn} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3, background:'none', border:'none', cursor:'pointer', padding:'6px 14px', filter:item.active?'drop-shadow(0 0 6px rgba(255,179,0,0.6))':'none' }}>
-          <Icon name={item.icon} size={23} color={item.active?'#FFB300':'rgba(255,255,255,0.55)'} />
-          <span style={{ fontSize:10, fontWeight:700, color:item.active?'#FFB300':'rgba(255,255,255,0.45)' }}>{item.label}</span>
+        <button key={i} onClick={()=>{ sfx.click(); item.fn(); }} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:3, border:'none', cursor:'pointer', padding:'6px 0',
+          background: item.active ? 'linear-gradient(180deg,rgba(255,255,255,0.4),rgba(255,255,255,0.06))' : 'transparent',
+          borderBottom: item.active ? '4px solid #FFE566' : '4px solid transparent' }}>
+          <span style={{ display:'flex', transform: item.active ? 'translateY(-2px) scale(1.15)' : 'none', transition:'transform 0.15s', filter:'drop-shadow(0 2px 2px rgba(0,0,0,0.35))' }}><Icon name={item.icon} size={30} color="#ffffff" /></span>
+          <span style={{ fontSize:11.5, fontWeight:900, color:'#ffffff', textShadow:'0 1px 3px rgba(0,0,0,0.55)' }}>{item.label}</span>
         </button>
       ))}
     </div>
   );
 
-  // ── Main = 월드(미니맵) 선택 ────────────────────────────────────────────────
+  // ── 홈(메인): 애니팡식 — 꽉 찬 일러스트 + 상단 바 + 좌우 이벤트 + 큰 STAGE 버튼 ───────────
   if (phase === 'main') {
+    const curStage = curStageOf(progress);
+    const questCnt = QUESTS.filter(qd => qd.metric(quests) >= qd.target && !quests.claimed[qd.key]).length;
+    const chestLeft = Math.max(0, Math.min(CHEST_EVERY, totalStars - chestClaimed * CHEST_EVERY));
+    type RailItem = { e: string; label: string; fn: () => void; hue: string; badge?: string | boolean };
+    const rail = (it: RailItem, ix: number) => (
+      <button key={it.label + ix} onClick={() => { sfx.click(); it.fn(); }}
+        style={{ position:'relative', width:72, display:'flex', flexDirection:'column', alignItems:'center', gap:3, background:'none', border:'none', padding:0, cursor:'pointer', animation:`idleBob ${2.4 + ix * 0.37}s ease-in-out ${ix * 0.23}s infinite` }}>
+        <span style={{ position:'relative', width:60, height:60, borderRadius:'50%', background:`radial-gradient(circle at 50% 26%, #ffffff 0%, ${it.hue} 80%)`, border:'3px solid #ffffff', boxShadow:'0 6px 12px rgba(0,0,0,0.38), inset 0 -4px 8px rgba(0,0,0,0.12)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:32, lineHeight:1 }}>
+          <span style={{ filter:'drop-shadow(0 2px 2px rgba(0,0,0,0.3))' }}>{it.e}</span>
+          {it.badge && <span style={{ position:'absolute', top:-5, right:-5, minWidth:20, height:20, padding:'0 4px', borderRadius:999, background:'#FF3030', border:'2px solid #fff', fontSize:11, color:'#fff', fontWeight:900, display:'flex', alignItems:'center', justifyContent:'center', animation:'questBadge 1s ease infinite' }}>{it.badge === true ? '!' : it.badge}</span>}
+        </span>
+        <span style={{ padding:'2px 9px', borderRadius:999, background:'rgba(18,38,112,0.88)', border:'2px solid rgba(255,255,255,0.85)', color:'#fff', fontSize:11, fontWeight:900, whiteSpace:'nowrap', boxShadow:'0 2px 5px rgba(0,0,0,0.35)' }}>{it.label}</span>
+      </button>
+    );
+    const leftRail: RailItem[] = [
+      { e:'📅', label:'출석', hue:'#FF8A9B', fn:claimAttendance, badge: sGet<string>(ATT_BASE,'') !== todayStr() },
+      { e:'🎰', label:'룰렛', hue:'#B388FF', fn:openRoulette,    badge: sGet<string>(ROU_BASE,'') !== todayStr() },
+      { e:'🎁', label:`${chestLeft}/${CHEST_EVERY}`, hue:'#FFB74D', fn:claimChest, badge: Math.floor(totalStars / CHEST_EVERY) > chestClaimed },
+    ];
+    const rightRail: RailItem[] = [
+      { e:'📋', label:'퀘스트', hue:'#81C784', fn:()=>{ setQuests(loadQuests()); setShowQuests(true); }, badge: questCnt > 0 ? String(questCnt) : false },
+      { e:'🔥', label: streak > 0 ? `${streak}연승` : '연승', hue:'#FF8A65', fn:()=>pop(streak > 0 ? `🔥 ${streak}연승 중! 다음 판에 특수블럭을 들고 시작해요` : '연속으로 클리어하면 특수블럭을 들고 시작해요!', 'special') },
+      { e:'🏷️', label:'세일', hue:'#4FC3F7', fn:()=>{ setShopTab('cash'); setShowShop(true); } },
+    ];
+    const sideBtn = (e: string, label: string, fn: () => void) => (
+      <button onClick={() => { sfx.click(); fn(); }} style={{ position:'relative', width:64, height:64, flexShrink:0, borderRadius:18, border:'3px solid #fff', cursor:'pointer', background:'linear-gradient(180deg,#5CC0FF 0%,#2F7BFF 52%,#1D5AE0 100%)', boxShadow:'0 5px 0 #0B3A9E, 0 9px 16px rgba(0,0,0,0.38)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:1, color:'#fff' }}>
+        <span style={{ fontSize:26, lineHeight:1, filter:'drop-shadow(0 2px 2px rgba(0,0,0,0.35))' }}>{e}</span>
+        <span style={{ fontSize:10.5, fontWeight:900, textShadow:'0 1px 3px rgba(0,0,0,0.5)' }}>{label}</span>
+      </button>
+    );
+    const pill = (children: React.ReactNode, onClick: () => void) => (
+      <button onClick={() => { sfx.click(); onClick(); }} style={{ display:'flex', alignItems:'center', gap:6, height:40, padding:'0 5px 0 5px', borderRadius:999, border:'2px solid rgba(255,255,255,0.4)', cursor:'pointer', background:'rgba(8,24,72,0.66)', color:'#fff', boxShadow:'0 3px 8px rgba(0,0,0,0.3)' }}>{children}</button>
+    );
+    const plus = <span style={{ width:26, height:26, borderRadius:'50%', background:'linear-gradient(180deg,#5CC0FF,#2F7BFF)', border:'2px solid #fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:17, fontWeight:900, lineHeight:1 }}>+</span>;
+    return (
+      <div style={{ position:'relative', display:'flex', flexDirection:'column', width:'100%', height:'100%', overflow:'hidden', userSelect:'none', background:'linear-gradient(180deg,#0758c2 0%,#2372cc 14%,#473717 80%,#1b2a5e 100%)', containerType:'inline-size' } as CSSProperties}>
+        <style>{GAME_CSS}</style>
+        {/* 배경: 일러스트(제목·캐릭터)를 화면 폭보다 살짝 크게 깔고 위·아래는 이미지 가장자리 색 그라데이션으로 이어붙여요. 천천히 숨쉬듯 움직여요 */}
+        <img src={`${BASE}characters/MAIN.png`} alt="리니와도리의 가시소동" draggable={false} style={{ position:'absolute', left:'-9%', width:'118%', maxWidth:'none', top:'calc(var(--sat) + 76px)', pointerEvents:'none', WebkitMaskImage:'linear-gradient(180deg, transparent 0, #000 7%, #000 76%, transparent 100%)', maskImage:'linear-gradient(180deg, transparent 0, #000 7%, #000 76%, transparent 100%)', animation:'homeBreath 6s ease-in-out infinite' }}/>
+        <div aria-hidden style={{ position:'absolute', left:0, right:0, bottom:0, height:'38%', background:'linear-gradient(180deg, transparent 0%, rgba(10,44,110,0.55) 100%)', pointerEvents:'none' }}/>
+        {/* 떠다니는 꽃잎·반짝임 */}
+        <div aria-hidden style={{ position:'absolute', inset:0, pointerEvents:'none', overflow:'hidden', zIndex:2 }}>
+          {['🌸','🍃','🌼','✨','🌸','🍃'].map((e,i) => (
+            <span key={i} style={{ position:'absolute', top:'-6%', left:`${8+i*16}%`, fontSize:`${14+(i%3)*5}px`, opacity:0.85, animation:`petalFall ${10+i*1.9}s linear ${i*1.5}s infinite` }}>{e}</span>
+          ))}
+        </div>
+        {/* 상단 바: 프로필 · 하트 · 코인 · 설정 */}
+        <div style={{ position:'absolute', top:0, left:0, right:0, zIndex:20, padding:'calc(var(--sat) + clamp(44px,8vh,52px)) 10px 0', display:'flex', alignItems:'center', gap:7 }}>
+          <button onClick={() => { sfx.click(); setShowSettings(true); }} aria-label="프로필" style={{ width:48, height:48, flexShrink:0, borderRadius:14, border:'3px solid #fff', overflow:'hidden', padding:0, cursor:'pointer', background:'radial-gradient(circle at 50% 30%, #FFF3D6, #FFD98A)', boxShadow:'0 4px 10px rgba(0,0,0,0.35)' }}>
+            <img src={`${BASE}characters/face6.png`} alt="" style={{ width:'112%', height:'112%', margin:'-6%', objectFit:'contain' }}/>
+          </button>
+          {pill(<>
+            <img src={`${BASE}characters/life.png`} alt="하트" style={{ width:30, height:30, borderRadius:'50%', objectFit:'cover', border:'2px solid #fff' }}/>
+            <span style={{ fontSize:15, fontWeight:900, fontVariantNumeric:'tabular-nums' }}>{lives}<span style={{ fontSize:10.5, opacity:0.65 }}>/{LIVES_MAX}</span></span>
+            {lives < LIVES_MAX && lifeTimer > 0 && <span style={{ fontSize:11, fontWeight:800, color:'#9EE6A0', fontVariantNumeric:'tabular-nums' }}>{Math.floor(lifeTimer/60)}:{String(lifeTimer%60).padStart(2,'0')}</span>}
+            {plus}
+          </>, () => setShowShop(true))}
+          {pill(<>
+            <span style={{ width:30, height:30, borderRadius:'50%', background:'radial-gradient(circle at 40% 30%, #FFF59D, #FFB300)', border:'2px solid #fff', display:'flex', alignItems:'center', justifyContent:'center' }}><Icon name="coin" size={18} color="#8A5A00" /></span>
+            <span style={{ fontSize:15, fontWeight:900, color:'#FFE566', fontVariantNumeric:'tabular-nums' }}>{coins.toLocaleString()}</span>
+            {plus}
+          </>, () => { setShopTab('cash'); setShowShop(true); })}
+          <div style={{ flex:1 }}/>
+          <button onClick={() => { sfx.click(); setShowSettings(true); }} aria-label="설정" style={{ width:42, height:42, flexShrink:0, borderRadius:'50%', border:'3px solid #fff', cursor:'pointer', background:'linear-gradient(180deg,#5CC0FF,#2F7BFF)', boxShadow:'0 4px 10px rgba(0,0,0,0.35)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <Icon name="gear" size={22} color="#fff" />
+          </button>
+        </div>
+        {/* 좌우 이벤트 아이콘 */}
+        <div style={{ position:'absolute', left:6, top:'calc(var(--sat) + 82px + 47cqw)', zIndex:15, display:'flex', flexDirection:'column', gap:12 }}>{leftRail.map(rail)}</div>
+        <div style={{ position:'absolute', right:6, top:'calc(var(--sat) + 82px + 47cqw)', zIndex:15, display:'flex', flexDirection:'column', gap:12 }}>{rightRail.map(rail)}</div>
+        {/* 큰 STAGE 버튼 */}
+        <div style={{ position:'absolute', left:0, right:0, bottom:'calc(var(--sab) + clamp(62px,8.5vh,76px) + 14px)', zIndex:20, display:'flex', alignItems:'center', justifyContent:'center', gap:10, padding:'0 12px' }}>
+          {sideBtn('🗺️', '월드맵', () => setPhase('worlds'))}
+          <button onClick={() => { sfx.click(); setSelectedWorld(Math.floor(curStage / STAGES_PER_WORLD)); setStagePopup(curStage); }}
+            style={{ position:'relative', flex:1, maxWidth:260, height:70, borderRadius:999, border:'4px solid rgba(255,255,255,0.95)', cursor:'pointer', background:'linear-gradient(180deg,#63C4FF 0%,#2F7BFF 48%,#1B55D9 52%,#2C6CF2 100%)', boxShadow:'0 7px 0 #0B3A9E, 0 13px 24px rgba(0,0,0,0.42)', color:'#fff', fontSize:30, fontWeight:900, letterSpacing:1, textShadow:'0 3px 0 rgba(8,40,130,0.65), 0 0 14px rgba(120,200,255,0.8)', animation:'homeStage 1.6s ease-in-out infinite' }}>
+            <span aria-hidden style={{ position:'absolute', top:6, left:'12%', width:'76%', height:'30%', borderRadius:999, background:'linear-gradient(180deg,rgba(255,255,255,0.5),rgba(255,255,255,0.05))', pointerEvents:'none' }}/>
+            STAGE {curStage + 1}
+          </button>
+          {sideBtn('🛒', '상점', () => setShowShop(true))}
+        </div>
+        <div style={{ flex:1 }}/>
+        {bottomNav}
+        {renderModals()}
+      </div>
+    );
+  }
+
+  // ── 월드(미니맵) 선택 화면 ──────────────────────────────────────────────────
+  if (phase === 'worlds') {
     // 월드는 무한 — 현재 월드 + 다음 2개까지 표시(최소 10개)
     const curWorld = Math.floor(curStageOf(progress) / STAGES_PER_WORLD);
     const worldCount = Math.max(10, curWorld + 3);
@@ -2280,21 +2381,6 @@ export default function LinyDoryGame() {
       <div style={{ display:'flex', flexDirection:'column', width:'100%', height:'100%', userSelect:'none', background:`linear-gradient(180deg, rgba(10,26,72,0.5) 0%, rgba(8,20,60,0.82) 55%, rgba(6,16,48,0.94) 100%), url(${BASE}characters/mapbg.png) center top / cover no-repeat`, overflow:'hidden' }}>
         <style>{GAME_CSS}</style>
         {topBar}
-        {/* 이벤트 사이드 레일 (출석·룰렛·세일) */}
-        <div style={{ position:'absolute', left:8, top:'calc(var(--sat) + 92px)', zIndex:15, display:'flex', flexDirection:'column', gap:10 }}>
-          {([
-            { e:'📅', label:'출석', fn:claimAttendance,  badge: sGet<string>(ATT_BASE,'') !== todayStr() },
-            { e:'🎰', label:'룰렛', fn:openRoulette,      badge: sGet<string>(ROU_BASE,'') !== todayStr() },
-            { e:'🏷️', label:'세일', fn:()=>{ setShopTab('cash'); setShowShop(true); }, badge:false },
-            { e:'🎁', label:`${Math.min(CHEST_EVERY, totalStars - chestClaimed*CHEST_EVERY)}/${CHEST_EVERY}`, fn:claimChest, badge: Math.floor(totalStars/CHEST_EVERY) > chestClaimed },
-          ]).map((it,ix)=>(
-            <button key={ix} onClick={()=>{ sfx.click(); it.fn(); }} style={{ position:'relative', width:56, display:'flex', flexDirection:'column', alignItems:'center', gap:2, background:'rgba(255,255,255,0.14)', border:'1.5px solid rgba(255,255,255,0.3)', borderRadius:14, padding:'7px 2px', cursor:'pointer', animation:`idleBob ${2.2+ix*0.3}s ease-in-out ${ix*0.2}s infinite` }}>
-              <span style={{ fontSize:24 }}>{it.e}</span>
-              <span style={{ fontSize:8.5, fontWeight:800, color:'white', textShadow:'0 1px 2px rgba(0,0,0,0.6)' }}>{it.label}</span>
-              {it.badge && <span style={{ position:'absolute', top:-4, right:-4, width:14, height:14, borderRadius:'50%', background:'#FF3030', border:'1.5px solid white', fontSize:8, color:'white', fontWeight:900, display:'flex', alignItems:'center', justifyContent:'center', animation:'questBadge 1s ease infinite' }}>!</span>}
-            </button>
-          ))}
-        </div>
         <div style={{ flexShrink:0, display:'flex', flexDirection:'column', alignItems:'center', padding:'2px 0 8px' }}>
           <div style={{ background:'linear-gradient(135deg,#FF6F3C,#FF3D6E)', color:'white', fontWeight:900, fontSize:15, letterSpacing:1, padding:'6px 24px', borderRadius:12, boxShadow:'0 5px 14px rgba(255,60,90,0.4)', border:'2px solid rgba(255,255,255,0.5)' }}>맵 선택</div>
           <div style={{ fontSize:11, fontWeight:800, color:'#FFE566', marginTop:5, textShadow:'0 1px 3px rgba(0,0,0,0.7)' }}>⭐ {totalStars}</div>
@@ -2349,7 +2435,7 @@ export default function LinyDoryGame() {
         <style>{GAME_CSS}</style>
         {topBar}
         <div style={{ flexShrink:0, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'2px 14px 6px' }}>
-          <button onClick={()=>{ sfx.click(); setPhase('main'); }} style={{ display:'flex', alignItems:'center', gap:4, padding:'6px 12px', borderRadius:999, color:'white', fontSize:13, fontWeight:700, background:'rgba(0,0,0,0.35)', border:'1px solid rgba(255,255,255,0.2)', cursor:'pointer' }}><Icon name="back" size={15} color="white" /> 맵</button>
+          <button onClick={()=>{ sfx.click(); setPhase('worlds'); }} style={{ display:'flex', alignItems:'center', gap:4, padding:'6px 12px', borderRadius:999, color:'white', fontSize:13, fontWeight:700, background:'rgba(0,0,0,0.35)', border:'1px solid rgba(255,255,255,0.2)', cursor:'pointer' }}><Icon name="back" size={15} color="white" /> 맵</button>
           <span style={{ fontSize:15, fontWeight:900, color:'#FFE566', WebkitTextStroke:'0.5px #FFA500' }}>{w.emoji} {w.name}</span>
           <span style={{ fontSize:12, fontWeight:800, color:'white' }}>⭐ {worldStars(progress, w).reduce((a,b)=>a+b,0)}/{(w.to-w.from)*3}</span>
         </div>
@@ -2969,7 +3055,7 @@ export default function LinyDoryGame() {
             </button>
             {endStars>=1
               ? <button onClick={()=>{ sfx.click(); tryStartLevel(lvlIdx+1); }} style={{ padding:'clamp(10px,2.5vh,12px) clamp(20px,5.5vw,28px)', borderRadius:999, fontWeight:900, fontSize:'clamp(14px,4vw,17px)', color:'white', background:'linear-gradient(135deg,#FF6F00,#FFB300)', border:'2px solid rgba(255,255,255,0.7)', animation:'luckyGlow 0.9s ease infinite', cursor:'pointer' }}>다음 스테이지 ▶</button>
-              : <button onClick={()=>setPhase('main')} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background:'linear-gradient(135deg,#607D8B,#455A64)', boxShadow:'0 4px 0 #2C3940', border:'none', cursor:'pointer' }}>맵으로 🗺️</button>
+              : <button onClick={()=>{ setSelectedWorld(Math.floor(lvlIdx/STAGES_PER_WORLD)); setPhase('map'); }} style={{ padding:'clamp(10px,2.5vh,12px) clamp(18px,5vw,24px)', borderRadius:999, fontWeight:900, fontSize:'clamp(13px,3.8vw,16px)', color:'white', background:'linear-gradient(135deg,#607D8B,#455A64)', boxShadow:'0 4px 0 #2C3940', border:'none', cursor:'pointer' }}>맵으로 🗺️</button>
             }
           </div>
         </div>
