@@ -2724,11 +2724,17 @@ export default function LinyDoryGame() {
                       ? 'specialPulse 1.1s ease-in-out infinite'
                       : `tileIdle 2.8s ease-in-out ${((row*COLS+col)%9)*0.17}s infinite`,
                   }}>
-                  {/* 캐릭터 얼굴만 — 칸보다 살짝 크게 그려 애니팡처럼 꽉 차 보이게 */}
-                  <img src={tile.img} alt="" draggable={false} style={{ position:'absolute', left:'-6%', top:'-6%', width:'112%', height:'112%', objectFit:'contain', pointerEvents:'none', filter: faceFilter }}/>
-                  {/* 특수 블럭: 종류를 알려주는 아이콘 배지 */}
-                  {isSpecial && (
-                    <span style={{ position:'absolute', right:'-4%', bottom:'-4%', width:'48%', height:'48%', borderRadius:'50%', background:`radial-gradient(circle at 35% 30%, #fff 0%, ${sc} 70%)`, border:'2px solid #fff', boxShadow:'0 2px 6px rgba(0,0,0,0.55)', display:'flex', alignItems:'center', justifyContent:'center', padding:'11%', boxSizing:'border-box', pointerEvents:'none', zIndex:2 }}><GIcon name={SPECIAL_GICON[cell.kind] ?? 'bolt'} size="100%" /></span>
+                  {isSpecial ? (
+                    /* 특수 블럭 — 고슴도치와 완전히 분리된 아이콘 블럭(얼굴 없음) */
+                    <span style={{ position:'absolute', inset:'4%', borderRadius:'26%', display:'flex', alignItems:'center', justifyContent:'center', pointerEvents:'none',
+                      background:`radial-gradient(circle at 35% 25%, #fff 0%, ${sc} 62%, ${sc} 100%)`, border:'3px solid #fff',
+                      boxShadow: isSel ? '0 0 14px #fff, 0 4px 8px rgba(0,0,0,0.4)' : `0 0 12px ${sc}, 0 4px 8px rgba(0,0,0,0.4), inset 0 -5px 8px rgba(0,0,0,0.22)` }}>
+                      <span aria-hidden style={{ position:'absolute', top:'5%', left:'14%', width:'72%', height:'34%', borderRadius:'50%', background:'linear-gradient(180deg,rgba(255,255,255,0.75),rgba(255,255,255,0))' }}/>
+                      <span style={{ width:'68%', height:'68%', display:'flex', position:'relative' }}><GIcon name={SPECIAL_GICON[cell.kind] ?? 'bolt'} bare size="100%" /></span>
+                    </span>
+                  ) : (
+                    /* 캐릭터 얼굴만 — 칸보다 살짝 크게 그려 애니팡처럼 꽉 차 보이게 */
+                    <img src={tile.img} alt="" draggable={false} style={{ position:'absolute', left:'-6%', top:'-6%', width:'112%', height:'112%', objectFit:'contain', pointerEvents:'none', filter: faceFilter }}/>
                   )}
                   {/* 터질 때 강한 임팩트: 흰 섬광 */}
                   {cell.hit && <div style={{ position:'absolute', inset:'-20%', borderRadius:'50%', zIndex:4, pointerEvents:'none', background:`radial-gradient(circle, #fff 0%, ${tile.glow} 45%, transparent 70%)`, animation:'popFlash 0.32s ease-out forwards' }}/>}
